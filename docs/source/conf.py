@@ -9,9 +9,14 @@ Settings reference:
 https://www.sphinx-doc.org/en/master/usage/configuration.html
 """
 
+import contextlib
 import sys
 from datetime import date
+from importlib.metadata import version as _package_version
 from pathlib import Path
+
+from sphinx_polyversion.api import load
+from sphinx_polyversion.git import GitRef  # import also registers GitRef for load()
 
 # -- Path setup --------------------------------------------------------------
 # Make every package's source importable so autodoc reads the live source in this
@@ -26,6 +31,25 @@ for _src in sorted(_PACKAGES.glob("*/src")):
 project = "asd-def"
 author = "Tahmid Azam"
 copyright = f"{date.today():%Y}, {author}"
+
+# -- Versioning --------------------------------------------------------------
+# Built per release by sphinx-polyversion (docs/poly.py), which injects the
+# revision data via POLYVERSION_DATA. A plain sphinx-build (CI check, local
+# `docs build`) has none, so fall back to the installed package version.
+SITE_URL = "https://tahmidazam.github.io/asd-def"  # keep in sync with docs/poly.py
+
+html_context: dict = {}
+with contextlib.suppress(Exception):
+    load(globals())  # fills html_context with "revisions" and "current"
+
+current = html_context.get("current")
+if isinstance(current, GitRef):
+    release = current.name
+    html_baseurl = f"{SITE_URL}/{current.name}/"
+else:
+    release = "v" + _package_version("dscat")
+    html_baseurl = SITE_URL
+version = release
 
 # -- General configuration ---------------------------------------------------
 
@@ -119,12 +143,18 @@ html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = project
 
-# Theme options are kept minimal. See the theme's user guide for the full set;
-# add navbar entries, icon links (GitHub, etc.), and a version switcher here as
-# the site grows.
+# See the theme's user guide for the full set of options.
 html_theme_options = {
     "show_toc_level": 2,
     "navigation_with_keys": False,
+    "navbar_start": ["navbar-logo", "version-switcher"],
+    "switcher": {
+        "json_url": f"{SITE_URL}/switcher.json",
+        "version_match": release,
+    },
+    # json_url is fetched in the browser, not at build time; probing it during
+    # the strict (-W) build would fail offline, so skip the check.
+    "check_switcher": False,
 }
 
 # -- sphinx-copybutton -------------------------------------------------------

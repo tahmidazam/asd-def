@@ -1,0 +1,10 @@
+[
+{%- for ref in revisions %}
+  {
+    "name": "{{ ref.name }}{% if ref == latest %} (stable){% endif %}",
+    "version": "{{ ref.name }}",
+    "url": "{{ SITE_URL }}/{{ ref.name }}/"{% if ref == latest %},
+    "preferred": true{% endif %}
+  }{{ "," if not loop.last else "" }}
+{%- endfor %}
+]

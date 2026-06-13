@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+{%- if latest %}
+<meta http-equiv="refresh" content="0; url=./{{ latest.name }}/">
+<link rel="canonical" href="{{ SITE_URL }}/{{ latest.name }}/">
+{%- endif %}
+<title>asd-def documentation</title>
+</head>
+<body>
+{%- if latest %}
+<p>Redirecting to the <a href="./{{ latest.name }}/">latest version ({{ latest.name }})</a>.</p>
+{%- else %}
+<p>No documentation versions have been published yet.</p>
+{%- endif %}
+</body>
+</html>

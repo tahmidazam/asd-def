@@ -15,7 +15,7 @@ import typer
 
 app = typer.Typer(
     name="docs",
-    help="Build and live-preview the asd-def Sphinx documentation.",
+    help="Build, version, and live-preview the asd-def Sphinx documentation.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -61,6 +61,20 @@ def build(
     if strict:
         cmd += ["-W", "--keep-going"]
     cmd += [str(root / "docs" / "source"), str(root / "docs" / "build" / builder)]
+    _run(cmd)
+
+
+@app.command()
+def versions(
+    local: bool = typer.Option(
+        False, "--local", "-l", help="Build only the working tree with mock version data."
+    ),
+) -> None:
+    """Build every released version into docs/build, driven by docs/poly.py."""
+    root = _docs_root()
+    cmd = [_tool("sphinx-polyversion"), str(root / "docs" / "poly.py")]
+    if local:
+        cmd.append("--local")
     _run(cmd)
 
 
