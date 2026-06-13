@@ -1,0 +1,22 @@
+[
+  ["sleep", "insomnia", "somnolence", "wake", "bedtime", "nap", "drowsy"],
+  ["iq", "cognitive", "intelligence", "intellectual", "dq", "mullen", "wisc", "wasi", "das", "ppvt", "ravens"],
+  ["adhd", "attention", "hyperactive", "hyperactivity", "impulsive", "impulsivity", "inattention"],
+  ["anxiety", "anxious", "worry", "fear", "phobia", "panic"],
+  ["depression", "depressed", "mood", "dysphoria", "depressive"],
+  ["language", "verbal", "speech", "vocabulary", "communication", "expressive", "receptive", "articulation"],
+  ["seizure", "epilepsy", "convulsion", "eeg", "epileptic"],
+  ["motor", "coordination", "dyspraxia", "gross motor", "fine motor", "dcdq", "motor skills"],
+  ["social", "srs", "reciprocity", "social communication", "social interaction"],
+  ["repetitive", "rbsr", "stereotyped", "restricted", "ritual", "rituals", "repetition", "perseverative"],
+  ["autism", "asd", "autistic", "ados", "adi", "asperger"],
+  ["diagnosis", "dx", "diagnosed", "diagnostic"],
+  ["medication", "medications", "meds", "drug", "prescription", "pharmacologic"],
+  ["age", "months", "years", "age_at", "dob", "birth"],
+  ["sex", "gender", "male", "female"],
+  ["race", "ethnicity", "hispanic", "ancestry"],
+  ["behavior", "behaviour", "behavioral", "conduct", "aggression", "irritability"],
+  ["adaptive", "vineland", "daily living", "self-care", "independence"],
+  ["weight", "bmi", "height", "growth", "obesity"],
+  ["gi", "gastrointestinal", "constipation", "diarrhea", "stomach", "bowel"]
+]

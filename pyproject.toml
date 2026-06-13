@@ -1,0 +1,78 @@
+[project]
+name = "asd-def"
+version = "0.1.0"
+description = "Monorepo for autism phenotype dataset analysis (SPARK, SSC)."
+requires-python = ">=3.12"
+dependencies = ["dscat"]
+
+[tool.uv]
+# The root is an application, not a package: uv installs its dependencies but does not
+# build or install the root itself. dscat is declared below as a path dependency, which
+# uv installs non-editably (copied into site-packages) rather than as an always-editable
+# workspace member. This avoids uv's unreliable editable .pth files in this environment,
+# so `uv run dscat` resolves the package directly. After editing dscat's source, run
+# `uv sync` to reinstall it (or `uv pip install -e packages/dscat` for an editable dev
+# loop).
+package = false
+prerelease = "if-necessary-or-explicit"
+
+[tool.uv.sources]
+dscat = { path = "packages/dscat" }
+docs = { path = "packages/docs" }
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "ty>=0.0.1a1",
+    "pytest>=8",
+    "commitizen>=4.16.3",
+]
+# The docs package owns the Sphinx toolchain (see packages/docs/pyproject.toml); this
+# non-default group just pulls it in, keeping Sphinx out of the default dev and CI
+# environment. Run it with `uv run --group docs docs <build|serve|clean>`.
+docs = ["docs"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/dscat/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Docstrings are published API docs (Sphinx/MyST autodoc renders them), so enforce the
+# NumPy docstring convention via D and the pydocstyle setting below. RUF002 and RUF003
+# flag confusable Unicode (Greek letters, the multiplication sign, the en dash) in
+# docstrings and comments.
+select = ["E", "F", "I", "UP", "B", "SIM", "D", "RUF002", "RUF003"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are not published API, so they are exempt from the docstring rules (D).
+"packages/*/tests/**" = ["D"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.commitizen]
+# Conventional-commit versioning and changelog for the whole workspace; bump every
+# package together with `uv run cz bump`. The uv provider sets the root version and its
+# own uv.lock entry, version_files carry the same number into the member packages, and the
+# pre-bump `uv lock` refreshes their lockfile entries so the tagged commit stays consistent.
+name = "cz_conventional_commits"
+version_provider = "uv"
+version_scheme = "pep440"
+tag_format = "v$version"
+major_version_zero = true
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+annotated_tag = true
+bump_message = "bump: release $current_version -> $new_version"
+version_files = [
+    "packages/dscat/pyproject.toml:^version",
+    "packages/docs/pyproject.toml:^version",
+]
+pre_bump_hooks = ["uv lock"]

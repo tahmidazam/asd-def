@@ -1,0 +1,32 @@
+{
+  "name": "ssc",
+  "display_name": "SSC (Simons Simplex Collection) phenotype dataset",
+  "container": "ssc",
+  "layout": "single_sheet",
+  "version_pattern": "SSC Version (?P<v>[\\d.]+)",
+  "dictionary_glob": "**/SSC_v*_Data_Dictionary*.xlsx",
+  "sheet": "Main",
+  "group_by": "table.name",
+  "fieldid_row": 2,
+  "file_glob": "**/*.csv",
+  "strip_version_suffix": false,
+  "columns": {
+    "table_name": ["table.name"],
+    "name": ["name"],
+    "qualified_id": ["column.id()"],
+    "definition": ["question.instruction"],
+    "value_coding": ["array(domain.choice.label)"],
+    "measurement_scale": ["measurement scale"],
+    "notes": ["variable notes/documentation"],
+    "display_title": ["column_display.title"],
+    "display_hint": ["column_display.hint"],
+    "table_display_title": ["table.table_display.title"]
+  },
+  "roles": {
+    "proband": "Proband Data",
+    "mother": "Mother Data",
+    "father": "Father Data",
+    "sibling": ["Designated Unaffected Sibling Data", "Other Sibling Data"],
+    "mz_twin": "MZ Twin Data"
+  }
+}

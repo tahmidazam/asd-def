@@ -1,0 +1,19 @@
+{
+  "name": "spark",
+  "display_name": "SPARK (SFARI) phenotype release",
+  "container": "spark",
+  "layout": "sheet_per_table",
+  "version_pattern": "SPARKDataRelease_(?P<v>\\d{4}-\\d{2}-\\d{2})",
+  "dictionary_glob": "**/SPARK Data Dictionary*.xlsx",
+  "skip_sheets": ["Data Dictionary Metadata"],
+  "file_glob": "**/*.csv",
+  "strip_version_suffix": true,
+  "columns": {
+    "name": ["variable", "variable name"],
+    "definition": ["definition/question", "definition"],
+    "field_type": ["field type"],
+    "value_coding": ["answer choices/type"],
+    "notes": ["notes", "item administration criteria"],
+    "ados_file": ["ados file name"]
+  }
+}
