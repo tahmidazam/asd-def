@@ -121,7 +121,16 @@ nitpicky = True
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "sqlalchemy": ("https://docs.sqlalchemy.org/en/20/", None),
+    "pandas": ("https://pandas.pydata.org/docs/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
 }
+
+# Types from dependencies without an intersphinx inventory: linking them is not possible,
+# so they render as plain text rather than failing the strict build.
+nitpick_ignore = [
+    ("py:class", "tqdm.tqdm"),
+    ("py:class", "StepMix"),
+]
 
 # -- MyST (Markdown) ---------------------------------------------------------
 # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html
