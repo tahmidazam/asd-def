@@ -1,6 +1,6 @@
 [project]
 name = "docs"
-version = "0.1.0"
+version = "0.2.0"
 description = "The `docs` launcher: build and live-preview the asd-def Sphinx site"
 requires-python = ">=3.12"
 # The Sphinx toolchain is declared here as the docs package's own dependencies, pinned

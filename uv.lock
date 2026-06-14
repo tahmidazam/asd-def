@@ -93,7 +93,7 @@ wheels = [
 
 [[package]]
 name = "asd-def"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "dscat" },
@@ -523,7 +523,7 @@ wheels = [
 
 [[package]]
 name = "docs"
-version = "0.1.0"
+version = "0.2.0"
 source = { directory = "packages/docs" }
 dependencies = [
     { name = "myst-parser" },
@@ -559,7 +559,7 @@ wheels = [
 
 [[package]]
 name = "dscat"
-version = "0.1.0"
+version = "0.2.0"
 source = { directory = "packages/dscat" }
 dependencies = [
     { name = "marker-pdf" },
