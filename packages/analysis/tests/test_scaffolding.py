@@ -25,7 +25,7 @@ def test_help_lists_the_pipeline_stages():
 
 
 def test_unimplemented_stage_exits_non_zero():
-    result = runner.invoke(app, ["fit"])
+    result = runner.invoke(app, ["stratify"])
     assert result.exit_code == 1
 
 

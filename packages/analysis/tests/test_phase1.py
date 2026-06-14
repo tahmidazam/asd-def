@@ -1,0 +1,158 @@
+"""Unit tests for the phase-1 pipeline, on synthetic data only.
+
+No participant data is read here. The cohort backends, which read SFARI data, are exercised
+through their pure helpers and the public typing, enrichment, and alignment logic.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+from analysis import cache
+from analysis.align import hungarian_align
+from analysis.enrich import SEVEN_CATEGORIES, category_signature, feature_enrichment
+from analysis.features import (
+    Typing,
+    infer_from_dictionary,
+    n_value_levels,
+    reconcile,
+)
+from analysis.reference import align_to_named, published_signature
+from analysis.run import run_context
+
+
+# ---- cache + run lifecycle ---------------------------------------------------
+def test_hash_is_order_invariant_and_input_sensitive() -> None:
+    a = {"dataset": "spark", "version": "2026-03-23", "seed": 0}
+    reordered = {"seed": 0, "version": "2026-03-23", "dataset": "spark"}
+    changed = {"dataset": "spark", "version": "2026-03-23", "seed": 1}
+    assert cache.compute_hash(a) == cache.compute_hash(reordered)
+    assert cache.compute_hash(a) != cache.compute_hash(changed)
+
+
+def test_run_context_caches_and_captures_log(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ANALYSIS_ROOT", str(tmp_path))
+    calls = {"n": 0}
+
+    def do() -> bool:
+        with run_context("demo", {"x": 1}) as ctx:
+            if ctx.cache_hit:
+                return True
+            calls["n"] += 1
+            print("captured stdout line")
+            cache.save_frame(pd.DataFrame({"a": [1]}), ctx.path("out.parquet"))
+            ctx.metrics = {"ok": True}
+            return False
+
+    assert do() is False
+    assert do() is True
+    assert calls["n"] == 1
+    rdir = tmp_path / "artefacts" / "demo" / cache.short_hash(cache.compute_hash({"x": 1}))
+    manifest = cache.read_manifest(rdir)
+    assert manifest is not None
+    assert manifest["status"] == "ok"
+    assert manifest["metrics"] == {"ok": True}
+    assert "captured stdout line" in (rdir / "run.log").read_text()
+
+
+# ---- typing inference + reconciliation ---------------------------------------
+@pytest.mark.parametrize(
+    ("field_type", "value_coding", "expected"),
+    [
+        ("calculated", "integer", "continuous"),
+        ("dropdown", "1-24 = age in months\n27 = 2 years 3 months", "continuous"),
+        ("radio", "0 = no\n1 = yes", "binary"),
+        ("radio", "0 = none\n1 = mild\n2 = severe", "categorical"),
+        ("radio", "", "categorical"),
+    ],
+)
+def test_infer_from_dictionary(field_type: str, value_coding: str, expected: str) -> None:
+    assert infer_from_dictionary(field_type, value_coding) == expected
+
+
+def test_n_value_levels() -> None:
+    assert n_value_levels("0 = no\n1 = yes") == 2
+    assert n_value_levels("") == 0
+    assert n_value_levels(None) == 0
+
+
+def test_reconcile_defers_to_pickle_and_flags_conflict() -> None:
+    features = ["a", "b", "repeat_grade"]
+    dict_typing = {"a": "continuous", "b": "binary", "repeat_grade": "binary"}
+    pickle_typing = {"a": "continuous", "b": "binary", "repeat_grade": "continuous"}
+    observed = {"a": 40, "b": 2, "repeat_grade": 2}
+    typing, report = reconcile(features, dict_typing, pickle_typing, observed)
+    assert typing.continuous == ["a", "repeat_grade"]
+    assert typing.binary == ["b"]
+    conflict = report.set_index("feature").loc["repeat_grade"]
+    assert not conflict["dictionary_pickle_agree"]
+    assert conflict["chosen"] == "continuous"
+
+
+def test_typing_as_dict_and_counts() -> None:
+    typing = Typing(continuous=["a"], binary=["b", "c"], categorical=["d"])
+    assert typing.as_dict() == {"a": "continuous", "b": "binary", "c": "binary", "d": "categorical"}
+    assert typing.counts == {"continuous": 1, "binary": 2, "categorical": 1}
+
+
+# ---- enrichment + signature --------------------------------------------------
+def _synthetic_cohort() -> tuple[pd.DataFrame, pd.Series]:
+    rng = np.random.default_rng(0)
+    n = 80
+    labels = pd.Series(np.repeat([0, 1, 2, 3], n // 4), name="class")
+    # binary feature present only in class 0; continuous feature high in class 1.
+    binary = (labels == 0).astype(int)
+    continuous = rng.normal(0, 1, n) + (labels == 1).to_numpy() * 5
+    data = pd.DataFrame({"binmark": binary.to_numpy(), "contmark": continuous})
+    return data, labels
+
+
+def test_feature_enrichment_directions() -> None:
+    data, labels = _synthetic_cohort()
+    enr = feature_enrichment(data, labels, n_classes=4)
+    assert enr.loc["binmark", "class0_dir"] == 1.0
+    assert enr.loc["binmark", "is_binary"] == 1.0
+    assert enr.loc["contmark", "class1_dir"] == 1.0
+    assert enr.loc["contmark", "is_binary"] == 0.0
+
+
+def test_category_signature_shape_and_sign() -> None:
+    data, labels = _synthetic_cohort()
+    enr = feature_enrichment(data, labels, n_classes=4)
+    category_map = {"binmark": "self-injury", "contmark": "anxiety/mood"}
+    sig = category_signature(enr, category_map, n_classes=4, reverse_coded=())
+    assert list(sig.columns) == list(SEVEN_CATEGORIES)
+    assert sig.shape == (4, 7)
+    assert sig.loc[0, "self-injury"] == 1.0
+    assert sig.loc[1, "anxiety/mood"] == 1.0
+
+
+# ---- alignment ---------------------------------------------------------------
+def test_hungarian_align_recovers_permutation() -> None:
+    # Distinct, non-constant profiles so the correlation metric is well-defined.
+    target = pd.DataFrame(
+        [
+            [1.0, 0.2, -0.5, 0.0],
+            [-1.0, 0.5, 0.3, 0.1],
+            [0.0, -0.7, 1.0, -0.2],
+            [0.4, 0.4, -1.0, 0.9],
+        ],
+        index=["A", "B", "C", "D"],
+        columns=["w", "x", "y", "z"],
+    )
+    shuffled = target.iloc[[2, 0, 3, 1]].copy()
+    shuffled.index = pd.Index([10, 11, 12, 13], name="class")
+    result = hungarian_align(shuffled, target, metric="correlation")
+    assert result.mapping[10] == "C"
+    assert result.mapping[11] == "A"
+    assert all(r > 0.99 for r in result.correlations.values())
+
+
+def test_align_to_named_anchors_hold_for_published_profile() -> None:
+    target = published_signature().reset_index(drop=True)
+    proportions = {0: 0.10, 1: 0.19, 2: 0.37, 3: 0.34}  # Broadly, Mixed, Social, Moderate
+    named = align_to_named(target, proportions)
+    assert named.mapping[0] == "Broadly affected"
+    assert named.mapping[2] == "Social/behavioral"
+    assert named.anchors_hold

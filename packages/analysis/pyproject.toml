@@ -4,12 +4,15 @@ version = "0.3.0"
 description = "Stability of the Litman data-driven autism classes across age at diagnosis and diagnostic era"
 requires-python = ">=3.12"
 dependencies = [
+    "dscat",
     "numpy>=2.4.6",
     "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
     "scikit-learn>=1.9.0",
     "scipy>=1.17.1",
     "statsmodels>=0.14.6",
     "stepmix>=3.0.0",
+    "tqdm>=4.68.2",
     "typer>=0.26.7",
 ]
 
@@ -23,3 +26,6 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "analysis"
 module-root = "src"
+
+[tool.uv.sources]
+dscat = { path = "../dscat" }

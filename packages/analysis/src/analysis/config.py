@@ -1,0 +1,132 @@
+"""Run configuration: constants, the reference pipeline's fixed choices, and input paths.
+
+This module gathers the values that pin a run down: the cohort the reference fit uses,
+the covariates and age window from Litman et al., the default mixture-model
+hyperparameters, and the locations of the author-provided reference inputs (the final
+feature list and the feature-to-category map) and the released typing pickles.
+
+The reference inputs live under the gitignored ``.literature`` tree, because they come
+from the authors' released code and our correspondence with them and are not ours to
+redistribute. Each location can be overridden with an environment variable so a run can
+point at a copy elsewhere.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# Cohort the reference fit is built on. The 2025-03-31 release is held too and is used as
+# a release-axis stability check (plan section 7); 2026-03-23 is the reference.
+REFERENCE_DATASET = "spark"
+REFERENCE_VERSION = "2026-03-23"
+
+# Covariates entered into the structural model, and the age-at-evaluation window, both as
+# in the released ``GFMM.py``. Neither covariate is part of the clustered feature set.
+COVARIATES: tuple[str, ...] = ("sex", "age_at_eval_years")
+AGE_AT_EVAL_RANGE: tuple[int, int] = (4, 18)
+
+# The instruments integrated into the cohort matrix, with the per-instrument validity flag
+# and missingness counter the released preprocessing screens on (where the instrument has
+# one). Order matters only for reproducible logging.
+COHORT_INSTRUMENTS: tuple[str, ...] = (
+    "scq",
+    "background_history_child",
+    "background_history_sibling",
+    "rbsr",
+    "cbcl_6_18",
+)
+
+# Default StepMix general finite mixture model settings. The reference fit overrides
+# ``n_components`` only incidentally (it is already 4); ``n_init`` and the one-step
+# covariate parametrisation match Litman et al. The remaining StepMix defaults (max_iter,
+# tolerances) are recorded in each manifest rather than fixed here, so a StepMix upgrade
+# that changes a default is visible.
+DEFAULT_N_COMPONENTS = 4
+DEFAULT_N_INIT = 200
+DEFAULT_N_STEPS = 1
+
+# Litman's per-fit class-ID to name mapping, recorded for reference only. StepMix assigns
+# class IDs arbitrarily on every fit, so this mapping does not transfer to our fits; we
+# recover the named classes by profile alignment (plan section 6a), not by this table.
+LITMAN_CLASS_NAMES: dict[int, str] = {
+    0: "Moderate challenges",
+    1: "Broadly affected",
+    2: "Social/behavioral",
+    3: "Mixed ASD with DD",
+}
+
+# Where the released Litman code and the author correspondence sit, relative to the repo
+# root. Both are gitignored.
+_LITERATURE_SUBDIR = ".literature/litmanDecompositionPhenotypicHeterogeneity2025a"
+_ATTACHMENTS_SUBDIR = f"{_LITERATURE_SUBDIR}/emails/feature-request/attachments"
+_LITMAN_CODE_SUBDIR = f"{_LITERATURE_SUBDIR}/code/asd-pheno-classes"
+
+
+def _resolve(env_var: str, default: Path) -> Path:
+    """Return the environment-variable override for a path, or ``default``."""
+    override = os.environ.get(env_var)
+    return Path(override).expanduser().resolve() if override else default
+
+
+def author_feature_list(root: Path) -> Path:
+    """Return the path to the authors' final feature list (``mixture_model_columns.csv``).
+
+    This 238-feature list is the authoritative set the general finite mixture model was
+    fit on. It resolves the ambiguity the released preprocessing left open, because that
+    code drops columns rather than naming the kept set (plan section 5).
+
+    Parameters
+    ----------
+    root : Path
+        The monorepo root.
+
+    Returns
+    -------
+    Path
+        Location of the feature-list CSV. Overridable with ``ANALYSIS_FEATURE_LIST``.
+    """
+    return _resolve(
+        "ANALYSIS_FEATURE_LIST", root / _ATTACHMENTS_SUBDIR / "mixture_model_columns.csv"
+    )
+
+
+def author_category_map(root: Path) -> Path:
+    """Return the path to the feature-to-category map (``feature_to_category_mapping.csv``).
+
+    The map assigns each feature to one of the seven literature-defined categories and is
+    used only to summarise results, never to fit (plan section 5).
+
+    Parameters
+    ----------
+    root : Path
+        The monorepo root.
+
+    Returns
+    -------
+    Path
+        Location of the category-map CSV. Overridable with ``ANALYSIS_CATEGORY_MAP``.
+    """
+    return _resolve(
+        "ANALYSIS_CATEGORY_MAP", root / _ATTACHMENTS_SUBDIR / "feature_to_category_mapping.csv"
+    )
+
+
+def litman_typing_dir(root: Path) -> Path:
+    """Return the directory holding the released typing pickles.
+
+    The directory holds ``binary_columns.pkl``, ``categorical_columns.pkl``, and
+    ``continuous_columns.pkl``: the feature-type assignments StepMix's densities depend
+    on. We reconcile a dictionary-derived typing against these (plan section 6, step 2).
+
+    Parameters
+    ----------
+    root : Path
+        The monorepo root.
+
+    Returns
+    -------
+    Path
+        Location of the typing-pickle directory. Overridable with ``ANALYSIS_TYPING_DIR``.
+    """
+    return _resolve("ANALYSIS_TYPING_DIR", root / _LITMAN_CODE_SUBDIR / "PhenotypeClasses" / "data")
