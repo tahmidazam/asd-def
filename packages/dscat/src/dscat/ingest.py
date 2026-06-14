@@ -12,12 +12,17 @@ from __future__ import annotations
 
 import csv
 import re
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+
+from tqdm import tqdm
 
 from dscat import adapters
 from dscat.config import DatasetConfig, Version, discover_versions, load_configs
-from dscat.docs import discover_docs
+from dscat.docs import cache_path, convert_doc, discover_docs, resolve_engine
 from dscat.index import Catalogue
 from dscat.model import FeatureRow, TableRow
 from dscat.paths import index_path
@@ -119,9 +124,17 @@ def _folder_roles(cfg: DatasetConfig) -> dict[str, str]:
 
 
 def resolve_tables(
-    cfg: DatasetConfig, version: Version, features: list[FeatureRow], root: Path
+    cfg: DatasetConfig,
+    version: Version,
+    features: list[FeatureRow],
+    root: Path,
+    progress: Callable[[str], None] | None = None,
 ) -> list[TableRow]:
-    """Create one TableRow per physical CSV; re-key truncated SPARK feature tables."""
+    """Create one TableRow per physical CSV; re-key truncated SPARK feature tables.
+
+    ``progress``, when given, is called with each CSV's stem as that file is reached,
+    so a caller can drive a progress bar over the (slow) per-file row counting.
+    """
     vdir = version.version_dir
     sheet_norms = {f.table_name for f in features}
     folder_role = _folder_roles(cfg)
@@ -129,6 +142,8 @@ def resolve_tables(
     tables: list[TableRow] = []
     for csvp in sorted(vdir.glob(cfg.file_glob)):
         stem = _strip_suffix(csvp.stem, version.version, cfg.strip_version_suffix).strip().lower()
+        if progress is not None:
+            progress(stem)
         rel_parts = csvp.relative_to(vdir).parts[:-1]
         role = next(
             (folder_role[p.strip().lower()] for p in rel_parts if p.strip().lower() in folder_role),
@@ -157,13 +172,22 @@ def resolve_tables(
     return tables
 
 
-def run_ingest(root: Path, only: list[str] | None = None) -> list[IngestSummary]:
+def _tick(bar: tqdm, label: str, name: str) -> None:
+    """Advance the ingest bar one file, showing ``label`` and the current table."""
+    bar.set_postfix_str(f"{label}: {name}")
+    bar.update(1)
+
+
+def run_ingest(
+    root: Path, only: list[str] | None = None, convert_docs: bool = False
+) -> list[IngestSummary]:
     """Build or refresh the catalogue index from ``data/``.
 
     For each configured dataset, discovers its versions, parses their
     dictionaries, resolves the physical CSVs, and writes the dataset, version,
     table, feature, and document rows into the index. Synonyms are reloaded and
-    the full-text index is rebuilt at the end.
+    the full-text index is rebuilt at the end. Progress is reported on a single
+    stderr progress bar, advancing as each data CSV is scanned for its row count.
 
     Parameters
     ----------
@@ -172,6 +196,12 @@ def run_ingest(root: Path, only: list[str] | None = None) -> list[IngestSummary]
     only : list of str, optional
         Restrict ingestion to these dataset ids; ``None`` ingests every
         configured dataset. Datasets not listed keep their existing rows.
+    convert_docs : bool, default False
+        After the index is committed, convert every discovered document to
+        markdown (cached under ``.catalogue/docs/``) with the per-format engines,
+        advancing the same progress bar. This is slow, so it is off by default;
+        otherwise conversion happens lazily on first read. A document that fails
+        to convert is reported and skipped.
 
     Returns
     -------
@@ -187,29 +217,52 @@ def run_ingest(root: Path, only: list[str] | None = None) -> list[IngestSummary]
 
     summaries: list[IngestSummary] = []
     targets = [c for c in cfgs.values() if only is None or c.name in only]
-    for cfg in targets:
-        cat.clear_dataset(cfg.name)
-        cat.upsert_dataset(cfg.name, cfg.display_name)
-        seen_versions: list[str] = []
-        n_feat = n_tbl = 0
-        for v in discover_versions(cfg, root):
-            features, display = adapters.parse(cfg, v)
-            tables = resolve_tables(cfg, v, features, root)
-            for t in tables:  # fill display titles now that features are re-keyed
-                t.display_title = display.get(t.table_name, t.display_title or "")
-            cat.upsert_version(cfg.name, v.version, v.ship_folder, str(v.dictionary_path or ""))
-            cat.insert_features(features)
-            cat.insert_tables(tables)
-            cat.insert_documents(
-                (cfg.name, v.version, path, kind, title)
-                for path, kind, title in discover_docs(v.version_dir, root)
-            )
-            seen_versions.append(v.version)
-            n_feat += len(features)
-            n_tbl += len(tables)
-        summaries.append(IngestSummary(cfg.name, seen_versions, n_feat, n_tbl))
-
-    cat.insert_synonyms(load_synonyms(root))
-    cat.rebuild_fts()
-    cat.commit()
+    plan = [(cfg, discover_versions(cfg, root)) for cfg in targets]
+    total = sum(
+        len(list(v.version_dir.glob(cfg.file_glob)))
+        + (len(discover_docs(v.version_dir, root)) if convert_docs else 0)
+        for cfg, versions in plan
+        for v in versions
+    )
+    pending_docs: list[tuple[str, str, str]] = []  # (dataset, version, relative path)
+    with tqdm(total=total, desc="ingesting", unit="file") as bar:
+        for cfg, versions in plan:
+            cat.clear_dataset(cfg.name)
+            cat.upsert_dataset(cfg.name, cfg.display_name)
+            seen_versions: list[str] = []
+            n_feat = n_tbl = 0
+            for v in versions:
+                label = f"{cfg.name}/{v.version}"
+                bar.set_postfix_str(f"{label}: reading dictionary")
+                features, display = adapters.parse(cfg, v)
+                report = partial(_tick, bar, label)
+                tables = resolve_tables(cfg, v, features, root, progress=report)
+                for t in tables:  # fill display titles now that features are re-keyed
+                    t.display_title = display.get(t.table_name, t.display_title or "")
+                cat.upsert_version(cfg.name, v.version, v.ship_folder, str(v.dictionary_path or ""))
+                cat.insert_features(features)
+                cat.insert_tables(tables)
+                docs_found = discover_docs(v.version_dir, root)
+                cat.insert_documents(
+                    (cfg.name, v.version, path, kind, title) for path, kind, title in docs_found
+                )
+                if convert_docs:
+                    pending_docs += [(cfg.name, v.version, path) for path, _, _ in docs_found]
+                seen_versions.append(v.version)
+                n_feat += len(features)
+                n_tbl += len(tables)
+            summaries.append(IngestSummary(cfg.name, seen_versions, n_feat, n_tbl))
+        bar.set_postfix_str("rebuilding search index")
+        cat.insert_synonyms(load_synonyms(root))
+        cat.rebuild_fts()
+        cat.commit()
+        for dataset, version, relpath in pending_docs:
+            src = root / relpath
+            name = Path(relpath).name
+            bar.set_postfix_str(f"{dataset}/{version}: {name} ({resolve_engine(src)})")
+            try:
+                convert_doc(src, cache_path(root, dataset, version, src))
+            except RuntimeError as exc:
+                tqdm.write(f"skip {name}: {exc}", file=sys.stderr)
+            bar.update(1)
     return summaries

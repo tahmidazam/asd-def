@@ -8,6 +8,7 @@ dependencies = [
     "openpyxl>=3.1",
     "sqlalchemy>=2.0",
     "tabulate>=0.9",
+    "tqdm>=4.66",
     "markitdown[docx,pdf]>=0.1",
     "marker-pdf>=1.0",
 ]

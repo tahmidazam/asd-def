@@ -83,13 +83,16 @@ def ingest(
     dataset: list[str] = typer.Option(
         None, "--dataset", "-d", help="Only (re)ingest these datasets; default: all."
     ),
+    convert_docs: bool = typer.Option(
+        False, "--convert-docs", help="Also convert every discovered document to markdown (slow)."
+    ),
 ) -> None:
     """Build/refresh the catalogue index from data/ (auto-discovers dataset versions)."""
     from dscat.ingest import run_ingest
     from dscat.paths import find_repo_root, index_path
 
     root = find_repo_root()
-    summaries = run_ingest(root, only=list(dataset) if dataset else None)
+    summaries = run_ingest(root, only=list(dataset) if dataset else None, convert_docs=convert_docs)
     rows = [
         {
             "dataset": s.dataset,

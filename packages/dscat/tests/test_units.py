@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 from dscat import docs
 from dscat.cli import _codes
-from dscat.config import version_sort_key
+from dscat.config import DatasetConfig, Version, version_sort_key
 from dscat.docs import Engine, cache_path, convert_doc, resolve_engine
 from dscat.index import Catalogue
-from dscat.ingest import _bind, _norm_key
+from dscat.ingest import _bind, _norm_key, resolve_tables
 from dscat.output import Format, render
 from dscat.queries import expand_query
 from dscat.synonyms import _pairs
@@ -243,3 +243,23 @@ def test_convert_doc_default_routes_non_pdf_to_markitdown(tmp_path, monkeypatch)
     src.write_text("x", encoding="utf-8")
     convert_doc(src, tmp_path / "table.markitdown.md")  # no engine -> markitdown for a .docx
     assert calls[0][0] == "markitdown"
+
+
+def test_resolve_tables_reports_progress_per_csv(tmp_path):
+    vdir = tmp_path / "v"
+    vdir.mkdir()
+    (vdir / "a.csv").write_text("h1,h2\n1,2\n", encoding="utf-8")
+    (vdir / "b.csv").write_text("h1\n1\n2\n", encoding="utf-8")
+    cfg = DatasetConfig(
+        name="t",
+        display_name="T",
+        container="t",
+        layout="sheet_per_table",
+        version_pattern="(?P<v>.+)",
+        dictionary_glob="*.xlsx",
+    )
+    version = Version("t", "v", "v", vdir, None)
+    seen: list[str] = []
+    tables = resolve_tables(cfg, version, [], tmp_path, progress=seen.append)
+    assert sorted(seen) == ["a", "b"]  # progress fires once per CSV, with its stem
+    assert {t.table_name for t in tables} == {"a", "b"}

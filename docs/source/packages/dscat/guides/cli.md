@@ -15,12 +15,16 @@ to JSON, CSV, TSV, or a Markdown table with `--format`. See [Output formats](#ou
 The read commands need the index. Build or refresh it from `data/`:
 
 ```bash
-uv run dscat ingest          # all datasets
-uv run dscat ingest -d spark # one dataset
+uv run dscat ingest                # all datasets
+uv run dscat ingest -d spark       # one dataset
+uv run dscat ingest --convert-docs # also pre-convert every document to markdown
 ```
 
 `ingest` is safe to re-run: it rebuilds the named datasets and leaves the rest
-intact.
+intact. A single progress bar reports its progress, since scanning the data CSVs for
+row counts takes a moment. By default documents are converted to markdown lazily, on
+first `dscat doc`; pass `--convert-docs` to convert them all up front instead (slower,
+using the same per-format engines), which is handy before working offline.
 
 ## The search-then-read workflow
 
