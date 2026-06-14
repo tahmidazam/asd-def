@@ -1,5 +1,7 @@
 /data/
 /.catalogue/
+/.literature/
+/.context/
 /docs/build/
 /docs/source/**/_autosummary/
 
