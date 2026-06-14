@@ -100,6 +100,31 @@ match and orders results best first. Pass `--raw` to send an FTS5 MATCH expressi
 through unchanged, which lets you use `OR`, `NEAR`, prefix `*`, and column filters
 directly. See [Synonyms](synonyms.md) for how the expansion works and how to extend it.
 
+## Converting documents
+
+`docs` lists the non-dictionary files shipped with a version (welcome packets,
+protocols, release notes). `doc <name>` converts one of them to Markdown, caches it
+under `.catalogue/docs/`, and prints either a preview or the windows of text matching a
+regex passed to `-s/--section`.
+
+By default the engine is chosen by file type:
+
+| Format | Engine | Why |
+| --- | --- | --- |
+| PDF | `marker` | Layout-aware extraction; higher quality, but slower (loads ML models on first use). |
+| `.docx`, `.txt`, and the rest | `markitdown` | Fast, with broad format coverage. |
+| `.doc`, `.rtf` | `textutil` | The macOS tool; the only one of the three that reads these. |
+
+Pass `-e/--engine` to force `marker` or `markitdown` for a given file (legacy `.doc` and
+`.rtf` always use `textutil`). markitdown and marker ship as dependencies, so `uv sync`
+installs them; `textutil` is part of macOS. Each engine caches to its own file, so you
+can convert the same document with two engines and compare.
+
+```bash
+uv run dscat doc "Welcome Packet" -d spark                 # PDF, so marker
+uv run dscat doc "Welcome Packet" -d spark -e markitdown   # force the faster engine
+```
+
 ## Examples
 
 ```bash

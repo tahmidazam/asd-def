@@ -93,6 +93,8 @@ Discovering and converting a version's non-dictionary documents.
    :nosignatures:
 
    docs.discover_docs
+   docs.Engine
+   docs.resolve_engine
    docs.convert_doc
    docs.extract_sections
    docs.cache_path

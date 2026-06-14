@@ -13,6 +13,7 @@ from typing import Any
 
 import typer
 
+from dscat.docs import Engine
 from dscat.output import Format, render
 
 app = typer.Typer(
@@ -385,12 +386,15 @@ def doc(
     dataset: str = typer.Option(None, "--dataset", "-d"),
     version: str = typer.Option(None, "--version", "-v", help="Default: latest."),
     all_versions: bool = typer.Option(False, "--all-versions"),
+    engine: Engine | None = typer.Option(
+        None, "--engine", "-e", help="Force engine; default: PDF=marker, else markitdown."
+    ),
     section: str = typer.Option(None, "--section", "-s", help="Regex; show only matching context."),
     head: int = typer.Option(40, "--head", help="Preview lines when no --section."),
 ) -> None:
     """Convert a documentation file to markdown (cached) and show a section or preview."""
     from dscat import queries
-    from dscat.docs import cache_path, convert_doc, extract_sections
+    from dscat.docs import cache_path, convert_doc, extract_sections, resolve_engine
 
     cat, root = _open_catalogue()
     matches = queries.find_documents(cat, name, dataset, version, all_versions)
@@ -405,12 +409,12 @@ def doc(
     m = matches[0]
     src = root / m["path"]
     try:
-        md = convert_doc(src, cache_path(root, m["dataset"], m["version"], src))
+        md = convert_doc(src, cache_path(root, m["dataset"], m["version"], src, engine), engine)
     except RuntimeError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     typer.echo(f"{m['dataset']}/{m['version']}: {m['title']} ({m['kind']})")
-    typer.echo(f"markdown: {md}")
+    typer.echo(f"markdown ({resolve_engine(src, engine)}): {md}")
     if section:
         blocks = extract_sections(md, section)
         if not blocks:
