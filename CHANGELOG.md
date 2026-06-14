@@ -4,6 +4,12 @@
 
 - add dscat and docs packages with uv monorepo setup
 
+## v0.3.0 (2026-06-14)
+
+### Feat
+
+- **analysis**: scaffold the analysis package for the Litman stability study
+
 ## v0.2.0 (2026-06-14)
 
 ### Feat
