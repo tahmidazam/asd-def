@@ -3,7 +3,10 @@ name = "asd-def"
 version = "0.2.0"
 description = "Monorepo for autism phenotype dataset analysis (SPARK, SSC)."
 requires-python = ">=3.12"
-dependencies = ["dscat"]
+dependencies = [
+    "analysis>=0.2.0",
+    "dscat",
+]
 
 [tool.uv]
 # The root is an application, not a package: uv installs its dependencies but does not
@@ -19,6 +22,7 @@ prerelease = "if-necessary-or-explicit"
 [tool.uv.sources]
 dscat = { path = "packages/dscat" }
 docs = { path = "packages/docs" }
+analysis = { path = "packages/analysis" }
 
 [dependency-groups]
 dev = [
@@ -33,7 +37,7 @@ dev = [
 docs = ["docs"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/dscat/tests"]
+testpaths = ["packages/dscat/tests", "packages/analysis/tests"]
 addopts = "-q"
 
 [tool.ty.src]
@@ -79,5 +83,6 @@ bump_message = "bump: release $current_version -> $new_version"
 version_files = [
     "packages/dscat/pyproject.toml:^version",
     "packages/docs/pyproject.toml:^version",
+    "packages/analysis/pyproject.toml:^version",
 ]
 pre_bump_hooks = ["uv lock"]
