@@ -5,19 +5,19 @@
 ::::{grid} 1 1 2 2
 :gutter: 3
 
-:::{grid-item-card} dscat
-:link: packages/dscat/index
-:link-type: doc
-
-A searchable catalogue over the versioned SPARK and SSC data dictionaries.
-:::
-
 :::{grid-item-card} analysis
 :link: packages/analysis/index
 :link-type: doc
 
 Reproduce the Litman autism classes and test their stability across age at diagnosis and
 diagnostic era.
+:::
+
+:::{grid-item-card} dscat
+:link: packages/dscat/index
+:link-type: doc
+
+A searchable catalogue over the versioned SPARK and SSC data dictionaries.
 :::
 
 :::{grid-item-card} docs
@@ -33,7 +33,7 @@ Build and live-preview this Sphinx site.
 :hidden:
 :maxdepth: 2
 
-packages/dscat/index
 packages/analysis/index
+packages/dscat/index
 packages/docs/index
 :::
