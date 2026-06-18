@@ -53,15 +53,17 @@ profile and proportions, not on the cohort size (see
 
 The SSC backend harmonises the SSC proband instruments onto the same schema: the CBCL 6-18,
 the RBS-R, the SCQ-Lifetime, the core descriptive table, and the background-history form. It
-renames the SSC columns to the SPARK names, recodes sex and the SCQ yes/no answers, and
-selects the shared features positively (a feature is provided when its SSC column exists
-after renaming). The SSC instruments cover a subset of the schema, so the backend exposes
-that subset.
+renames the SSC columns to the SPARK names, recodes sex and the SCQ yes/no answers, parses
+the free-text background-history milestone ages into months, and selects the shared features
+positively (a feature is provided when its SSC column exists after renaming). The SSC
+instruments cover a subset of the schema, so the backend exposes that subset.
 
 Two limits are worth stating plainly. The authors built the SSC class structure from a
-hand-cleaned background-history file that was not released, so the milestone mapping here is
-the package's own: nine of the eleven SPARK milestone features map cleanly to the raw SSC
-form, and two have no clean equivalent. The backend runs and produces a harmonised matrix,
-but its fidelity to the authors' SSC pipeline and its coverage are matters for the planned
-replication stage, not settled here. The SSC backend does not provide diagnosis timing, so
-the age-at-diagnosis and diagnostic-era axes are SPARK-only.
+hand-cleaned background-history file that was not released, and the raw SSC milestones are
+recorded as free text (`"13 months"`, `"13 mos"`, `"1 yr"`, a bare `"12"`). The package
+parses them into months itself: nine of the eleven SPARK milestone features map onto the
+raw SSC form, and two have no equivalent. The parser reads the great majority of the
+recorded entries, where a plain numeric coercion keeps under a tenth of them, so it is the
+package's own rule rather than the authors', and its fidelity to their SSC pipeline is a
+matter for the replication stage, not settled here. The SSC backend does not provide
+diagnosis timing, so the age-at-diagnosis and diagnostic-era axes are SPARK-only.

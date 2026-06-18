@@ -7,10 +7,11 @@ drop-lists, which targeted their SSC version, features are selected positively: 
 feature is provided when its SSC column (after renaming) exists. The SSC backend therefore
 exposes the subset of the schema the SSC instruments cover.
 
-Two caveats are recorded honestly. The authors used a hand-cleaned background-history file
-that was not released, so the milestone mapping here is ours (``SSC_BH_RENAME``), and
-two SPARK milestone features have no clean SSC equivalent. The fidelity of this backend to
-the authors' SSC pipeline, and the exact shared-feature contract, are confirmed in the SSC
+Two caveats are recorded honestly. The authors read the background-history milestones from
+a hand-cleaned file that was not released, so both the SSC-to-SPARK mapping (``SSC_BH_RENAME``)
+and the parse of the raw free-text ages into months (``parse_age_months``) are ours, and
+two SPARK milestone features have no SSC equivalent. The fidelity of this backend to the
+authors' SSC pipeline, and the exact shared-feature contract, are confirmed in the SSC
 replication stage (phase 2). The backend does not provide diagnosis-timing fields.
 """
 
@@ -24,6 +25,7 @@ import pandas as pd
 from analysis import config
 from analysis.cohort import open_catalogue, source_csv
 from analysis.cohort.schema import (
+    MILESTONE_AGE_FEATURES,
     SSC_BH_RENAME,
     SSC_CBCL_RENAME,
     SSC_RBSR_RENAME,
@@ -31,6 +33,7 @@ from analysis.cohort.schema import (
     SSC_SEX_ENCODING,
     SSC_YES_NO,
     load_feature_list,
+    parse_age_months,
 )
 
 log = logging.getLogger("analysis.cohort")
@@ -89,7 +92,10 @@ class SscCohort:
         return self._read("cbcl_6_18").rename(columns=SSC_CBCL_RENAME)
 
     def _background_history(self) -> pd.DataFrame:
-        return self._read("ssc_background_hx").rename(columns=SSC_BH_RENAME)
+        df = self._read("ssc_background_hx").rename(columns=SSC_BH_RENAME)
+        for col in df.columns.intersection(MILESTONE_AGE_FEATURES):
+            df[col] = df[col].map(parse_age_months)
+        return df
 
     def integrate(self) -> pd.DataFrame:
         """Integrate the SSC proband instruments into a harmonised, complete-case frame.

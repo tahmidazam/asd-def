@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from analysis import cache
 from analysis.align import hungarian_align
+from analysis.cohort.schema import parse_age_months
 from analysis.enrich import SEVEN_CATEGORIES, category_signature, feature_enrichment
 from analysis.features import (
     Typing,
@@ -77,10 +78,113 @@ def test_n_value_levels() -> None:
     assert n_value_levels(None) == 0
 
 
+# ---- SSC free-text milestone-age parsing -------------------------------------
+@pytest.mark.parametrize(
+    ("raw", "months"),
+    [
+        ("13 months", 13.0),
+        ("13 mos", 13.0),
+        ("13 mo", 13.0),
+        ("13m", 13.0),
+        ("13", 13.0),
+        ("12 ", 12.0),
+        ("1 year", 12.0),
+        ("1 yr", 12.0),
+        ("2yrs", 24.0),
+        ("1.5 years", 18.0),
+        ("1 yr 6 mo", 18.0),
+        ("18.5 months", 18.5),
+        ("at birth", 0.0),
+        ("approx. 12 months", 12.0),
+        ("~14 mos", 14.0),
+        ("12-14", 13.0),
+        ("1-2 years", 18.0),
+        ("12 to 18 mo", 15.0),
+        ("12 mon", 12.0),
+        ("18 mon", 18.0),
+        ("3 1/2 yrs", 42.0),
+        ("2 1/2 years", 30.0),
+        ("4 years old", 48.0),
+        ("12 months old", 12.0),
+        (12, 12.0),
+        (12.0, 12.0),
+        # B4: y.o. / y/o, compound year+month, "N or M", unit typos, colon
+        ("3 y.o.", 36.0),
+        ("4 y/o", 48.0),
+        ("2 yrs. 10 mos", 34.0),
+        ("3y;3m", 39.0),
+        ("7 or 8 months", 7.5),
+        ("11ms", 11.0),
+        ("3:6 years", 42.0),
+        ("18 months to 2 years", 21.0),
+        ("9 mo - 1 yr", 10.5),
+        # B3: bounds and inequalities drop the bound and take the stated age
+        ("3+ years", 36.0),
+        ("<3 mos", 3.0),
+        (">42 mos", 42.0),
+        ("&lt;1y", 12.0),
+        ("before 1 year", 12.0),
+        ("under 12 months", 12.0),
+        ("by age 4", 48.0),
+        ("age 3", 36.0),
+    ],
+)
+def test_parse_age_months_recognised_forms(raw: object, months: float) -> None:
+    assert parse_age_months(raw) == months
+
+
+@pytest.mark.parametrize(
+    ("raw", "months"),
+    [
+        ("6 weeks", 6 * 7 / 30.4375),
+        ("1 week", 1 * 7 / 30.4375),
+        ("6 wks", 6 * 7 / 30.4375),
+        ("2-3 weeks", 2.5 * 7 / 30.4375),
+        ("1 yr 2 weeks", 12 + 2 * 7 / 30.4375),
+    ],
+)
+def test_parse_age_months_weeks(raw: str, months: float) -> None:
+    assert parse_age_months(raw) == pytest.approx(months)
+
+
+def test_parse_age_months_unicode_fraction() -> None:
+    # a vulgar-fraction glyph (half), built with chr() to keep the test source ASCII
+    assert parse_age_months("3" + chr(0x00BD) + " yrs") == 42.0
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "never",
+        "normal",
+        "not yet",
+        "n/a",
+        "?",
+        "",
+        "five",
+        None,
+        float("nan"),
+        # bare number after a bound has an ambiguous scale, so it stays missing
+        "under 2",
+        "over 3",
+        # calendar dates and regression narratives are not single ages
+        "03/2003",
+        "12/01",
+        "12 mos (lost at 15 mos)",
+    ],
+)
+def test_parse_age_months_missing_forms(raw: object) -> None:
+    assert parse_age_months(raw) is None
+
+
 def test_reconcile_defers_to_pickle_and_flags_conflict() -> None:
     features = ["a", "b", "repeat_grade"]
     dict_typing = {"a": "continuous", "b": "binary", "repeat_grade": "binary"}
-    pickle_typing = {"a": "continuous", "b": "binary", "repeat_grade": "continuous"}
+    pickle_typing: dict[str, str | None] = {
+        "a": "continuous",
+        "b": "binary",
+        "repeat_grade": "continuous",
+    }
     observed = {"a": 40, "b": 2, "repeat_grade": 2}
     typing, report = reconcile(features, dict_typing, pickle_typing, observed)
     assert typing.continuous == ["a", "repeat_grade"]
