@@ -138,6 +138,7 @@ nitpick_ignore = [
 myst_enable_extensions = [
     "colon_fence",  # ::: fenced directives
     "deflist",  # definition lists
+    "dollarmath",  # $...$ inline and $$...$$ display LaTeX maths
     "fieldlist",  # field lists
     "smartquotes",  # typographic quotes
     "substitution",  # |variable| substitutions

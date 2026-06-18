@@ -64,7 +64,7 @@ class SelectionResult:
         One row per (seed, number of components) with every criterion.
     summary : pandas.DataFrame
         Mean and standard deviation of each criterion per number of components, plus the
-        mean Lo-Mendell-Rubin proxy p-value.
+        mean Lo-Mendell-Rubin proxy :math:`p`-value.
     k_values : list of int
         The component counts gridded.
     """
@@ -202,7 +202,7 @@ def validation_log_likelihood(
 
 
 def lmr_lrt_proxy(val_log_likelihood: dict[int, float]) -> dict[int, float]:
-    r"""Naive likelihood-ratio-test p-values between adjacent component counts.
+    r"""Naive likelihood-ratio-test :math:`p`-values between adjacent component counts.
 
     For consecutive counts :math:`k` and :math:`k+1` the statistic is
     :math:`-2(\ell_k - \ell_{k+1})` referred to a chi-square with one degree of freedom,
@@ -219,7 +219,7 @@ def lmr_lrt_proxy(val_log_likelihood: dict[int, float]) -> dict[int, float]:
     Returns
     -------
     dict of int to float
-        Each number of components (from the second upward) mapped to its proxy p-value.
+        Each number of components (from the second upward) mapped to its proxy :math:`p`-value.
     """
     ks = sorted(val_log_likelihood)
     pvalues: dict[int, float] = {}

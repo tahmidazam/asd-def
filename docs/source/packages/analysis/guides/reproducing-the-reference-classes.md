@@ -40,7 +40,7 @@ takes around ten minutes and predicts a hard class label per proband.
 Each feature is then tested for enrichment in each class against the rest, in both
 directions: a binomial test for binary features and a Welch t-test for the others, with
 Benjamini-Hochberg correction within each class and direction. A feature is enriched or
-depleted in a class when its corrected p-value falls below 0.05. The 24 reverse-coded SCQ
+depleted in a class when its corrected $p$-value falls below $0.05$. The 24 reverse-coded SCQ
 social items have their direction flipped, and the features are summarised into the seven
 literature-defined categories (anxiety or mood, attention, disruptive behaviour, self-injury,
 social or communication, restricted or repetitive, and developmental) as the signed
@@ -67,6 +67,28 @@ should be both the highest overall and the smallest, the class named Social or b
 should be the largest, and so on. The published seven-category signature, read from the
 paper's figure, gives a profile correlation for each class and overall as a second measure.
 
+## The values read from figure 1b
+
+The published seven-category signatures are not released as a numeric table, so they are read
+from figure 1b of Litman et al. (2025), the per-category proportion-and-direction plot, at the
+figure's resolution. The signed values run from $-1$ (depleted across that category) to $+1$
+(enriched), in the seven-category order:
+
+| Class | anxiety/mood | attention | disruptive | self-injury | social/comm | restricted/rep | developmental |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Social or behavioural | +1.0 | +1.0 | +0.95 | +0.50 | +0.50 | +0.45 | -0.90 |
+| Moderate challenges | -0.90 | -0.95 | -1.0 | -0.95 | -1.0 | -1.0 | -1.0 |
+| Mixed ASD with developmental delay | -0.90 | -0.45 | -0.65 | -0.10 | +0.10 | +0.05 | +0.45 |
+| Broadly affected | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 |
+
+Broadly affected sits near $+1$ and Moderate challenges near $-1$ across every category, so
+both profiles are saturated: their per-class correlation is uninformative and they rest on the
+anchors instead. The published class proportions the anchors use, also taken from the paper,
+are about 37, 34, 19, and 10 per cent for Social or behavioural, Moderate challenges, Mixed ASD
+with developmental delay, and Broadly affected. Every value in this section is read from the
+figure to its resolution, so it is approximate; obtaining the numeric supplementary tables would
+replace these with exact values and let the alignment use the published profile directly.
+
 ## The reproduction result
 
 On SPARK 2026-03-23 the model recovers four classes whose proportions are about 39, 29, 18,
@@ -74,10 +96,10 @@ and 15 per cent (Social or behavioural, Moderate challenges, Mixed ASD with deve
 delay, and Broadly affected), against the published 37, 34, 19, and 10. Every anchor holds,
 so the four recovered classes map cleanly onto the four named classes.
 
-The overall seven-category profile correlation against the published figure is r = 0.902,
-which matches the authors' own SSC-replication value of r = 0.927. The per-class correlations
-are 0.97 for Mixed ASD with developmental delay and 0.85 for Social or behavioural; Broadly
-affected and Moderate challenges have saturated profiles (uniformly high and uniformly low
+The overall seven-category profile correlation against the published figure is $r = 0.902$,
+which matches the authors' own SSC-replication value of $r = 0.927$. The per-class correlations
+are $r = 0.97$ for Mixed ASD with developmental delay and $r = 0.85$ for Social or behavioural;
+Broadly affected and Moderate challenges have saturated profiles (uniformly high and uniformly low
 respectively), so their per-class correlation is uninformative and they rest on the anchors.
 The main per-class divergence from the published profile is that Social or behavioural shows
 weaker social-communication and restricted-or-repetitive enrichment here than in the paper.

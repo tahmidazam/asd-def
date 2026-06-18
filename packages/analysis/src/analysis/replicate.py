@@ -161,7 +161,7 @@ def run_replication(
     -------
     ReplicationResult
         The shared features, both signatures, the observed and null correlations, the
-        permutation p-value, and the sample-size metrics.
+        permutation :math:`p`-value, and the sample-size metrics.
     """
     shared = shared_feature_set(spark, ssc)
     spark_shared = CohortMatrix(

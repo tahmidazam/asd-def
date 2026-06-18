@@ -2,12 +2,12 @@
 
 Reproduces the released enrichment pipeline (plan section 6, step 7). Each feature is
 tested one class against the rest, in both directions: a binomial test for binary features
-(those with two observed values) and a Welch t-test for the rest. The p-values are
-Benjamini-Hochberg corrected within each class and direction; a corrected p below 0.05
-marks a feature as enriched or depleted in that class. The 24 reverse-coded SCQ items have
-their direction flipped, and the features are summarised into the seven literature-defined
-categories as the signed proportion enriched minus depleted, which is the class signature
-used to align to the published classes (plan section 6a).
+(those with two observed values) and a Welch t-test for the rest. The :math:`p`-values are
+Benjamini-Hochberg corrected within each class and direction; a corrected :math:`p` below
+:math:`0.05` marks a feature as enriched or depleted in that class. The 24 reverse-coded
+SCQ items have their direction flipped, and the features are summarised into the seven
+literature-defined categories as the signed proportion enriched minus depleted, which is
+the class signature used to align to the published classes (plan section 6a).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ _ALPHA = 0.05
 
 
 def cohens_d(group: pd.Series, reference: pd.Series) -> float:
-    """Return Cohen's d of a group against a reference, pooling their variances."""
+    """Return Cohen's :math:`d` of a group against a reference, pooling their variances."""
     mean_diff = float(np.mean(group) - np.mean(reference))
     pooled_sd = float(np.sqrt((np.std(group, ddof=1) ** 2 + np.std(reference, ddof=1) ** 2) / 2))
     return mean_diff / pooled_sd if pooled_sd > 0 else 0.0
@@ -59,7 +59,7 @@ def feature_enrichment(data: pd.DataFrame, labels: pd.Series, n_classes: int = 4
     pandas.DataFrame
         One row per feature with, per class ``c``: ``class{c}_dir`` (+1 enriched, -1
         depleted, 0 neither, after correction) and ``class{c}_effect`` (fold enrichment for
-        binary features, Cohen's d otherwise), plus an ``is_binary`` flag.
+        binary features, Cohen's :math:`d` otherwise), plus an ``is_binary`` flag.
     """
     labels = labels.reindex(data.index)
     groups = {c: data[labels == c] for c in range(n_classes)}
@@ -123,7 +123,7 @@ def feature_enrichment(data: pd.DataFrame, labels: pd.Series, n_classes: int = 4
 
 
 def _significant(pvalues: dict[str, float]) -> dict[str, bool]:
-    """Benjamini-Hochberg correct a class-direction's p-values and flag those below alpha."""
+    r"""Correct a class-direction's :math:`p`-values and flag those below :math:`\alpha`."""
     features = [f for f, p in pvalues.items() if not np.isnan(p)]
     if not features:
         return {}
@@ -189,9 +189,10 @@ def contributory_features(enrichment: pd.DataFrame, n_classes: int = 4) -> list[
     Reproduces the released non-contributory feature exclusion (plan section 6, step 7). A
     feature is dropped when it is significantly enriched or depleted in no class, or when its
     effect size stays below the magnitude threshold in every class: a fold enrichment below
-    1.5 for binary features, an absolute Cohen's d below 0.2 for the rest. The surviving
-    features are the universe over which the seven-category proportions are computed, so the
-    same set (taken from the reference solution) is applied to both sides of a comparison.
+    :math:`1.5` for binary features, an absolute Cohen's :math:`d` below :math:`0.2` for the
+    rest. The surviving features are the universe over which the seven-category proportions
+    are computed, so the same set (taken from the reference solution) is applied to both
+    sides of a comparison.
 
     Parameters
     ----------

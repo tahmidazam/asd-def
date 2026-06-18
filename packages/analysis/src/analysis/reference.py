@@ -10,8 +10,9 @@ cross-validated for mutual consistency.
 
 The published seven-category signatures (read from figure 1b) give a profile correlation
 against each named class and an overall correlation, the analogue of the authors' own
-replication measure (their SSC replication reported r = 0.927). Those values are read to the
-figure's resolution, not from a supplementary table (plan section 6a, step 1).
+replication measure (their SSC replication reported :math:`r = 0.927`). Those values are read
+to the figure's resolution, not from a supplementary table (plan section 6a, step 1); the
+values themselves are tabulated in the reproduction guide.
 """
 
 from __future__ import annotations
