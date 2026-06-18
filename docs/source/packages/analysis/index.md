@@ -46,6 +46,14 @@ The staged commands, the content-addressed artefact cache, the run manifests, an
 reproducibility choices behind them.
 :::
 
+:::{grid-item-card} Running the pipeline
+:link: guides/running-the-pipeline
+:link-type: doc
+
+The runbook: the commands to run everything implemented so far, in order, and what each
+stage depends on.
+:::
+
 :::{grid-item-card} The cohort interface
 :link: guides/the-cohort-interface
 :link-type: doc
@@ -100,6 +108,7 @@ feature typing, the model wrapper, and the enrichment and alignment.
 :caption: Guides
 
 guides/pipeline-and-caching
+guides/running-the-pipeline
 guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
 guides/reproducing-the-reference-classes
