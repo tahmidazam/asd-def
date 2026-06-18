@@ -71,12 +71,17 @@ def prepare_inputs(
     features = matrix.features.round() if round_values else matrix.features.copy()
     covariates = matrix.covariates.round() if round_values else matrix.covariates.copy()
     columns = set(features.columns)
-    measurement_data, descriptor = get_mixed_descriptor(
-        dataframe=features,
-        continuous=[c for c in typing.continuous if c in columns],
-        binary=[c for c in typing.binary if c in columns],
-        categorical=[c for c in typing.categorical if c in columns],
-    )
+    buckets = {
+        "continuous": [c for c in typing.continuous if c in columns],
+        "binary": [c for c in typing.binary if c in columns],
+        "categorical": [c for c in typing.categorical if c in columns],
+    }
+    # Pass only the non-empty type buckets. StepMix builds one emission sub-model per bucket
+    # it is given, and an empty bucket makes a degenerate sub-model that fails at fit time.
+    # The full cohort has all three types, but a cohort reduced to the features shared with
+    # another cohort (the replication stage) can drop a whole type, so this guard matters.
+    present = {kind: cols for kind, cols in buckets.items() if cols}
+    measurement_data, descriptor = get_mixed_descriptor(dataframe=features, **present)
     return measurement_data, descriptor, covariates
 
 

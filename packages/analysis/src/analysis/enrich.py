@@ -63,6 +63,10 @@ def feature_enrichment(data: pd.DataFrame, labels: pd.Series, n_classes: int = 4
     """
     labels = labels.reindex(data.index)
     groups = {c: data[labels == c] for c in range(n_classes)}
+    # A class with no probands (a collapsed fit, or a projection that lands no one in a
+    # class, which is plausible on a small cohort) has no data to test. Such a class is
+    # marked enriched-in-nothing rather than crashing on a zero-size test.
+    empty = {c: len(groups[c]) == 0 for c in range(n_classes)}
     greater: dict[int, dict[str, float]] = {c: {} for c in range(n_classes)}
     lesser: dict[int, dict[str, float]] = {c: {} for c in range(n_classes)}
     effect: dict[int, dict[str, float]] = {c: {} for c in range(n_classes)}
@@ -77,6 +81,9 @@ def feature_enrichment(data: pd.DataFrame, labels: pd.Series, n_classes: int = 4
             background = int(column.sum())
             p_background = background / total
             for c in range(n_classes):
+                if empty[c]:
+                    greater[c][feature] = lesser[c][feature] = effect[c][feature] = np.nan
+                    continue
                 values = groups[c][feature]
                 n = len(values)
                 successes = int(values.sum())
@@ -89,6 +96,9 @@ def feature_enrichment(data: pd.DataFrame, labels: pd.Series, n_classes: int = 4
                 effect[c][feature] = (successes / n) / p_background if p_background > 0 else np.nan
         else:
             for c in range(n_classes):
+                if empty[c]:
+                    greater[c][feature] = lesser[c][feature] = effect[c][feature] = np.nan
+                    continue
                 rest = pd.concat([groups[o][feature] for o in range(n_classes) if o != c])
                 greater[c][feature] = ttest_ind(
                     groups[c][feature], rest, equal_var=False, alternative="greater"
@@ -121,11 +131,97 @@ def _significant(pvalues: dict[str, float]) -> dict[str, bool]:
     return {f: bool(p < _ALPHA) for f, p in zip(features, corrected, strict=True)}
 
 
+def _safe_pearson(a: np.ndarray, b: np.ndarray, min_std: float = 1e-9) -> float | None:
+    """Return the Pearson correlation, or ``None`` when either vector is near-constant."""
+    if float(np.std(a)) < min_std or float(np.std(b)) < min_std:
+        return None
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r = float(np.corrcoef(a, b)[0, 1])
+    return None if np.isnan(r) else r
+
+
+def profile_correlation(
+    signature_a: pd.DataFrame, signature_b: pd.DataFrame
+) -> tuple[float | None, dict[str, float | None]]:
+    """Correlate two seven-category class signatures, overall and per category.
+
+    This is the comparison Litman et al. use to declare reproduction and replication: the
+    profile is the signed net-proportion-enriched vector per category, and the correlation
+    is taken over the class-by-category matrix (plan section 6a). The two signatures must
+    already have their classes aligned to a common ordering (for example by
+    :func:`analysis.align.greedy_overlap_align` for same-sample comparison or
+    :func:`analysis.align.hungarian_align` across cohorts).
+
+    Parameters
+    ----------
+    signature_a, signature_b : pandas.DataFrame
+        Class-by-category signed signatures on the same class index and the seven
+        categories in ``SEVEN_CATEGORIES`` order.
+
+    Returns
+    -------
+    tuple
+        The overall Pearson correlation over the flattened class-by-category matrix, and a
+        mapping from each category to its Pearson correlation across classes. A near-constant
+        profile (overall or within a category) has an undefined correlation, returned as
+        ``None``.
+
+    Raises
+    ------
+    ValueError
+        When the two signatures do not share their class index.
+    """
+    if list(signature_a.index) != list(signature_b.index):
+        raise ValueError("signatures must share the same class index (align them first)")
+    a = signature_a.loc[:, list(SEVEN_CATEGORIES)]
+    b = signature_b.loc[:, list(SEVEN_CATEGORIES)]
+    overall = _safe_pearson(a.to_numpy(float).ravel(), b.to_numpy(float).ravel())
+    per_category = {
+        cat: _safe_pearson(a[cat].to_numpy(float), b[cat].to_numpy(float))
+        for cat in SEVEN_CATEGORIES
+    }
+    return overall, per_category
+
+
+def contributory_features(enrichment: pd.DataFrame, n_classes: int = 4) -> list[str]:
+    """Return the features that contribute to the class signatures.
+
+    Reproduces the released non-contributory feature exclusion (plan section 6, step 7). A
+    feature is dropped when it is significantly enriched or depleted in no class, or when its
+    effect size stays below the magnitude threshold in every class: a fold enrichment below
+    1.5 for binary features, an absolute Cohen's d below 0.2 for the rest. The surviving
+    features are the universe over which the seven-category proportions are computed, so the
+    same set (taken from the reference solution) is applied to both sides of a comparison.
+
+    Parameters
+    ----------
+    enrichment : pandas.DataFrame
+        The per-feature enrichment from :func:`feature_enrichment`.
+    n_classes : int, default 4
+        Number of classes.
+
+    Returns
+    -------
+    list of str
+        The contributory feature names, in the enrichment frame's order.
+    """
+    directions = enrichment[[f"class{c}_dir" for c in range(n_classes)]].abs()
+    effects = enrichment[[f"class{c}_effect" for c in range(n_classes)]].abs()
+    is_binary = enrichment["is_binary"] > 0
+    significant = (directions > 0).any(axis=1)
+    binary_strong = (effects >= 1.5).any(axis=1)
+    continuous_strong = (effects >= 0.2).any(axis=1)
+    strong = binary_strong.where(is_binary, continuous_strong)
+    keep = significant & strong
+    return enrichment.index[keep].tolist()
+
+
 def category_signature(
     enrichment: pd.DataFrame,
     category_map: dict[str, str],
     n_classes: int = 4,
     reverse_coded: tuple[str, ...] = REVERSE_CODED_SCQ,
+    keep: set[str] | None = None,
 ) -> pd.DataFrame:
     """Summarise feature enrichment into the signed seven-category class signature.
 
@@ -142,6 +238,10 @@ def category_signature(
         Number of classes.
     reverse_coded : tuple of str, optional
         SCQ items whose enriched and depleted directions are swapped.
+    keep : set of str, optional
+        When given, only these features contribute to the proportions (the contributory set
+        from :func:`contributory_features`). When omitted, every feature contributes, which
+        is the right behaviour for the reference signature compared to the published figure.
 
     Returns
     -------
@@ -151,6 +251,8 @@ def category_signature(
     """
     directions = enrichment[[f"class{c}_dir" for c in range(n_classes)]].copy()
     directions.columns = pd.Index(range(n_classes))
+    if keep is not None:
+        directions = directions.loc[[f for f in directions.index if f in keep]]
     for feature in reverse_coded:
         if feature in directions.index:
             directions.loc[feature] = -directions.loc[feature]

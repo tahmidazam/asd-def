@@ -104,3 +104,61 @@ def hungarian_align(
         correlations=correlations,
         total_cost=float(cost[row_ind, col_ind].sum()),
     )
+
+
+def greedy_overlap_align(source: pd.Series, target: pd.Series) -> dict[int, int]:
+    """Align source class labels to target labels by greedy proband overlap.
+
+    This reproduces the released ``match_class_labels`` rule, which compares two
+    clusterings of the *same* probands (across seeds or subsamples). Each source class
+    claims the target class it overlaps most, where overlap is the proportion of the
+    *source* class that falls in the target class; a collision is resolved in favour of the
+    larger overlap, and any classes left unclaimed are paired in order. The rule needs a
+    shared index, so it applies to same-sample comparison only; for disjoint strata and
+    across cohorts the plan aligns by profile similarity with :func:`hungarian_align`
+    instead (plan section 6, deviations).
+
+    Parameters
+    ----------
+    source : pandas.Series
+        Class label per proband for the solution being aligned.
+    target : pandas.Series
+        Class label per proband for the reference solution, on an overlapping index.
+
+    Returns
+    -------
+    dict of int to int
+        Each source class id mapped to the target class id it aligns to.
+    """
+    shared = source.index.intersection(target.index)
+    src = source.loc[shared]
+    tgt = target.loc[shared]
+    source_classes = sorted(int(c) for c in src.unique())
+    target_classes = sorted(int(c) for c in tgt.unique())
+
+    overlap: dict[tuple[int, int], float] = {}
+    for s in source_classes:
+        s_index = src.index[src == s]
+        s_size = len(s_index)
+        for t in target_classes:
+            shared_count = len(s_index.intersection(tgt.index[tgt == t]))
+            overlap[(s, t)] = shared_count / s_size if s_size else 0.0
+
+    mapping: dict[int, int] = {}
+    claimed: dict[int, int] = {}  # target class id mapped to the source class holding it
+    for s in source_classes:
+        best = max(target_classes, key=lambda t, s=s: overlap[(s, t)])
+        holder = claimed.get(best)
+        if holder is None:
+            mapping[s] = best
+            claimed[best] = s
+        elif overlap[(holder, best)] < overlap[(s, best)]:
+            del mapping[holder]
+            mapping[s] = best
+            claimed[best] = s
+
+    leftover_source = [s for s in source_classes if s not in mapping]
+    leftover_target = [t for t in target_classes if t not in claimed]
+    for s, t in zip(leftover_source, leftover_target, strict=False):
+        mapping[s] = t
+    return mapping

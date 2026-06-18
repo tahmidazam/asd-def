@@ -145,6 +145,68 @@ def _fit_params(cohort_hash: str, n_components: int, n_init: int, seed: int) -> 
     }
 
 
+def _align_params(root: Path, fit_hash: str) -> dict[str, object]:
+    """Return the hashing parameters for the align stage."""
+    return {"fit": fit_hash, "category_map": cache.file_digest(config.author_category_map(root))}
+
+
+def _completed(run_dir: Path) -> bool:
+    """Return whether a run finished cleanly (a manifest exists with status ``ok``).
+
+    A run directory can hold a manifest with status ``running`` or ``failed`` (the lifecycle
+    writes it before the body runs and only flips it in the finally block), alongside missing
+    or half-written artefacts. A reference must have completed, so presence alone is not
+    enough; this mirrors the cache-hit gate in :mod:`analysis.run`.
+    """
+    manifest = cache.read_manifest(run_dir)
+    return manifest is not None and manifest.get("status") == "ok"
+
+
+def _load_reference(
+    root: Path,
+    dataset: str,
+    version: str,
+    *,
+    n_components: int,
+    n_init: int,
+    seed: int,
+    force: bool,
+):
+    """Load the cached reference cohort, typing, labels, and enrichment.
+
+    The reference is the canonical fit (``analysis fit``) and its alignment
+    (``analysis align``); the stability, nmin, and report stages compare against it. Exits
+    non-zero with guidance when either stage has not completed cleanly for these settings.
+    """
+    from analysis.paths import run_dir
+
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    fit_hash = cache.compute_hash(_fit_params(cohort_hash, n_components, n_init, seed))
+    fit_dir = run_dir(root, "fit", cache.short_hash(fit_hash))
+    if not _completed(fit_dir):
+        typer.echo(
+            f"no completed reference fit for these settings (n_init={n_init}, seed={seed}); "
+            "run `analysis fit` first",
+            err=True,
+        )
+        raise typer.Exit(1)
+    reference_labels = cache.load_frame(fit_dir / "labels.parquet")["class"]
+
+    align_hash = cache.compute_hash(_align_params(root, fit_hash))
+    align_dir = run_dir(root, "align", cache.short_hash(align_hash))
+    if not _completed(align_dir):
+        typer.echo(
+            "no completed reference alignment for these settings; run `analysis align` first",
+            err=True,
+        )
+        raise typer.Exit(1)
+    reference_enrichment = cache.load_frame(align_dir / "enrichment.parquet")
+
+    return matrix, typing, reference_labels, reference_enrichment, align_hash
+
+
 @app.command()
 def fit(
     dataset: str = _DATASET,
@@ -205,8 +267,8 @@ def align(
     cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
     fit_hash = cache.compute_hash(_fit_params(cohort_hash, n_components, n_init, seed))
     fit_dir = run_dir(root, "fit", cache.short_hash(fit_hash))
-    if cache.read_manifest(fit_dir) is None:
-        typer.echo("no fit found for these settings; run `analysis fit` first", err=True)
+    if not _completed(fit_dir):
+        typer.echo("no completed fit for these settings; run `analysis fit` first", err=True)
         raise typer.Exit(1)
 
     params = {"fit": fit_hash, "category_map": cache.file_digest(config.author_category_map(root))}
@@ -256,22 +318,309 @@ def align(
     typer.echo(f"  anchors hold: {named.anchors_hold} {named.anchors}")
 
 
-@app.command(rich_help_panel=_PLANNED)
-def select() -> None:
+@app.command()
+def select(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    k_min: int = typer.Option(1, help="Smallest number of components in the grid."),
+    k_max: int = typer.Option(10, help="Largest number of components in the grid."),
+    n_iterations: int = typer.Option(20, help="Seeded repetitions (Litman use 200)."),
+    n_init: int = typer.Option(1, help="Random restarts per fit (Litman validation use 1)."),
+    cv: int = typer.Option(3, help="Cross-validation folds for the validation log-likelihood."),
+    seed: int = typer.Option(0, help="Base seed; iteration i uses seed+i."),
+    force: bool = _FORCE,
+) -> None:
     """Grid over the number of components and report the information criteria."""
-    _todo("select", 2)
+    from analysis import selection
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    k_values = list(range(k_min, k_max + 1))
+    params = {
+        "cohort": cohort_hash,
+        "k_values": k_values,
+        "n_iterations": n_iterations,
+        "n_init": n_init,
+        "cv": cv,
+        "seed": seed,
+    }
+    with run_context("select", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"select: cache hit {cache.short_hash(ctx.run_hash)}")
+            typer.echo(f"  {metrics}")
+            return
+        matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+        ctx.log.info("model selection over K=%s, %d iterations", k_values, n_iterations)
+        result = selection.run_selection(
+            matrix,
+            typing,
+            k_values=k_values,
+            n_iterations=n_iterations,
+            n_init=n_init,
+            base_seed=seed,
+            cv=cv,
+        )
+        cache.save_frame(result.per_iteration, ctx.path("per_iteration.parquet"))
+        cache.save_frame(result.summary, ctx.path("summary.parquet"))
+        best = {
+            "bic": int(result.summary.loc[result.summary["bic_mean"].idxmin(), "n_components"]),
+            "aic": int(result.summary.loc[result.summary["aic_mean"].idxmin(), "n_components"]),
+            "caic": int(result.summary.loc[result.summary["caic_mean"].idxmin(), "n_components"]),
+        }
+        ctx.metrics = {"k_values": k_values, "best_by_criterion": best}
+        ctx.log.info("criteria minimised at: %s (reference choice is K=4)", best)
+    typer.echo(f"select {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(f"  criteria minimised at {ctx.metrics['best_by_criterion']} (reference choice K=4)")
 
 
-@app.command(rich_help_panel=_PLANNED)
-def stability() -> None:
-    """Summarise multi-initialisation and subsampling stability of the reference fit."""
-    _todo("stability", 2)
+_STABILITY_MODES = ("multi-init", "subsample")
 
 
-@app.command(rich_help_panel=_PLANNED)
-def replicate() -> None:
-    """Project the reference model onto the SSC and correlate the category profiles."""
-    _todo("replicate", 2)
+@app.command()
+def stability(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    mode: str = typer.Option(
+        "multi-init", help="'multi-init' (rank single-init fits) or 'subsample' (refit halves)."
+    ),
+    n_fits: int = typer.Option(200, help="multi-init: single-init fits (Litman use 2,000)."),
+    top_k: int = typer.Option(100, help="multi-init: best fits compared to the reference."),
+    n_reps: int = typer.Option(50, help="subsample: replicates (Litman use 100)."),
+    frac: float = typer.Option(0.5, help="subsample: fraction without replacement."),
+    sub_n_init: int = typer.Option(20, help="subsample: restarts per replicate (Litman use 20)."),
+    n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
+    ref_n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Reference fit n_init to load."),
+    ref_seed: int = typer.Option(0, help="Seed of the reference fit to compare against."),
+    seed: int = typer.Option(0, help="Base seed for the stability fits."),
+    force: bool = _FORCE,
+) -> None:
+    """Summarise multi-initialisation or subsampling stability of the reference fit."""
+    from analysis import stability as stability_mod
+
+    if mode not in _STABILITY_MODES:
+        typer.echo(f"--mode must be one of {_STABILITY_MODES}", err=True)
+        raise typer.Exit(1)
+
+    root = find_repo_root()
+    matrix, typing, ref_labels, ref_enrichment, align_hash = _load_reference(
+        root,
+        dataset,
+        version,
+        n_components=n_components,
+        n_init=ref_n_init,
+        seed=ref_seed,
+        force=force,
+    )
+    category_map = features.load_category_map(config.author_category_map(root))
+
+    if mode == "multi-init":
+        params = {
+            "reference": align_hash,
+            "mode": mode,
+            "n_fits": n_fits,
+            "top_k": top_k,
+            "n_components": n_components,
+            "seed": seed,
+        }
+    else:
+        params = {
+            "reference": align_hash,
+            "mode": mode,
+            "n_reps": n_reps,
+            "frac": frac,
+            "n_init": sub_n_init,
+            "n_components": n_components,
+            "seed": seed,
+        }
+
+    with run_context("stability", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"stability ({mode}): cache hit {cache.short_hash(ctx.run_hash)}")
+            typer.echo(f"  {metrics}")
+            return
+        if mode == "multi-init":
+            ctx.log.info("multi-init stability: %d fits, comparing top %d", n_fits, top_k)
+            summary = stability_mod.run_multi_init_stability(
+                matrix,
+                typing,
+                ref_labels,
+                ref_enrichment,
+                category_map,
+                n_fits=n_fits,
+                top_k=top_k,
+                n_components=n_components,
+                base_seed=seed,
+            )
+        else:
+            ctx.log.info("subsampling stability: %d reps at frac=%.2f", n_reps, frac)
+            summary = stability_mod.run_subsampling_stability(
+                matrix,
+                typing,
+                ref_labels,
+                ref_enrichment,
+                category_map,
+                n_reps=n_reps,
+                frac=frac,
+                n_init=sub_n_init,
+                n_components=n_components,
+                base_seed=seed,
+            )
+        cache.save_frame(summary.fits, ctx.path("fits.parquet"))
+        cache.save_frame(summary.comparisons, ctx.path("comparisons.parquet"))
+        cache.save_frame(summary.overlap_mean, ctx.path("overlap_mean.parquet"))
+        cache.save_json(summary.aggregate, ctx.path("aggregate.json"))
+        ctx.metrics = {
+            k: summary.aggregate[k]
+            for k in ("overall_correlation_mean", "adjusted_rand_index_mean", "n_compared")
+            if k in summary.aggregate
+        }
+        ctx.log.info("stability aggregate: %s", ctx.metrics)
+    typer.echo(f"stability ({mode}) {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(f"  {ctx.metrics}")
+
+
+@app.command()
+def nmin(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    sizes: str = typer.Option(
+        "", help="Comma-separated target sizes; empty derives a default sweep."
+    ),
+    n_reps: int = typer.Option(3, help="Replicates per target size."),
+    benchmark: float = typer.Option(0.9, help="Profile-correlation threshold defining recovery."),
+    sweep_n_init: int = typer.Option(20, help="Restarts per fit."),
+    n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
+    ref_n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Reference fit n_init to load."),
+    seed: int = typer.Option(0, help="Base seed."),
+    force: bool = _FORCE,
+) -> None:
+    """Find the minimum viable stratum size by refitting at descending sample sizes."""
+    from analysis import stability as stability_mod
+
+    root = find_repo_root()
+    matrix, typing, ref_labels, ref_enrichment, align_hash = _load_reference(
+        root, dataset, version, n_components=n_components, n_init=ref_n_init, seed=0, force=force
+    )
+    category_map = features.load_category_map(config.author_category_map(root))
+
+    total = matrix.n_probands
+    if sizes.strip():
+        size_list = [int(s) for s in sizes.split(",") if s.strip()]
+    else:
+        fractions = (0.9, 0.75, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05)
+        size_list = [int(total * f) for f in fractions]
+
+    params = {
+        "reference": align_hash,
+        "sizes": size_list,
+        "n_reps": n_reps,
+        "benchmark": benchmark,
+        "n_init": sweep_n_init,
+        "n_components": n_components,
+        "seed": seed,
+    }
+    with run_context("nmin", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"nmin: cache hit {cache.short_hash(ctx.run_hash)}; {metrics}")
+            return
+        ctx.log.info("nmin sweep over sizes %s, benchmark r>=%.2f", size_list, benchmark)
+        result = stability_mod.run_nmin_sweep(
+            matrix,
+            typing,
+            ref_enrichment,
+            ref_labels,
+            category_map,
+            sizes=size_list,
+            n_reps=n_reps,
+            benchmark=benchmark,
+            n_init=sweep_n_init,
+            n_components=n_components,
+            base_seed=seed,
+        )
+        cache.save_frame(result.per_fit, ctx.path("per_fit.parquet"))
+        cache.save_frame(result.summary, ctx.path("summary.parquet"))
+        ctx.metrics = {"n_min": result.n_min, "benchmark": benchmark, "sizes": size_list}
+        ctx.log.info("minimum viable stratum size: %s", result.n_min)
+    typer.echo(f"nmin {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(f"  minimum viable stratum size (r>={benchmark}): {ctx.metrics['n_min']}")
+
+
+@app.command()
+def replicate(
+    version: str = _VERSION,
+    ssc_version: str = typer.Option("15.3", help="SSC dataset version to project onto."),
+    n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
+    n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Random restarts for the SPARK fit."),
+    n_permutations: int = typer.Option(200, help="SSC label permutations for the null (0 skips)."),
+    seed: int = typer.Option(0, help="Random seed."),
+    force: bool = _FORCE,
+) -> None:
+    """Project the SPARK model onto the SSC and correlate the category profiles."""
+    from analysis import replicate as replicate_mod
+    from analysis.cohort import build_matrix, get_cohort
+    from analysis.cohort.schema import load_feature_list
+
+    root = find_repo_root()
+    spark_hash, _ = _run_cohort(root, "spark", version, force=force)
+    params = {
+        "spark_cohort": spark_hash,
+        "ssc_version": ssc_version,
+        "category_map": cache.file_digest(config.author_category_map(root)),
+        "n_components": n_components,
+        "n_init": n_init,
+        "n_permutations": n_permutations,
+        "seed": seed,
+    }
+    with run_context("replicate", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"replicate: cache hit {cache.short_hash(ctx.run_hash)}; {metrics}")
+            return
+        spark_matrix, typing = _load_cohort_matrix(root, spark_hash, "spark", version)
+        feature_names = load_feature_list(config.author_feature_list(root))
+        feature_set = set(feature_names)
+        ssc = get_cohort("ssc", ssc_version, root)
+        ssc_integrated = ssc.integrate()
+        ssc_available = [
+            c for c in ssc_integrated.columns if c in feature_set and c not in config.COVARIATES
+        ]
+        ssc_matrix = build_matrix(ssc_integrated, ssc_available, "ssc", ssc_version)
+        category_map = features.load_category_map(config.author_category_map(root))
+
+        ctx.log.info(
+            "replication: %d SPARK x %d SSC probands, %d SSC features available",
+            spark_matrix.n_probands,
+            ssc_matrix.n_probands,
+            len(ssc_available),
+        )
+        result = replicate_mod.run_replication(
+            spark_matrix,
+            ssc_matrix,
+            typing,
+            category_map,
+            n_components=n_components,
+            n_init=n_init,
+            n_permutations=n_permutations,
+            seed=seed,
+        )
+        cache.save_frame(result.spark_signature, ctx.path("spark_signature.parquet"))
+        cache.save_frame(result.ssc_signature, ctx.path("ssc_signature.parquet"))
+        cache.save_json(result.metrics, ctx.path("replication.json"))
+        ctx.metrics = result.metrics
+        ctx.log.info(
+            "replication overall r=%s p=%s", result.metrics["overall_correlation"], result.p_value
+        )
+    typer.echo(
+        f"replicate spark/{version} -> ssc/{ssc_version}: run {cache.short_hash(ctx.run_hash)}"
+    )
+    typer.echo(
+        f"  shared features={ctx.metrics['n_shared_features']} "
+        f"n_ssc={ctx.metrics['n_ssc']} overall r={ctx.metrics['overall_correlation']} "
+        f"p={ctx.metrics['p_value']}"
+    )
 
 
 @app.command(rich_help_panel=_PLANNED)

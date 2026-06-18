@@ -16,12 +16,22 @@ directory, so a later run recomputes only what changed.
   per proband.
 - `analysis align` summarises each class into the seven literature-defined categories and
   aligns the recovered classes to Litman's four named classes.
+- `analysis select` grids over the number of components and reports the information criteria
+  (validation log-likelihood, AIC, BIC, sample-size-adjusted BIC, consistent AIC, the
+  approximate weight of evidence, the relative entropy, the average posterior certainty, and
+  the smallest class proportion).
+- `analysis stability` summarises multi-initialisation stability (ranking many single-init
+  fits by log-likelihood) or subsampling stability (refitting on random halves), comparing
+  each fit to the reference by profile correlation, class overlap, and the adjusted Rand
+  index.
+- `analysis nmin` refits at descending sample sizes to fix the minimum viable stratum size
+  for the later stratified work.
+- `analysis replicate` fits a fresh model on the SPARK features shared with the SSC, projects
+  it onto the SSC, and correlates the seven-category profiles against a permutation null.
 
 The cohort layer sits behind one interface with a SPARK and an SSC backend, so a stage runs
-on either cohort. The SSC backend is in place; its fidelity to the authors' SSC pipeline is
-confirmed in the replication stage. The remaining stages (model selection, stability, SSC
-replication, the stratified analysis, and reporting) are listed under "planned" in
-`analysis --help` and are added as the work proceeds.
+on either cohort. The remaining stages (the stratified analysis and reporting) are listed
+under "planned" in `analysis --help` and are added as the work proceeds.
 
 ## Guides
 
@@ -44,12 +54,28 @@ One interface over SPARK and the SSC, the pinned feature set, and the deliberate
 from the released preprocessing.
 :::
 
+:::{grid-item-card} Parsing the SSC milestone ages
+:link: guides/parsing-ssc-milestone-ages
+:link-type: doc
+
+Turning the SSC's free-text developmental-milestone ages into months: the forms recognised,
+and the entries left missing.
+:::
+
 :::{grid-item-card} Reproducing the reference classes
 :link: guides/reproducing-the-reference-classes
 :link-type: doc
 
 Feature typing, the mixture model, per-class enrichment, naming the classes, and the
 reproduction result.
+:::
+
+:::{grid-item-card} Stability, selection, and replication
+:link: guides/stability-selection-and-replication
+:link-type: doc
+
+How many classes the data support, whether the solution survives re-initialisation and
+resampling, the minimum viable stratum size, and cross-cohort replication.
 :::
 
 ::::
@@ -75,7 +101,9 @@ feature typing, the model wrapper, and the enrichment and alignment.
 
 guides/pipeline-and-caching
 guides/the-cohort-interface
+guides/parsing-ssc-milestone-ages
 guides/reproducing-the-reference-classes
+guides/stability-selection-and-replication
 :::
 
 :::{toctree}
