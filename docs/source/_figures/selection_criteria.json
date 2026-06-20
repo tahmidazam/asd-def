@@ -1,0 +1,7 @@
+{
+  "figure": "select",
+  "source_stage": "select",
+  "source_run": "ab88110bae17a09a",
+  "source_git_commit": "1a1b950-dirty",
+  "figures_version": "0.3.0"
+}

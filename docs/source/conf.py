@@ -123,6 +123,7 @@ intersphinx_mapping = {
     "sqlalchemy": ("https://docs.sqlalchemy.org/en/20/", None),
     "pandas": ("https://pandas.pydata.org/docs/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "matplotlib": ("https://matplotlib.org/stable/", None),
 }
 
 # Types from dependencies without an intersphinx inventory: linking them is not possible,
@@ -130,6 +131,13 @@ intersphinx_mapping = {
 nitpick_ignore = [
     ("py:class", "tqdm.tqdm"),
     ("py:class", "StepMix"),
+    # Forward-reference artefacts of ``from __future__ import annotations`` in dscat's
+    # signatures: a type alias (``Version``) renders as the internal ``TypeAliasForwardRef``,
+    # and a class nested in a stringised return annotation (``FeatureRow``) renders quoted.
+    # Neither is resolvable as written, so both render as plain text rather than failing the
+    # strict build.
+    ("py:class", "TypeAliasForwardRef"),
+    ("py:class", "'dscat.model.FeatureRow'"),
 ]
 
 # -- MyST (Markdown) ---------------------------------------------------------

@@ -13,6 +13,13 @@ Reproduce the Litman autism classes and test their stability across age at diagn
 diagnostic era.
 :::
 
+:::{grid-item-card} figures
+:link: packages/figures/index
+:link-type: doc
+
+Render the analysis artefacts as Matplotlib figures for the manuscript.
+:::
+
 :::{grid-item-card} dscat
 :link: packages/dscat/index
 :link-type: doc
@@ -34,6 +41,7 @@ Build and live-preview this Sphinx site.
 :maxdepth: 2
 
 packages/analysis/index
+packages/figures/index
 packages/dscat/index
 packages/docs/index
 :::

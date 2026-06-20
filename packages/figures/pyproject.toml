@@ -1,0 +1,27 @@
+[project]
+name = "figures"
+version = "0.3.0"
+description = "Matplotlib figures for the Litman stability analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "analysis",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+    "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
+    "typer>=0.26.7",
+]
+
+[project.scripts]
+figures = "figures.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "figures"
+module-root = "src"
+
+[tool.uv.sources]
+analysis = { path = "../analysis" }

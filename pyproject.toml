@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "analysis>=0.2.0",
     "dscat",
+    "figures",
 ]
 
 [tool.uv]
@@ -23,6 +24,7 @@ prerelease = "if-necessary-or-explicit"
 dscat = { path = "packages/dscat" }
 docs = { path = "packages/docs" }
 analysis = { path = "packages/analysis" }
+figures = { path = "packages/figures" }
 
 [dependency-groups]
 dev = [
@@ -37,7 +39,7 @@ dev = [
 docs = ["docs"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/dscat/tests", "packages/analysis/tests"]
+testpaths = ["packages/dscat/tests", "packages/analysis/tests", "packages/figures/tests"]
 addopts = "-q"
 
 [tool.ty.src]
@@ -84,5 +86,6 @@ version_files = [
     "packages/dscat/pyproject.toml:^version",
     "packages/docs/pyproject.toml:^version",
     "packages/analysis/pyproject.toml:^version",
+    "packages/figures/pyproject.toml:^version",
 ]
 pre_bump_hooks = ["uv lock"]
