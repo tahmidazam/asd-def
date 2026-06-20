@@ -1,11 +1,14 @@
 # Reproducing the reference classes
 
-The first goal is to recover the four data-driven autism classes of Litman et al. (2025) on
-the SPARK release held here, and to name them as the authors did. That named fit is the
-fixed reference every later comparison is measured against, so it has to reproduce the
-published solution and align to the published classes cleanly. This guide describes the
-feature typing, the model, the per-class enrichment, and how the classes are named, then
-reports the reproduction result and its caveats.
+*This investigation rebuilds the four data-driven classes of Litman et al. (2025) on the SPARK release held here and names them as the authors did, so that every later test has a faithful, named reference to measure against.*
+
+The wider question is whether the four classes are a stable property of the phenotype or an
+artefact of fitting one mixture model to a pooled sample, which the later analysis tests by
+re-estimating the model within strata of age at diagnosis and diagnostic era. That test is
+only meaningful against a solid reference, so the first goal is to recover the four classes
+here and name them as the authors did. This investigation describes the feature typing, the
+model, the per-class enrichment, and how the classes are named, then reports the reproduction
+result, its uncertainty, and its caveats.
 
 ## Feature typing
 
@@ -97,12 +100,17 @@ delay, and Broadly affected), against the published 37, 34, 19, and 10. Every an
 so the four recovered classes map cleanly onto the four named classes.
 
 The overall seven-category profile correlation against the published figure is $r = 0.902$,
-which matches the authors' own SSC-replication value of $r = 0.927$. The per-class correlations
-are $r = 0.97$ for Mixed ASD with developmental delay and $r = 0.85$ for Social or behavioural;
-Broadly affected and Moderate challenges have saturated profiles (uniformly high and uniformly low
-respectively), so their per-class correlation is uninformative and they rest on the anchors.
-The main per-class divergence from the published profile is that Social or behavioural shows
-weaker social-communication and restricted-or-repetitive enrichment here than in the paper.
+taken over the full four-class, seven-category matrix (28 points), which matches the authors'
+own SSC-replication value of $r = 0.927$.
+
+The per-class correlations are $r = 0.97$ for Mixed ASD with developmental delay and $r = 0.85$
+for Social or behavioural. Each of these is taken over only the seven category points of one
+class, so it is a coarse, high-variance summary, read for direction rather than as a precise
+value. Broadly affected and Moderate challenges have saturated profiles (uniformly high and
+uniformly low respectively), so their per-class correlation is undefined and they rest on the
+anchors instead. The main per-class divergence from the published profile is that Social or
+behavioural shows weaker social-communication and restricted-or-repetitive enrichment here
+than in the paper.
 
 :::{figure} /_figures/reproduction.png
 :alt: Recovered class signatures against the published figure-1b profile, one panel per class
@@ -119,6 +127,22 @@ enrichment noted above; the recovered Broadly affected profile dips on the devel
 category where the published one is saturated.
 :::
 
+## How robust is the reproduction
+
+Resampling the 11,704 probands with replacement, with the fitted labels held fixed, and
+recomputing the correlation each time puts a 95 per cent interval of $[0.893, 0.916]$ on the
+overall $r$, over 500 resamples. The reproduction is therefore precise to about $\pm 0.01$ from
+sampling alone. The bootstrap holds the model fit fixed, so it captures the sampling
+variability in the signature rather than the variability from refitting the model; and the
+resolution of the figure-read target is a further source of uncertainty that this interval does
+not capture.
+
+The seven-category profile the correlation rests on is itself stable, which the
+[stability investigation](stability-selection-and-replication) shows directly: across 200
+re-initialisations and 50 random halves of the cohort, the profile reproduces against the
+reference at about 0.91 to 0.92, and no fit ever collapsed a class. The reproduction is
+therefore not an artefact of one fit or one sample.
+
 ## Caveats
 
 The reproduction is benchmarked on the published profile and proportions, not on a
@@ -130,5 +154,9 @@ so the correlation is read against the figure. The cohort is also larger than th
 (11,704 against 5,392), because the release is later and broader.
 
 With those caveats, the four classes reproduce with the correct structure, clean naming, and
-matching proportions, and this named fit stands as the reference for the planned stability
-work.
+matching proportions. This named fit is the fixed reference the stratified analysis is measured
+against: that work asks whether the same four classes survive re-estimation within strata of
+age at diagnosis and diagnostic era. Reproducibility is necessary for that test but is not the
+same as validity. A partition can reproduce across samples and still reflect parent-reported,
+deficit-framed measurement rather than a biological kind, a distinction the genetics arm and
+the construct-validity checks speak to and this investigation does not.

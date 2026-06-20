@@ -1,5 +1,7 @@
 # Stability, selection, and replication
 
+*This investigation tests how solid the reference solution is before the stratified work begins: how many classes the data support, whether the solution survives re-initialisation, resampling, and a second cohort, and how small a stratum can be before four-class recovery breaks down.*
+
 Reproducing the four classes is necessary but not sufficient: a partition can reproduce and
 still be an artefact of one fit, one initialisation, or one cohort. The second goal is to
 test how solid the reference solution is, three ways, before the stratified work begins. The
@@ -37,6 +39,14 @@ visually, with a reference line at four on every criterion panel, and hard-codes
 final model. The stage therefore reports the full criteria table and the component count that
 minimises each information criterion, leaving the four-class choice to the methods write-up.
 
+On SPARK 2026-03-23 the information criteria do not select four: they fall across the whole grid
+and reach their minimum at nine classes. This is the over-extraction these criteria are known to
+show at a large sample, where the likelihood gain from an extra class outweighs the penalty on
+the parameters it adds. The cross-validated log-likelihood, the out-of-sample measure, gains
+little past four classes, and the higher-class solutions degenerate, their smallest class falling
+towards a few per cent of the cohort. Four classes is retained as the authors chose it, by
+reading the criteria rather than by an automatic rule.
+
 :::{figure} /_figures/selection_criteria.png
 :alt: Model-selection criteria across one to ten latent classes
 :width: 100%
@@ -73,9 +83,9 @@ Both modes run on SPARK 2026-03-23 against the named reference fit. Multi-initia
 200 single-initialisation fits by log-likelihood and compares the best 100 to the reference;
 subsampling refits on 50 random halves of the cohort (about 5,850 probands each). The
 seven-category profile reproduces strongly under both: the mean overall correlation is 0.91
-across the multi-initialisation fits and 0.92 (standard deviation 0.05) across the subsamples.
-No fit collapsed a class in either mode (0 of 100 and 0 of 50), so the four-class solution is
-recovered every time.
+(standard deviation 0.09) across the multi-initialisation fits and 0.92 (standard deviation
+0.05) across the subsamples. No fit collapsed a class in either mode (0 of 100 and 0 of 50), so
+the four-class solution is recovered every time.
 
 The per-category correlations are uniformly high under subsampling, from 0.87 (disruptive
 behaviour) to 0.98 (anxiety or mood), with developmental at 0.94. That developmental figure
@@ -84,12 +94,21 @@ are measured the same way as in the reference, the developmental category is as 
 rest, so its weakness across cohorts is a property of the SSC milestone parsing, not of the
 class.
 
-The adjusted Rand index is more moderate, 0.63 across the multi-initialisation fits and 0.65
-(standard deviation 0.14) across the subsamples. The two measures answer different questions:
-the profile correlation asks whether the class definitions reproduce, and they do; the Rand
-index asks whether individual probands keep the same class, and agreement there is partial
-because probands near a class boundary move between fits. The reference classes are stable as
-structures, with softer membership at the edges.
+The adjusted Rand index is more moderate, 0.63 (standard deviation 0.14) across the
+multi-initialisation fits and 0.65 (standard deviation 0.14) across the subsamples. It is
+chance-corrected, so 0 is the agreement expected at random and 1 is identical assignment; a
+value near 0.65 is therefore substantial agreement, not near-perfect. The two measures answer
+different questions: the profile correlation asks whether the class definitions reproduce, and
+they do; the Rand index asks whether individual probands keep the same class, and agreement
+there is only partial because probands near a class boundary move between fits.
+
+Stable class profiles with softer boundary membership is the pattern a continuum with regions
+would produce: the regions (the profiles) are reproducible, while a proband sitting between two
+regions is assigned differently from fit to fit. This result does not decide between four
+discrete classes and a graded continuum with four regions; it shows the question is live, and
+it is one the planned sensitivity work tests directly, by comparing the four-class model
+against a lower-dimensional severity gradient. The reference classes are stable as structures,
+with membership that is softer at the edges.
 
 :::{figure} /_figures/stability.png
 :alt: Profile and membership stability of the reference fit under subsampling
@@ -177,10 +196,18 @@ observed value is read against chance.
 
 On the SSC 15.3 release the SPARK model projects onto 771 probands, across the 100 features the
 two cohorts share, and the seven-category profiles correlate at $r = 0.76$. The permutation null
-puts that value beyond chance: among the label shuffles that yield a defined correlation, none
-reaches the observed $r$, giving $p = 0.005$. A shuffle that flattens a class profile gives an
-undefined correlation and drops from the null, so the $p$-value rests on the shuffles that
-produced a usable profile.
+puts that value beyond chance: of the 188 label shuffles that yield a defined correlation, none
+reaches the observed $r$, so the calibrated $p$-value is $(1 + 0) / (1 + 188) = 0.005$. A
+shuffle that flattens a class profile gives an undefined correlation and drops from the null, so
+the $p$-value rests on the shuffles that produced a usable profile; with more permutations the
+bound would tighten, but it already places the observed correlation outside the null.
+
+Resampling the 771 SSC probands, again with the projected labels held fixed, puts a 95 per cent
+interval of $[0.62, 0.82]$ on the overall $r$, over 500 resamples. That interval is much wider
+than the reproduction's $[0.89, 0.92]$, because the SSC sample is small and one class holds
+about 1 per cent of it. The replication is therefore significant but imprecise: clearly above
+the permutation null, and with its upper bound below the authors' published $r = 0.927$, a gap
+the developmental category (below) accounts for.
 
 :::{figure} /_figures/replication.png
 :alt: Cross-cohort replication of the class signatures between SPARK and the SSC
@@ -239,3 +266,22 @@ where the projection departs most from the published profile. And the shared-fea
 complete-case reduction leaves a sample below the full SSC release, so the replication is
 reported with its sample size and read against the published value rather than offered as an
 exact reproduction.
+
+## What this establishes
+
+Taken together, the reproduction and these checks show the pooled reference is solid enough at
+the profile level to anchor the stratified test. That matters because the test compares
+stratum-specific fits against this reference, and a fragile baseline would make any drift
+uninterpretable. The class profiles reproduce across initialisations, resamples, and, for the
+instrument-based categories, a second cohort; the membership is softer at the boundaries; and
+the stratum-size floor sets the lower bound on how finely the cohort can be split.
+
+What comes next is the stratified analysis itself. With the stratification plan, the bins, the
+drift metrics, the null, and the decision thresholds frozen in advance so the result is
+confirmatory, the model is re-estimated within strata of age at diagnosis and diagnostic era,
+each stratum's classes are aligned to this named reference, and the drift is read against two
+baselines: a permutation null that re-fits within strata of the same sizes formed by shuffling
+the stratum labels, and the distance between distinct reference classes. The era axis carries
+its own threat, the lag between when the phenotype is measured and when the diagnosis was made,
+which is quantified and tested rather than assumed away. Once the genotype data are available,
+the same strata are the setting for testing whether the genotype-to-phenotype mapping drifts.

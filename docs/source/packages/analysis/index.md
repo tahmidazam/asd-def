@@ -77,9 +77,9 @@ and the entries left missing.
 
 ## Investigations
 
-What the analysis finds: the reproduction of the reference classes, the tests of how solid that
-solution is, and the reading of the results with what comes next. Each investigation embeds the
-figures it reports.
+What the analysis finds: the reproduction of the reference classes, and the tests of how solid
+that solution is. Each investigation opens with its purpose, embeds the figures it reports, and
+reads the results with what they set up next.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -98,14 +98,6 @@ reproduction result.
 
 How many classes the data support, whether the solution survives re-initialisation and
 resampling, the minimum viable stratum size, and cross-cohort replication.
-:::
-
-:::{grid-item-card} Discussion and next steps
-:link: investigations/discussion-and-next-steps
-:link-type: doc
-
-The results read together: what the reproduction and stability work establishes, what stays
-open, and the stratified analysis and genetics arm still to come.
 :::
 
 ::::
@@ -141,7 +133,6 @@ guides/parsing-ssc-milestone-ages
 
 investigations/reproducing-the-reference-classes
 investigations/stability-selection-and-replication
-investigations/discussion-and-next-steps
 :::
 
 :::{toctree}
