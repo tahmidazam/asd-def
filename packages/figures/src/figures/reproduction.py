@@ -143,7 +143,13 @@ def reproduction_figure(
             style.panel_letter(ax, letter)
 
         overall = float(alignment["overall_correlation"])
+        ci = alignment.get("overall_correlation_ci")
+        ci_text = ""
+        if isinstance(ci, dict) and ci.get("n_valid"):
+            ci_text = f" [{float(ci['ci_low']):.2f}, {float(ci['ci_high']):.2f}]"
         held = "all anchors hold" if alignment.get("anchors_hold") else "anchors do not all hold"
-        fig.suptitle(f"Reproducing the four classes (overall $r = {overall:.2f}$, {held})", y=1.0)
+        fig.suptitle(
+            f"Reproducing the four classes (overall $r = {overall:.2f}${ci_text}, {held})", y=1.0
+        )
         fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
     return fig
