@@ -81,6 +81,30 @@ showing them at the terminal. The reference fit shows StepMix's restart progress
 the best log-likelihood so far, and that progress is written to the log, so a long run
 started in one session can be inspected later.
 
+## Resuming an interrupted run
+
+The cache works at the granularity of a whole stage: a run is reused only once it has
+finished cleanly, so a stage interrupted partway leaves no reusable output and re-running it
+starts over. That is fine for the short stages, but the multi-seed loops can run for tens of
+minutes to hours, and losing all of it to one interrupt is wasteful. Four stages therefore
+checkpoint their progress: `select`, both modes of `stability`, and `nmin`.
+
+Each records one unit of work as it completes, appended to a `*.checkpoint.jsonl` file in the
+run directory: a seeded iteration of the selection grid, one single-initialisation fit, one
+subsample replicate, or one comparison to the reference. Re-running the same command (the
+same parameters, hence the same run directory) reads the completed units back and continues
+from the first one that is missing. Because each unit's seed is derived from its index, a
+resumed run reproduces exactly what an uninterrupted run would have computed; the checkpoint
+changes only how much is recomputed, never the result.
+
+The unit of resumption is one line. A process killed mid-write can leave a torn final line,
+which is dropped and that last unit recomputed, so a half-written record is never read back.
+The multi-initialisation run keeps two checkpoints, one for the fits and one for the
+comparisons; it does not store each fit's labels, so a comparison whose fit was restored from
+a checkpoint refits that seed on demand (cheap, since only the best fits are compared). On
+clean completion the checkpoints are removed, the Parquet outputs having superseded them, and
+`--force` clears them before recomputing, so a forced run always starts fresh.
+
 ## Determinism and dependencies
 
 Every fit takes an explicit seed, recorded in the manifest, so a run is reproducible given

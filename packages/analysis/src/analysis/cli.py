@@ -13,7 +13,7 @@ from pathlib import Path
 
 import typer
 
-from analysis import cache, config, features, model
+from analysis import cache, checkpoint, config, features, model
 from analysis.cohort import build_matrix, get_cohort
 from analysis.cohort.schema import load_feature_list
 from analysis.features import Typing
@@ -350,6 +350,8 @@ def select(
             typer.echo(f"select: cache hit {cache.short_hash(ctx.run_hash)}")
             typer.echo(f"  {metrics}")
             return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
         matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
         ctx.log.info("model selection over K=%s, %d iterations", k_values, n_iterations)
         result = selection.run_selection(
@@ -360,9 +362,11 @@ def select(
             n_init=n_init,
             base_seed=seed,
             cv=cv,
+            checkpoint_dir=ctx.run_dir,
         )
         cache.save_frame(result.per_iteration, ctx.path("per_iteration.parquet"))
         cache.save_frame(result.summary, ctx.path("summary.parquet"))
+        checkpoint.clear_checkpoints(ctx.run_dir)
         best = {
             "bic": int(result.summary.loc[result.summary["bic_mean"].idxmin(), "n_components"]),
             "aic": int(result.summary.loc[result.summary["aic_mean"].idxmin(), "n_components"]),
@@ -440,6 +444,8 @@ def stability(
             typer.echo(f"stability ({mode}): cache hit {cache.short_hash(ctx.run_hash)}")
             typer.echo(f"  {metrics}")
             return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
         if mode == "multi-init":
             ctx.log.info("multi-init stability: %d fits, comparing top %d", n_fits, top_k)
             summary = stability_mod.run_multi_init_stability(
@@ -452,6 +458,7 @@ def stability(
                 top_k=top_k,
                 n_components=n_components,
                 base_seed=seed,
+                checkpoint_dir=ctx.run_dir,
             )
         else:
             ctx.log.info("subsampling stability: %d reps at frac=%.2f", n_reps, frac)
@@ -466,11 +473,13 @@ def stability(
                 n_init=sub_n_init,
                 n_components=n_components,
                 base_seed=seed,
+                checkpoint_dir=ctx.run_dir,
             )
         cache.save_frame(summary.fits, ctx.path("fits.parquet"))
         cache.save_frame(summary.comparisons, ctx.path("comparisons.parquet"))
         cache.save_frame(summary.overlap_mean, ctx.path("overlap_mean.parquet"))
         cache.save_json(summary.aggregate, ctx.path("aggregate.json"))
+        checkpoint.clear_checkpoints(ctx.run_dir)
         ctx.metrics = {
             k: summary.aggregate[k]
             for k in ("overall_correlation_mean", "adjusted_rand_index_mean", "n_compared")
@@ -526,6 +535,8 @@ def nmin(
             metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
             typer.echo(f"nmin: cache hit {cache.short_hash(ctx.run_hash)}; {metrics}")
             return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
         ctx.log.info("nmin sweep over sizes %s, benchmark r>=%.2f", size_list, benchmark)
         result = stability_mod.run_nmin_sweep(
             matrix,
@@ -539,13 +550,29 @@ def nmin(
             n_init=sweep_n_init,
             n_components=n_components,
             base_seed=seed,
+            checkpoint_dir=ctx.run_dir,
         )
         cache.save_frame(result.per_fit, ctx.path("per_fit.parquet"))
         cache.save_frame(result.summary, ctx.path("summary.parquet"))
-        ctx.metrics = {"n_min": result.n_min, "benchmark": benchmark, "sizes": size_list}
-        ctx.log.info("minimum viable stratum size: %s", result.n_min)
+        checkpoint.clear_checkpoints(ctx.run_dir)
+        ctx.metrics = {
+            "n_min": result.n_min,
+            "floor": result.floor,
+            "floor_ci90": list(result.floor_ci) if result.floor_ci else None,
+            "benchmark": benchmark,
+            "sizes": size_list,
+        }
+        ctx.log.info(
+            "recovery floor (isotonic): %s, 90%% CI %s; smallest clearing size: %s",
+            result.floor,
+            result.floor_ci,
+            result.n_min,
+        )
     typer.echo(f"nmin {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
-    typer.echo(f"  minimum viable stratum size (r>={benchmark}): {ctx.metrics['n_min']}")
+    typer.echo(
+        f"  recovery floor (isotonic, r>={benchmark}): {result.floor}  90% CI {result.floor_ci}"
+    )
+    typer.echo(f"  smallest clearing size (cleared.min): {result.n_min}")
 
 
 @app.command()

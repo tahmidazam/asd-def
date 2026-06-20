@@ -26,14 +26,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from numpy.linalg import LinAlgError
 from scipy.stats import chi2
 from sklearn.model_selection import GridSearchCV
 from stepmix.stepmix import StepMix
 
 from analysis import config
+from analysis.checkpoint import SUFFIX, CheckpointLog
 from analysis.cohort import CohortMatrix
 from analysis.features import Typing
 from analysis.model import prepare_inputs
@@ -143,6 +146,34 @@ def per_fit_criteria(
     }
 
 
+def _fit_model(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    *,
+    n_components: int,
+    n_init: int,
+    seed: int,
+) -> StepMix:
+    """Fit one StepMix GFMM for the selection grid.
+
+    Raises :class:`numpy.linalg.LinAlgError` when the structural covariate M-step fails to
+    converge; :func:`run_selection` catches that and records the fit as missing.
+    """
+    model = StepMix(
+        n_components=n_components,
+        measurement=descriptor,
+        structural="covariate",
+        n_steps=config.DEFAULT_N_STEPS,
+        n_init=n_init,
+        random_state=seed,
+        progress_bar=0,
+        verbose=0,
+    )
+    model.fit(measurement, covariates)
+    return model
+
+
 def validation_log_likelihood(
     measurement: pd.DataFrame,
     covariates: pd.DataFrame,
@@ -238,8 +269,21 @@ def run_selection(
     n_init: int,
     base_seed: int = 0,
     cv: int = 3,
+    checkpoint_dir: Path | None = None,
 ) -> SelectionResult:
     """Run the component-count grid over several seeds and summarise the criteria.
+
+    Each seeded iteration is one resumable unit: when ``checkpoint_dir`` is given, an
+    iteration's criterion rows are appended to a checkpoint as it completes, and a re-run over
+    the same directory continues from the first iteration that is missing. Because iteration
+    ``i`` always uses seed ``base_seed + i``, a resumed run reproduces what an uninterrupted
+    run would have computed.
+
+    A single-initialisation fit can fail to converge when the structural covariate M-step hits
+    a near-singular design, most often at higher class counts. Such a fit has its criteria
+    recorded as ``nan`` rather than raising, so one bad fit does not lose the whole grid; the
+    per-component summary skips those entries. This matches the cross-validation pass, where
+    scikit-learn already scores a failed fold as ``nan``.
 
     Parameters
     ----------
@@ -257,6 +301,10 @@ def run_selection(
         Seeds are ``base_seed`` to ``base_seed + n_iterations - 1``.
     cv : int, default 3
         Cross-validation folds for the validation log-likelihood.
+    checkpoint_dir : Path, optional
+        Directory for the resumable checkpoint. When ``None`` the run is held in memory and
+        nothing is written, so an interrupt loses the work. The directory must be specific to
+        these parameters (the caller passes the stage's content-addressed run directory).
 
     Returns
     -------
@@ -266,36 +314,48 @@ def run_selection(
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
     k_list = [int(k) for k in k_values]
 
-    records: list[dict[str, float]] = []
+    log = CheckpointLog(checkpoint_dir / f"select{SUFFIX}") if checkpoint_dir else None
+    done = log.load() if log else []
+    records: list[dict[str, float]] = [row for iteration_rows in done for row in iteration_rows]
+
     # One unit per (iteration, K) fit plus one unit per iteration for the CV pass.
-    total = n_iterations * (len(k_list) + 1)
-    with task_bar(total, "select") as bar:
-        for iteration in range(n_iterations):
+    units_per_iteration = len(k_list) + 1
+    total = n_iterations * units_per_iteration
+    with task_bar(total, "select", initial=len(done) * units_per_iteration) as bar:
+        for iteration in range(len(done), n_iterations):
             seed = base_seed + iteration
             val_ll = validation_log_likelihood(
                 measurement, covariates, descriptor, k_list, seed=seed, n_init=n_init, cv=cv
             )
             bar.update(1)
             lmr = lmr_lrt_proxy(val_ll)
+            iteration_rows: list[dict[str, float]] = []
             for k in k_list:
-                model = StepMix(
-                    n_components=k,
-                    measurement=descriptor,
-                    structural="covariate",
-                    n_steps=config.DEFAULT_N_STEPS,
-                    n_init=n_init,
-                    random_state=seed,
-                    progress_bar=0,
-                    verbose=0,
-                )
-                model.fit(measurement, covariates)
+                try:
+                    model = _fit_model(
+                        measurement,
+                        covariates,
+                        descriptor,
+                        n_components=k,
+                        n_init=n_init,
+                        seed=seed,
+                    )
+                    criteria = per_fit_criteria(model, measurement, covariates)
+                except LinAlgError:
+                    # The structural M-step did not converge (a near-singular covariate
+                    # design, most often at higher K); record the fit as missing and carry on,
+                    # as the cross-validation pass already does through its nan error score.
+                    criteria = dict.fromkeys(PER_FIT_CRITERIA, float("nan"))
                 row: dict[str, float] = {"iteration": iteration, "n_components": k}
-                row.update(per_fit_criteria(model, measurement, covariates))
+                row.update(criteria)
                 row["val_log_likelihood"] = val_ll[k]
                 row["lmr_lrt_p"] = lmr.get(k, float("nan"))
-                records.append(row)
+                iteration_rows.append(row)
                 bar.set_postfix(k=k, bic=f"{row['bic']:.0f}")
                 bar.update(1)
+            if log:
+                log.append(iteration_rows)
+            records.extend(iteration_rows)
 
     per_iteration = pd.DataFrame.from_records(records)
     criteria = [*PER_FIT_CRITERIA, "val_log_likelihood", "lmr_lrt_p"]

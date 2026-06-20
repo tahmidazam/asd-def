@@ -23,20 +23,30 @@ recording where four-class recovery degrades: the smallest class proportion, the
 relative entropy, the average latent-class posterior probability, and the profile
 correlation to the full-sample reference. The size below which the profile correlation falls
 past the reproduction benchmark is the floor for the stratification bins.
+
+A fit can fail to converge when the structural covariate M-step meets a near-singular design,
+most often at higher class counts on a small subsample. Rather than abort the stage, a failed
+fit is recorded as missing (``_try_fit``): the multi-initialisation run drops it before
+ranking, and the subsampling and minimum-size sweeps mark its replicate degenerate, so it
+falls out of the aggregate means.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from numpy.linalg import LinAlgError
+from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import adjusted_rand_score
 from stepmix.stepmix import StepMix
 
 from analysis import config
 from analysis.align import greedy_overlap_align
+from analysis.checkpoint import SUFFIX, CheckpointLog
 from analysis.cohort import CohortMatrix
 from analysis.enrich import (
     SEVEN_CATEGORIES,
@@ -120,15 +130,26 @@ class NminResult:
         Mean recovery metrics per target size.
     n_min : int or None
         The smallest target size whose mean profile correlation holds at or above the
-        benchmark, or ``None`` when no swept size clears it.
+        benchmark, or ``None`` when no swept size clears it. Kept for continuity; it reads one
+        clearing size off a possibly non-monotone curve, so prefer ``floor`` below.
     benchmark : float
         The profile-correlation threshold used.
+    floor : int or None
+        The recovery floor from a monotone (isotonic) fit of correlation against log-size: the
+        smallest size at which the fitted recovery reaches the benchmark. ``None`` when the
+        fitted curve does not reach the benchmark anywhere in the swept range. Pools every fit,
+        so it is robust to the scatter a small replicate count produces.
+    floor_ci : tuple of int or None
+        The 90 per cent bootstrap confidence interval (lower, upper) for ``floor``, or ``None``
+        when too few resamples cross to form one. The upper bound is the conservative bin floor.
     """
 
     per_fit: pd.DataFrame
     summary: pd.DataFrame
     n_min: int | None
     benchmark: float
+    floor: int | None
+    floor_ci: tuple[int, int] | None
 
 
 def _fit(
@@ -153,6 +174,32 @@ def _fit(
     )
     model.fit(measurement, covariates)
     return model
+
+
+def _try_fit(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    *,
+    n_components: int,
+    n_init: int,
+    seed: int,
+) -> StepMix | None:
+    """Fit a model, returning ``None`` when the structural M-step fails to converge.
+
+    The covariate emission inverts a Hessian through the pseudo-inverse, which raises
+    :class:`numpy.linalg.LinAlgError` (SVD non-convergence) when the design is near-singular,
+    most often at higher class counts on a small subsample. A fit with few or no restarts has
+    nothing to fall back on, so the caller records that fit as missing rather than letting one
+    failure crash the whole stage, mirroring how the cross-validated selection pass already
+    degrades a failed fold to ``nan``.
+    """
+    try:
+        return _fit(
+            measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+        )
+    except LinAlgError:
+        return None
 
 
 def _labels(model: StepMix, measurement: pd.DataFrame) -> pd.Series:
@@ -325,6 +372,49 @@ def _comparison_row(seed: int, avg_ll: float, comparison: Comparison) -> dict[st
     return row
 
 
+def _overlap_payload(comparison: Comparison) -> list[list[float]] | None:
+    """Serialise a comparison's overlap matrix for a checkpoint, or ``None`` if degenerate.
+
+    A degenerate fit contributes no overlap to the aggregate (a collapsed class has no
+    probands to overlap), matching the in-memory path that skips it.
+    """
+    if comparison.degenerate:
+        return None
+    return comparison.overlap.to_numpy().tolist()
+
+
+def _overlap_from_payload(data: list[list[float]], n_components: int) -> pd.DataFrame:
+    """Rebuild an overlap matrix from its checkpointed nested list.
+
+    The frame matches :func:`class_overlap_matrix`: a source-class index named ``source`` and
+    integer reference-class columns, so the rebuilt matrices aggregate identically.
+    """
+    return pd.DataFrame(
+        np.array(data, dtype=float),
+        index=pd.Index(range(n_components), name="source"),
+        columns=range(n_components),
+    )
+
+
+def _failed_comparison_row(seed: int) -> dict[str, object]:
+    """Return a stand-in comparison row for a fit that did not converge.
+
+    Marked degenerate so it is dropped from the aggregate means, the same as a fit that
+    collapsed a class, with its correlations and Rand index left undefined.
+    """
+    row: dict[str, object] = {
+        "seed": seed,
+        "avg_log_likelihood": float("nan"),
+        "overall_correlation": None,
+        "adjusted_rand_index": float("nan"),
+        "smallest_class_proportion": float("nan"),
+        "degenerate": True,
+    }
+    for cat in SEVEN_CATEGORIES:
+        row[f"{cat}_r"] = None
+    return row
+
+
 def run_multi_init_stability(
     matrix: CohortMatrix,
     typing: Typing,
@@ -336,8 +426,21 @@ def run_multi_init_stability(
     top_k: int,
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
+    checkpoint_dir: Path | None = None,
 ) -> StabilitySummary:
     """Run many single-init fits, rank by log-likelihood, and compare the best to the reference.
+
+    The run has two resumable phases when ``checkpoint_dir`` is given. Each fit appends its
+    seed and log-likelihood to a checkpoint as it completes, and each top-``top_k`` comparison
+    appends its result to a second checkpoint; a re-run over the same directory continues from
+    the first missing fit and the first missing comparison. The per-fit labels are not stored:
+    a comparison whose fit was restored from a prior run refits that seed on demand (the same
+    seed and single initialisation reproduce it), which keeps the checkpoint to scalars while
+    still resuming exactly.
+
+    A single-initialisation fit that fails to converge (see ``_try_fit``) is kept in the
+    ranked table with a ``nan`` log-likelihood and dropped before the top-``top_k`` selection,
+    so one bad fit never crashes the run and only well-formed fits are compared.
 
     Parameters
     ----------
@@ -360,6 +463,9 @@ def run_multi_init_stability(
         Number of classes.
     base_seed : int, optional
         Seeds are ``base_seed`` to ``base_seed + n_fits - 1``.
+    checkpoint_dir : Path, optional
+        Directory for the resumable checkpoints. When ``None`` the run is held in memory and
+        an interrupt loses the work. The directory must be specific to these parameters.
 
     Returns
     -------
@@ -369,42 +475,87 @@ def run_multi_init_stability(
     """
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
 
-    fit_records: list[dict[str, object]] = []
+    fit_log = CheckpointLog(checkpoint_dir / f"fits{SUFFIX}") if checkpoint_dir else None
+    done_fits = fit_log.load() if fit_log else []
+    fit_records: list[dict[str, object]] = list(done_fits)
+    # Labels are kept only for fits computed in this run; a fit restored from the checkpoint
+    # is refit on demand in the comparison phase, so the checkpoint holds scalars, not vectors.
     labels_by_seed: dict[int, pd.Series] = {}
-    with task_bar(n_fits, "stability:multi-init") as bar:
-        for i in range(n_fits):
+    best_ll = float("-inf")
+    with task_bar(n_fits, "stability:multi-init", initial=len(done_fits)) as bar:
+        for i in range(len(done_fits), n_fits):
             seed = base_seed + i
-            model = _fit(
+            model = _try_fit(
                 measurement, covariates, descriptor, n_components=n_components, n_init=1, seed=seed
             )
-            labels = _labels(model, measurement)
-            avg_ll = float(model.score(measurement, covariates))
-            labels_by_seed[seed] = labels
-            fit_records.append(
-                {"seed": seed, "avg_log_likelihood": avg_ll, "converged": bool(model.converged_)}
-            )
-            bar.set_postfix(best_ll=f"{max(r['avg_log_likelihood'] for r in fit_records):.1f}")
+            if model is None:
+                avg_ll = float("nan")
+                converged = False
+            else:
+                avg_ll = float(model.score(measurement, covariates))
+                best_ll = max(best_ll, avg_ll)
+                labels_by_seed[seed] = _labels(model, measurement)
+                converged = bool(model.converged_)
+            record: dict[str, object] = {
+                "seed": seed,
+                "avg_log_likelihood": avg_ll,
+                "converged": converged,
+            }
+            if fit_log:
+                fit_log.append(record)
+            fit_records.append(record)
+            if best_ll != float("-inf"):
+                bar.set_postfix(best_ll=f"{best_ll:.1f}")
             bar.update(1)
 
     fits = pd.DataFrame.from_records(fit_records).sort_values(
         "avg_log_likelihood", ascending=False, ignore_index=True
     )
-    best_seeds = fits.head(top_k)["seed"].tolist()
+    # A fit that failed to converge has a nan log-likelihood; drop it before ranking, so only
+    # well-formed fits are compared to the reference.
+    best_seeds = [
+        int(seed)
+        for seed in fits.dropna(subset=["avg_log_likelihood"]).head(top_k)["seed"].tolist()
+    ]
 
-    rows: list[dict[str, object]] = []
-    overlaps: list[pd.DataFrame] = []
-    with task_bar(len(best_seeds), "stability:compare") as bar:
-        for seed in best_seeds:
+    cmp_log = CheckpointLog(checkpoint_dir / f"compare{SUFFIX}") if checkpoint_dir else None
+    done_cmps = cmp_log.load() if cmp_log else []
+    done_seeds = {int(entry["row"]["seed"]) for entry in done_cmps}
+    rows: list[dict[str, object]] = [entry["row"] for entry in done_cmps]
+    overlaps: list[pd.DataFrame] = [
+        _overlap_from_payload(entry["overlap"], n_components)
+        for entry in done_cmps
+        if entry["overlap"] is not None
+    ]
+    remaining = [seed for seed in best_seeds if seed not in done_seeds]
+    with task_bar(len(best_seeds), "stability:compare", initial=len(done_cmps)) as bar:
+        for seed in remaining:
             avg_ll = float(fits.loc[fits["seed"] == seed, "avg_log_likelihood"].iloc[0])
+            labels = labels_by_seed.get(seed)
+            if labels is None:
+                labels = _labels(
+                    _fit(
+                        measurement,
+                        covariates,
+                        descriptor,
+                        n_components=n_components,
+                        n_init=1,
+                        seed=seed,
+                    ),
+                    measurement,
+                )
             comparison = compare_to_reference(
                 measurement,
-                labels_by_seed[seed],
+                labels,
                 reference_labels,
                 reference_enrichment,
                 category_map,
                 n_components=n_components,
             )
-            rows.append(_comparison_row(seed, avg_ll, comparison))
+            row = _comparison_row(seed, avg_ll, comparison)
+            if cmp_log:
+                cmp_log.append({"row": row, "overlap": _overlap_payload(comparison)})
+            rows.append(row)
             if not comparison.degenerate:
                 overlaps.append(comparison.overlap)
             bar.update(1)
@@ -428,6 +579,7 @@ def run_subsampling_stability(
     n_init: int = 20,
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
+    checkpoint_dir: Path | None = None,
 ) -> StabilitySummary:
     """Refit on random subsamples and compare each back to the reference.
 
@@ -454,6 +606,9 @@ def run_subsampling_stability(
         Number of classes.
     base_seed : int, optional
         Seeds are ``base_seed`` to ``base_seed + n_reps - 1``.
+    checkpoint_dir : Path, optional
+        Directory for the resumable checkpoint. When ``None`` the run is held in memory and an
+        interrupt loses the work. The directory must be specific to these parameters.
 
     Returns
     -------
@@ -462,14 +617,20 @@ def run_subsampling_stability(
     """
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
 
-    fit_records: list[dict[str, object]] = []
-    rows: list[dict[str, object]] = []
-    overlaps: list[pd.DataFrame] = []
-    with task_bar(n_reps, "stability:subsample") as bar:
-        for i in range(n_reps):
+    log = CheckpointLog(checkpoint_dir / f"subsample{SUFFIX}") if checkpoint_dir else None
+    done = log.load() if log else []
+    fit_records: list[dict[str, object]] = [entry["fit"] for entry in done]
+    rows: list[dict[str, object]] = [entry["row"] for entry in done]
+    overlaps: list[pd.DataFrame] = [
+        _overlap_from_payload(entry["overlap"], n_components)
+        for entry in done
+        if entry["overlap"] is not None
+    ]
+    with task_bar(n_reps, "stability:subsample", initial=len(done)) as bar:
+        for i in range(len(done), n_reps):
             seed = base_seed + i
             index = measurement.sample(frac=frac, random_state=seed).index
-            model = _fit(
+            model = _try_fit(
                 measurement.loc[index],
                 covariates.loc[index],
                 descriptor,
@@ -477,22 +638,37 @@ def run_subsampling_stability(
                 n_init=n_init,
                 seed=seed,
             )
-            labels = _labels(model, measurement.loc[index])
-            avg_ll = float(model.score(measurement.loc[index], covariates.loc[index]))
-            fit_records.append(
-                {"seed": seed, "avg_log_likelihood": avg_ll, "converged": bool(model.converged_)}
-            )
-            comparison = compare_to_reference(
-                measurement.loc[index],
-                labels,
-                reference_labels,
-                reference_enrichment,
-                category_map,
-                n_components=n_components,
-            )
-            rows.append(_comparison_row(seed, avg_ll, comparison))
-            if not comparison.degenerate:
-                overlaps.append(comparison.overlap)
+            overlap_payload: list[list[float]] | None
+            if model is None:
+                avg_ll = float("nan")
+                converged = False
+                row = _failed_comparison_row(seed)
+                overlap_payload = None
+            else:
+                labels = _labels(model, measurement.loc[index])
+                avg_ll = float(model.score(measurement.loc[index], covariates.loc[index]))
+                converged = bool(model.converged_)
+                comparison = compare_to_reference(
+                    measurement.loc[index],
+                    labels,
+                    reference_labels,
+                    reference_enrichment,
+                    category_map,
+                    n_components=n_components,
+                )
+                row = _comparison_row(seed, avg_ll, comparison)
+                overlap_payload = _overlap_payload(comparison)
+                if not comparison.degenerate:
+                    overlaps.append(comparison.overlap)
+            fit_record: dict[str, object] = {
+                "seed": seed,
+                "avg_log_likelihood": avg_ll,
+                "converged": converged,
+            }
+            if log:
+                log.append({"fit": fit_record, "row": row, "overlap": overlap_payload})
+            fit_records.append(fit_record)
+            rows.append(row)
             bar.update(1)
 
     fits = pd.DataFrame.from_records(fit_records)
@@ -502,6 +678,72 @@ def run_subsampling_stability(
     aggregate["frac"] = float(frac)
     aggregate["n_init"] = int(n_init)
     return StabilitySummary(fits, comparisons, overlap_mean, aggregate)
+
+
+def estimate_floor(
+    per_fit: pd.DataFrame,
+    benchmark: float,
+    *,
+    n_bootstrap: int = 1000,
+    seed: int = 0,
+) -> tuple[int | None, tuple[int, int] | None]:
+    r"""Estimate the recovery floor by isotonic regression with a bootstrap interval.
+
+    Fits a monotone (non-decreasing) regression of the per-fit profile correlation on
+    :math:`\log_{10}` size, then reads the smallest size at which the fitted recovery reaches
+    ``benchmark``. Because recovery improves with sample size in expectation, the monotone fit
+    irons out the scatter a small replicate count produces, so the estimate is stable where the
+    smallest-clearing-size rule is not. A fit-level bootstrap gives a percentile interval; its
+    upper bound is the conservative bin floor.
+
+    Parameters
+    ----------
+    per_fit : pandas.DataFrame
+        One row per fit, with ``size`` and ``overall_correlation``. Rows whose correlation is
+        missing (a fit that collapsed a class) are dropped.
+    benchmark : float
+        The profile-correlation threshold that defines recovery.
+    n_bootstrap : int, default 1000
+        Fit-level bootstrap resamples for the interval.
+    seed : int, default 0
+        Seed for the bootstrap resampling.
+
+    Returns
+    -------
+    tuple
+        ``(floor, (lower, upper))``. ``floor`` is the crossing size, or ``None`` when the
+        fitted curve does not reach the benchmark in the swept range. The interval is ``None``
+        when fewer than half the resamples cross.
+    """
+    data = per_fit.dropna(subset=["overall_correlation"])
+    sizes = data["size"].to_numpy(dtype=float)
+    correlation = data["overall_correlation"].to_numpy(dtype=float)
+    if len(data) < 3 or len(np.unique(sizes)) < 2:
+        return None, None
+    log_sizes = np.log10(sizes)
+    grid = np.linspace(log_sizes.min(), log_sizes.max(), 200)
+
+    def crossing(x: np.ndarray, y: np.ndarray) -> float | None:
+        fitted = IsotonicRegression(increasing=True, out_of_bounds="clip").fit(x, y).predict(grid)
+        above = grid[fitted >= benchmark]
+        return float(above.min()) if above.size else None
+
+    point = crossing(log_sizes, correlation)
+    floor = int(round(10**point)) if point is not None else None
+
+    rng = np.random.default_rng(seed)
+    n = len(data)
+    resampled: list[float] = []
+    for _ in range(n_bootstrap):
+        idx = rng.integers(0, n, n)
+        crossed = crossing(log_sizes[idx], correlation[idx])
+        if crossed is not None:
+            resampled.append(crossed)
+    floor_ci: tuple[int, int] | None = None
+    if len(resampled) >= n_bootstrap // 2:
+        lower, upper = np.percentile(resampled, [5, 95])
+        floor_ci = (int(round(10**lower)), int(round(10**upper)))
+    return floor, floor_ci
 
 
 def run_nmin_sweep(
@@ -517,6 +759,7 @@ def run_nmin_sweep(
     n_init: int = 20,
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
+    checkpoint_dir: Path | None = None,
 ) -> NminResult:
     """Refit at descending sample sizes to fix the minimum viable stratum size.
 
@@ -551,30 +794,47 @@ def run_nmin_sweep(
         Number of classes.
     base_seed : int, optional
         Base seed; each (size, replicate) gets a distinct derived seed.
+    checkpoint_dir : Path, optional
+        Directory for the resumable checkpoint. When ``None`` the run is held in memory and an
+        interrupt loses the work. The directory must be specific to these parameters.
 
     Returns
     -------
     NminResult
-        The per-fit metrics, the per-size summary, and the minimum viable size.
+        The per-fit metrics, the per-size summary, the smallest-clearing-size ``n_min``, and
+        the isotonic recovery floor with its bootstrap interval.
     """
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
     total_rows = len(measurement)
     sizes = [int(s) for s in sizes if int(s) <= total_rows]
 
-    records: list[dict[str, object]] = []
-    with task_bar(len(sizes) * n_reps, "nmin") as bar:
-        for size_index, size in enumerate(sizes):
-            for rep in range(n_reps):
-                seed = base_seed + size_index * 1000 + rep
-                index = measurement.sample(n=size, random_state=seed).index
-                model = _fit(
-                    measurement.loc[index],
-                    covariates.loc[index],
-                    descriptor,
-                    n_components=n_components,
-                    n_init=n_init,
-                    seed=seed,
-                )
+    log = CheckpointLog(checkpoint_dir / f"nmin{SUFFIX}") if checkpoint_dir else None
+    records: list[dict[str, object]] = list(log.load()) if log else []
+    # The (size, replicate) grid in a fixed order, so a resumed run skips the leading
+    # records already on disk and continues with the same per-unit seeds.
+    units = [
+        (size_index, size, rep) for size_index, size in enumerate(sizes) for rep in range(n_reps)
+    ]
+    with task_bar(len(units), "nmin", initial=len(records)) as bar:
+        for size_index, size, rep in units[len(records) :]:
+            seed = base_seed + size_index * 1000 + rep
+            index = measurement.sample(n=size, random_state=seed).index
+            model = _try_fit(
+                measurement.loc[index],
+                covariates.loc[index],
+                descriptor,
+                n_components=n_components,
+                n_init=n_init,
+                seed=seed,
+            )
+            if model is None:
+                overall_correlation: float | None = None
+                smallest = float("nan")
+                degenerate = True
+                relative_entropy = float("nan")
+                alcpp = float("nan")
+                converged = False
+            else:
                 labels = _labels(model, measurement.loc[index])
                 comparison = compare_to_reference(
                     measurement.loc[index],
@@ -584,24 +844,29 @@ def run_nmin_sweep(
                     category_map,
                     n_components=n_components,
                 )
-                records.append(
-                    {
-                        "size": size,
-                        "replicate": rep,
-                        "overall_correlation": comparison.overall_correlation,
-                        "smallest_class_proportion": comparison.smallest_class_proportion,
-                        "degenerate": comparison.degenerate,
-                        "relative_entropy": float(
-                            model.relative_entropy(measurement.loc[index], covariates.loc[index])
-                        ),
-                        "alcpp": float(
-                            model.predict_proba(measurement.loc[index]).max(axis=1).mean()
-                        ),
-                        "converged": bool(model.converged_),
-                    }
+                overall_correlation = comparison.overall_correlation
+                smallest = comparison.smallest_class_proportion
+                degenerate = comparison.degenerate
+                relative_entropy = float(
+                    model.relative_entropy(measurement.loc[index], covariates.loc[index])
                 )
-                bar.set_postfix(size=size)
-                bar.update(1)
+                alcpp = float(model.predict_proba(measurement.loc[index]).max(axis=1).mean())
+                converged = bool(model.converged_)
+            record: dict[str, object] = {
+                "size": size,
+                "replicate": rep,
+                "overall_correlation": overall_correlation,
+                "smallest_class_proportion": smallest,
+                "degenerate": degenerate,
+                "relative_entropy": relative_entropy,
+                "alcpp": alcpp,
+                "converged": converged,
+            }
+            if log:
+                log.append(record)
+            records.append(record)
+            bar.set_postfix(size=size)
+            bar.update(1)
 
     per_fit = pd.DataFrame.from_records(records)
     summary = (
@@ -614,4 +879,12 @@ def run_nmin_sweep(
     )
     cleared = summary[summary["overall_correlation"] >= benchmark]["size"]
     n_min = int(cleared.min()) if not cleared.empty else None
-    return NminResult(per_fit=per_fit, summary=summary, n_min=n_min, benchmark=benchmark)
+    floor, floor_ci = estimate_floor(per_fit, benchmark, seed=base_seed)
+    return NminResult(
+        per_fit=per_fit,
+        summary=summary,
+        n_min=n_min,
+        benchmark=benchmark,
+        floor=floor,
+        floor_ci=floor_ci,
+    )

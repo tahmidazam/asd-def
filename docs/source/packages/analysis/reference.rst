@@ -33,6 +33,9 @@ Runs and caching
 .. automodule:: analysis.run
    :members:
 
+.. automodule:: analysis.checkpoint
+   :members:
+
 .. automodule:: analysis.progress
    :members:
 

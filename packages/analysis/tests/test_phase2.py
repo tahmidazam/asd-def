@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from analysis import replicate, selection, stability
+from analysis import checkpoint, replicate, selection, stability
 from analysis.align import greedy_overlap_align
 from analysis.cohort import CohortMatrix
 from analysis.enrich import SEVEN_CATEGORIES, profile_correlation
@@ -302,3 +302,229 @@ def test_run_replication_small() -> None:
     assert result.shared_features == ["c1", "c2", "b1"]
     assert result.metrics["n_ssc"] == 40
     assert len(result.null_overall) <= 3
+
+
+# ---- checkpointing -----------------------------------------------------------
+def _reference(
+    matrix: CohortMatrix, typing: Typing
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+    """Return the measurement matrix, planted reference labels, and reference enrichment."""
+    from analysis.enrich import feature_enrichment
+    from analysis.model import prepare_inputs
+
+    measurement, _, _ = prepare_inputs(matrix, typing)
+    labels = pd.Series(
+        np.repeat([0, 1, 2, 3], len(measurement) // 4), index=measurement.index, name="class"
+    )
+    return measurement, labels, feature_enrichment(measurement, labels, n_classes=4)
+
+
+def test_checkpoint_log_roundtrip(tmp_path) -> None:
+    log = checkpoint.CheckpointLog(tmp_path / f"x{checkpoint.SUFFIX}")
+    assert log.load() == []
+    log.append({"a": 1})
+    log.append([{"b": 2.0}, {"c": None}])  # one line may hold several records
+    assert log.load() == [{"a": 1}, [{"b": 2.0}, {"c": None}]]
+
+
+def test_checkpoint_log_skips_torn_final_line(tmp_path) -> None:
+    path = tmp_path / f"x{checkpoint.SUFFIX}"
+    log = checkpoint.CheckpointLog(path)
+    log.append({"a": 1})
+    # A process killed mid-write leaves a partial JSON line; it must be dropped, not read.
+    with path.open("a", encoding="utf-8") as f:
+        f.write('{"a": 2, "b":')
+    assert log.load() == [{"a": 1}]
+
+
+def test_checkpoint_log_preserves_nan(tmp_path) -> None:
+    import math
+
+    log = checkpoint.CheckpointLog(tmp_path / f"x{checkpoint.SUFFIX}")
+    log.append({"p": float("nan")})
+    (loaded,) = log.load()
+    assert math.isnan(loaded["p"])
+
+
+def test_clear_checkpoints_removes_only_checkpoints(tmp_path) -> None:
+    (tmp_path / f"select{checkpoint.SUFFIX}").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "summary.parquet").write_text("keep", encoding="utf-8")
+    checkpoint.clear_checkpoints(tmp_path)
+    assert not (tmp_path / f"select{checkpoint.SUFFIX}").exists()
+    assert (tmp_path / "summary.parquet").exists()
+
+
+def test_run_selection_resumes_from_checkpoint(tmp_path) -> None:
+    matrix, typing = _synthetic_matrix()
+    full = selection.run_selection(matrix, typing, k_values=[1, 2], n_iterations=2, n_init=1, cv=3)
+    # First leg writes the checkpoint for iteration 0 only.
+    selection.run_selection(
+        matrix, typing, k_values=[1, 2], n_iterations=1, n_init=1, cv=3, checkpoint_dir=tmp_path
+    )
+    # Resuming over the same directory continues from iteration 1 and matches the whole run.
+    resumed = selection.run_selection(
+        matrix, typing, k_values=[1, 2], n_iterations=2, n_init=1, cv=3, checkpoint_dir=tmp_path
+    )
+    pd.testing.assert_frame_equal(resumed.per_iteration, full.per_iteration)
+    pd.testing.assert_frame_equal(resumed.summary, full.summary)
+
+
+def test_run_subsampling_stability_resumes_from_checkpoint(tmp_path) -> None:
+    matrix, typing = _synthetic_matrix(n=120)
+    _, ref_labels, ref_enrichment = _reference(matrix, typing)
+    common = (matrix, typing, ref_labels, ref_enrichment, _CATEGORY_MAP)
+    full = stability.run_subsampling_stability(*common, n_reps=2, frac=0.75, n_init=1)
+    stability.run_subsampling_stability(
+        *common, n_reps=1, frac=0.75, n_init=1, checkpoint_dir=tmp_path
+    )
+    resumed = stability.run_subsampling_stability(
+        *common, n_reps=2, frac=0.75, n_init=1, checkpoint_dir=tmp_path
+    )
+    pd.testing.assert_frame_equal(resumed.fits, full.fits)
+    pd.testing.assert_frame_equal(resumed.comparisons, full.comparisons)
+
+
+def test_run_nmin_sweep_resumes_from_checkpoint(tmp_path) -> None:
+    matrix, typing = _synthetic_matrix(n=120)
+    _, ref_labels, ref_enrichment = _reference(matrix, typing)
+    common = (matrix, typing, ref_enrichment, ref_labels, _CATEGORY_MAP)
+    full = stability.run_nmin_sweep(*common, sizes=[120, 80], n_reps=1, benchmark=0.5, n_init=1)
+    stability.run_nmin_sweep(
+        *common, sizes=[120], n_reps=1, benchmark=0.5, n_init=1, checkpoint_dir=tmp_path
+    )
+    resumed = stability.run_nmin_sweep(
+        *common, sizes=[120, 80], n_reps=1, benchmark=0.5, n_init=1, checkpoint_dir=tmp_path
+    )
+    pd.testing.assert_frame_equal(resumed.per_fit, full.per_fit)
+    pd.testing.assert_frame_equal(resumed.summary, full.summary)
+    assert resumed.n_min == full.n_min
+
+
+def test_run_multi_init_stability_resumes_after_fits_complete(tmp_path) -> None:
+    # The hard case: the fit phase finished, then the run was interrupted during the
+    # comparison phase. On resume no labels are in memory, so every remaining comparison
+    # refits its seed on demand; the result must still equal the uninterrupted run.
+    matrix, typing = _synthetic_matrix()
+    _, ref_labels, ref_enrichment = _reference(matrix, typing)
+    common = (matrix, typing, ref_labels, ref_enrichment, _CATEGORY_MAP)
+    full = stability.run_multi_init_stability(*common, n_fits=4, top_k=3)
+    stability.run_multi_init_stability(*common, n_fits=4, top_k=3, checkpoint_dir=tmp_path)
+    # Keep every fit but drop all comparisons except the first.
+    compare = tmp_path / f"compare{checkpoint.SUFFIX}"
+    compare.write_text(compare.read_text(encoding="utf-8").splitlines()[0] + "\n", encoding="utf-8")
+    resumed = stability.run_multi_init_stability(
+        *common, n_fits=4, top_k=3, checkpoint_dir=tmp_path
+    )
+    pd.testing.assert_frame_equal(resumed.fits, full.fits)
+    pd.testing.assert_frame_equal(resumed.comparisons, full.comparisons)
+    pd.testing.assert_frame_equal(resumed.overlap_mean, full.overlap_mean)
+
+
+# ---- non-convergence guard ---------------------------------------------------
+def test_run_selection_records_nan_for_nonconvergent_fit(monkeypatch) -> None:
+    matrix, typing = _synthetic_matrix()
+    real = selection._fit_model
+
+    def flaky(measurement, covariates, descriptor, *, n_components, n_init, seed):
+        if n_components == 2:
+            raise np.linalg.LinAlgError("SVD did not converge")
+        return real(
+            measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+        )
+
+    monkeypatch.setattr(selection, "_fit_model", flaky)
+    result = selection.run_selection(
+        matrix, typing, k_values=[1, 2], n_iterations=1, n_init=1, cv=3
+    )
+    by_k = result.per_iteration.set_index("n_components")
+    assert np.isnan(by_k.loc[2, "bic"])  # the failed direct fit is recorded as missing
+    assert not np.isnan(by_k.loc[1, "bic"])  # the converged fit is unaffected
+
+
+def test_run_nmin_sweep_records_nan_for_nonconvergent_fit(monkeypatch) -> None:
+    matrix, typing = _synthetic_matrix(n=120)
+    _, ref_labels, ref_enrichment = _reference(matrix, typing)
+    real = stability._fit
+
+    def flaky(measurement, covariates, descriptor, *, n_components, n_init, seed):
+        if len(measurement) == 120:  # fail the full-size fit, succeed on the smaller subsample
+            raise np.linalg.LinAlgError("SVD did not converge")
+        return real(
+            measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+        )
+
+    monkeypatch.setattr(stability, "_fit", flaky)
+    result = stability.run_nmin_sweep(
+        matrix,
+        typing,
+        ref_enrichment,
+        ref_labels,
+        _CATEGORY_MAP,
+        sizes=[120, 80],
+        n_reps=1,
+        benchmark=0.5,
+        n_init=1,
+    )
+    by_size = result.per_fit.set_index("size")
+    assert bool(by_size.loc[120, "degenerate"]) and np.isnan(by_size.loc[120, "relative_entropy"])
+    assert not np.isnan(by_size.loc[80, "relative_entropy"])
+
+
+def test_run_multi_init_stability_drops_nonconvergent_fit(monkeypatch) -> None:
+    matrix, typing = _synthetic_matrix()
+    _, ref_labels, ref_enrichment = _reference(matrix, typing)
+    real = stability._fit
+    failed_seed = 1
+
+    def flaky(measurement, covariates, descriptor, *, n_components, n_init, seed):
+        if seed == failed_seed:
+            raise np.linalg.LinAlgError("SVD did not converge")
+        return real(
+            measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+        )
+
+    monkeypatch.setattr(stability, "_fit", flaky)
+    summary = stability.run_multi_init_stability(
+        matrix, typing, ref_labels, ref_enrichment, _CATEGORY_MAP, n_fits=4, top_k=3
+    )
+    failed = summary.fits.loc[summary.fits["seed"] == failed_seed, "avg_log_likelihood"]
+    assert failed.isna().all()  # kept in the ranked table as nan
+    assert failed_seed not in set(summary.comparisons["seed"])  # excluded from the compared top-k
+
+
+# ---- nmin floor estimator ----------------------------------------------------
+def test_estimate_floor_finds_monotone_crossing() -> None:
+    sizes = [100, 200, 400, 800, 1600, 3200]
+
+    # Correlation rises monotonically through the 0.90 benchmark between sizes 400 and 800.
+    def corr(s: int) -> float:
+        return min(0.5 + 0.15 * float(np.log2(s / 100)), 1.0)
+
+    per_fit = pd.DataFrame(
+        [{"size": s, "overall_correlation": corr(s)} for s in sizes for _ in range(3)]
+    )
+    floor, ci = stability.estimate_floor(per_fit, benchmark=0.90, n_bootstrap=200, seed=0)
+    assert floor is not None and 400 <= floor <= 800
+    assert ci is not None and ci[0] <= floor <= ci[1]
+
+
+def test_estimate_floor_returns_none_without_crossing() -> None:
+    # Recovery never reaches the benchmark anywhere in the swept range.
+    per_fit = pd.DataFrame(
+        {"size": [100, 400, 1600] * 3, "overall_correlation": [0.5, 0.6, 0.7] * 3}
+    )
+    floor, ci = stability.estimate_floor(per_fit, benchmark=0.90, n_bootstrap=100, seed=0)
+    assert floor is None
+    assert ci is None
+
+
+def test_estimate_floor_drops_degenerate_fits() -> None:
+    # A collapsed fit (nan correlation) is dropped rather than breaking the regression.
+    per_fit = pd.DataFrame(
+        {
+            "size": [400, 400, 800, 800, 1600, 1600],
+            "overall_correlation": [0.80, float("nan"), 0.95, 0.93, 0.98, float("nan")],
+        }
+    )
+    floor, _ = stability.estimate_floor(per_fit, benchmark=0.90, n_bootstrap=100, seed=0)
+    assert floor is not None and 400 <= floor <= 800
