@@ -46,6 +46,13 @@ DEFAULT_N_COMPONENTS = 4
 DEFAULT_N_INIT = 200
 DEFAULT_N_STEPS = 1
 
+# Resamples for the proband bootstrap that puts a confidence interval on the headline
+# reproduction and replication correlations (the labels are held fixed; only the cohort is
+# resampled). Five hundred is enough for a stable 95 per cent percentile interval at a
+# manageable cost, since each resample recomputes the per-class enrichment.
+DEFAULT_N_BOOTSTRAP = 500
+DEFAULT_BOOTSTRAP_SEED = 0
+
 # Litman's per-fit class-ID to name mapping, recorded for reference only. StepMix assigns
 # class IDs arbitrarily on every fit, so this mapping does not transfer to our fits; we
 # recover the named classes by profile alignment (plan section 6a), not by this table.

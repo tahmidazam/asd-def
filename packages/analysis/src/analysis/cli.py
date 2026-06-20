@@ -285,6 +285,24 @@ def align(
         signature = enrich.category_signature(enrichment, category_map, n_classes=n_components)
         named = reference.align_to_named(signature, proportions)
 
+        # Put a confidence interval on the overall reproduction correlation by resampling
+        # probands with the fitted labels held fixed, so the headline r carries its sampling
+        # uncertainty rather than standing as a single number (plan section 4).
+        order = [named.mapping[c] for c in range(n_components)]
+        target = reference.published_signature().loc[order].set_axis(range(n_components))
+        ctx.log.info(
+            "bootstrapping the overall correlation (%d resamples)", config.DEFAULT_N_BOOTSTRAP
+        )
+        correlation_ci = enrich.bootstrap_overall_correlation(
+            measurement_data,
+            labels,
+            target,
+            category_map,
+            n_boot=config.DEFAULT_N_BOOTSTRAP,
+            seed=config.DEFAULT_BOOTSTRAP_SEED,
+            n_classes=n_components,
+        )
+
         cache.save_frame(enrichment, ctx.path("enrichment.parquet"))
         cache.save_frame(signature, ctx.path("signature.parquet"))
         cache.save_json(
@@ -292,6 +310,7 @@ def align(
                 "mapping": {str(k): v for k, v in named.mapping.items()},
                 "correlations": {str(k): v for k, v in named.correlations.items()},
                 "overall_correlation": named.overall_correlation,
+                "overall_correlation_ci": correlation_ci,
                 "anchors": named.anchors,
                 "anchors_hold": named.anchors_hold,
             },
@@ -301,6 +320,7 @@ def align(
             "mapping": {str(k): v for k, v in named.mapping.items()},
             "anchors_hold": named.anchors_hold,
             "overall_correlation": round(named.overall_correlation, 4),
+            "overall_correlation_ci": correlation_ci,
         }
         ctx.log.info(
             "named-class mapping: %s (anchors hold: %s, overall r=%.3f)",
@@ -315,6 +335,10 @@ def align(
         r_text = "n/a (saturated)" if r is None else f"{r:.2f}"
         typer.echo(f"  class {cid} -> {name} (profile r={r_text})")
     typer.echo(f"  overall profile correlation: {named.overall_correlation:.3f}")
+    typer.echo(
+        f"  95% bootstrap CI: [{correlation_ci['ci_low']:.3f}, {correlation_ci['ci_high']:.3f}] "
+        f"over {correlation_ci['n_valid']} resamples"
+    )
     typer.echo(f"  anchors hold: {named.anchors_hold} {named.anchors}")
 
 

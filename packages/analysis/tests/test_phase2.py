@@ -96,6 +96,25 @@ def test_profile_correlation_requires_shared_index() -> None:
         profile_correlation(a, b)
 
 
+def test_bootstrap_overall_correlation_structure() -> None:
+    from analysis.enrich import (
+        bootstrap_overall_correlation,
+        category_signature,
+        feature_enrichment,
+    )
+
+    matrix, _ = _synthetic_matrix(n=120, seed=0)
+    labels = pd.Series(np.repeat([0, 1, 2, 3], 120 // 4), index=matrix.features.index, name="class")
+    enrichment = feature_enrichment(matrix.features, labels, n_classes=4)
+    target = category_signature(enrichment, _CATEGORY_MAP, n_classes=4, reverse_coded=())
+    ci = bootstrap_overall_correlation(
+        matrix.features, labels, target, _CATEGORY_MAP, n_boot=15, seed=0, reverse_coded=()
+    )
+    assert 0 < ci["n_valid"] <= 15
+    assert ci["ci_low"] <= ci["median"] <= ci["ci_high"]
+    assert ci["level"] == 0.95
+
+
 # ---- overlap matrix ----------------------------------------------------------
 def test_class_overlap_matrix_perfect_recovery() -> None:
     labels = pd.Series([0, 0, 1, 1, 2, 2, 3, 3], index=range(8))
@@ -297,11 +316,13 @@ def test_run_replication_small() -> None:
     ssc_matrix, _ = _synthetic_matrix(n=40, seed=1)
     ssc = CohortMatrix(ssc_matrix.features[["c1", "c2", "b1"]], ssc_matrix.covariates, "ssc", "v0")
     result = replicate.run_replication(
-        spark, ssc, typing, _CATEGORY_MAP, n_init=1, n_permutations=3, seed=0
+        spark, ssc, typing, _CATEGORY_MAP, n_init=1, n_permutations=3, n_bootstrap=3, seed=0
     )
     assert result.shared_features == ["c1", "c2", "b1"]
     assert result.metrics["n_ssc"] == 40
     assert len(result.null_overall) <= 3
+    assert result.correlation_ci is not None
+    assert result.correlation_ci["n_valid"] <= 3
 
 
 # ---- checkpointing -----------------------------------------------------------

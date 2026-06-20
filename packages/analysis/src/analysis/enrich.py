@@ -183,6 +183,97 @@ def profile_correlation(
     return overall, per_category
 
 
+def bootstrap_overall_correlation(
+    measurement: pd.DataFrame,
+    labels: pd.Series,
+    target: pd.DataFrame,
+    category_map: dict[str, str],
+    *,
+    n_boot: int,
+    seed: int,
+    n_classes: int = 4,
+    level: float = 0.95,
+    reverse_coded: tuple[str, ...] = REVERSE_CODED_SCQ,
+    keep: set[str] | None = None,
+) -> dict[str, float | int]:
+    r"""Bootstrap the overall profile correlation by resampling probands.
+
+    The class labels are held fixed and the probands are resampled with replacement; for
+    each resample the seven-category signature is recomputed and correlated against a fixed
+    target on the same class index. The spread of those correlations is the sampling
+    uncertainty in the reproduction or replication statistic from the finite cohort, with the
+    model fit held fixed. It does not capture uncertainty from refitting the model (the
+    stability stage does that) nor, for the reproduction, the resolution of the figure-read
+    target.
+
+    Parameters
+    ----------
+    measurement : pandas.DataFrame
+        The proband-by-feature matrix.
+    labels : pandas.Series
+        The hard class label per proband, positionally aligned with ``measurement``.
+    target : pandas.DataFrame
+        The fixed signature to correlate against, on the same class index the recomputed
+        signature carries (class ids ``0`` to ``n_classes - 1``).
+    category_map : dict of str to str
+        Feature-to-category map for the signatures.
+    n_boot : int
+        Number of bootstrap resamples.
+    seed : int
+        Seed for the resampling, so the interval is reproducible.
+    n_classes : int, default 4
+        Number of classes.
+    level : float, default 0.95
+        Central probability of the reported percentile interval.
+    reverse_coded : tuple of str, optional
+        SCQ items whose enrichment direction is flipped before the signature.
+    keep : set of str, optional
+        The contributory feature set, applied to every resample.
+
+    Returns
+    -------
+    dict
+        ``ci_low`` and ``ci_high`` (the percentile interval at ``level``), ``median``, the
+        ``level``, and ``n_valid`` (the resamples that yielded a defined correlation; a
+        resample that empties or flattens a class is dropped, as in the permutation null).
+    """
+    rng = np.random.default_rng(seed)
+    measurement = measurement.reset_index(drop=True)
+    label_values = labels.to_numpy()
+    target = target.loc[:, list(SEVEN_CATEGORIES)]
+    n = len(measurement)
+    correlations: list[float] = []
+    for _ in range(n_boot):
+        take = rng.integers(0, n, size=n)
+        boot_measurement = measurement.iloc[take].reset_index(drop=True)
+        boot_labels = pd.Series(label_values[take], name="class")
+        enrichment = feature_enrichment(boot_measurement, boot_labels, n_classes=n_classes)
+        signature = category_signature(
+            enrichment, category_map, n_classes=n_classes, reverse_coded=reverse_coded, keep=keep
+        )
+        overall, _ = profile_correlation(signature, target)
+        if overall is not None:
+            correlations.append(overall)
+
+    if not correlations:
+        return {
+            "ci_low": float("nan"),
+            "ci_high": float("nan"),
+            "median": float("nan"),
+            "level": level,
+            "n_valid": 0,
+        }
+    tail = (1.0 - level) / 2.0
+    values = np.asarray(correlations)
+    return {
+        "ci_low": float(np.quantile(values, tail)),
+        "ci_high": float(np.quantile(values, 1.0 - tail)),
+        "median": float(np.median(values)),
+        "level": level,
+        "n_valid": len(correlations),
+    }
+
+
 def contributory_features(enrichment: pd.DataFrame, n_classes: int = 4) -> list[str]:
     """Return the features that contribute to the class signatures.
 

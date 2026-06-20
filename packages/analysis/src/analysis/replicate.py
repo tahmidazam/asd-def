@@ -33,6 +33,7 @@ from analysis import config
 from analysis.cohort import CohortMatrix
 from analysis.enrich import (
     SEVEN_CATEGORIES,
+    bootstrap_overall_correlation,
     category_signature,
     contributory_features,
     feature_enrichment,
@@ -62,6 +63,9 @@ class ReplicationResult:
     p_value : float or None
         The proportion of null correlations at or above the observed one, or ``None`` when
         the observed correlation is undefined or no permutations were run.
+    correlation_ci : dict or None
+        The proband-bootstrap percentile interval on the overall correlation, or ``None``
+        when the bootstrap was skipped.
     metrics : dict
         Sample sizes, class proportions, and the convergence flag.
     """
@@ -73,6 +77,7 @@ class ReplicationResult:
     category_correlation: dict[str, float | None]
     null_overall: list[float]
     p_value: float | None
+    correlation_ci: dict[str, float | int] | None
     metrics: dict[str, object]
 
 
@@ -133,6 +138,7 @@ def run_replication(
     n_components: int = config.DEFAULT_N_COMPONENTS,
     n_init: int = config.DEFAULT_N_INIT,
     n_permutations: int = 200,
+    n_bootstrap: int = config.DEFAULT_N_BOOTSTRAP,
     seed: int = 0,
     reverse_coded: tuple[str, ...] = REVERSE_CODED_SCQ,
 ) -> ReplicationResult:
@@ -232,6 +238,23 @@ def run_replication(
         at_least = sum(1 for r in null_overall if r >= overall)
         p_value = (at_least + 1) / (len(null_overall) + 1)
 
+    # Resample the SSC probands (the labels held fixed) for a confidence interval on the
+    # overall correlation, so the replication r carries its sampling uncertainty. The
+    # interval is wider here than for the reproduction because the SSC sample is small and
+    # one class holds very few probands.
+    correlation_ci: dict[str, float | int] | None = None
+    if n_bootstrap > 0 and overall is not None:
+        correlation_ci = bootstrap_overall_correlation(
+            ssc_measurement,
+            ssc_labels,
+            spark_signature,
+            category_map,
+            n_boot=n_bootstrap,
+            seed=seed,
+            n_classes=n_components,
+            keep=keep,
+        )
+
     metrics: dict[str, object] = {
         "n_shared_features": len(shared),
         "n_spark": int(len(spark_measurement)),
@@ -242,6 +265,7 @@ def run_replication(
         "overall_correlation": _rounded(overall),
         "category_correlation": {cat: _rounded(per_category[cat]) for cat in SEVEN_CATEGORIES},
         "p_value": p_value,
+        "overall_correlation_ci": correlation_ci,
     }
     return ReplicationResult(
         shared_features=shared,
@@ -251,5 +275,6 @@ def run_replication(
         category_correlation=per_category,
         null_overall=null_overall,
         p_value=p_value,
+        correlation_ci=correlation_ci,
         metrics=metrics,
     )
