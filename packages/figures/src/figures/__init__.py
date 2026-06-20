@@ -15,10 +15,16 @@ documentation tree.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 import matplotlib
 
 # The package writes figures to files in headless pipelines and tests, so the non-interactive
 # Agg backend is selected here, before any submodule imports pyplot.
 matplotlib.use("Agg")
 
-__version__ = "0.3.0"
+try:
+    __version__ = version("figures")
+except PackageNotFoundError:
+    # Not installed (e.g. imported straight from the source tree); use a sentinel.
+    __version__ = "0.0.0"

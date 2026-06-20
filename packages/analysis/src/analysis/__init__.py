@@ -10,4 +10,10 @@ entry point is :mod:`analysis.cli`; :mod:`analysis.paths` locates the cached art
 stage will write.
 """
 
-__version__ = "0.2.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("analysis")
+except PackageNotFoundError:
+    # Not installed (e.g. imported straight from the source tree); use a sentinel.
+    __version__ = "0.0.0"
