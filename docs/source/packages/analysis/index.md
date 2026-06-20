@@ -33,7 +33,10 @@ The cohort layer sits behind one interface with a SPARK and an SSC backend, so a
 on either cohort. The remaining stages (the stratified analysis and reporting) are listed
 under "planned" in `analysis --help` and are added as the work proceeds.
 
-## Guides
+## Technical guides
+
+How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
+and the SSC milestone parsing.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -70,8 +73,19 @@ Turning the SSC's free-text developmental-milestone ages into months: the forms 
 and the entries left missing.
 :::
 
+::::
+
+## Investigations
+
+What the analysis finds: the reproduction of the reference classes, the tests of how solid that
+solution is, and the reading of the results with what comes next. Each investigation embeds the
+figures it reports.
+
+::::{grid} 1 1 2 2
+:gutter: 3
+
 :::{grid-item-card} Reproducing the reference classes
-:link: guides/reproducing-the-reference-classes
+:link: investigations/reproducing-the-reference-classes
 :link-type: doc
 
 Feature typing, the mixture model, per-class enrichment, naming the classes, and the
@@ -79,11 +93,19 @@ reproduction result.
 :::
 
 :::{grid-item-card} Stability, selection, and replication
-:link: guides/stability-selection-and-replication
+:link: investigations/stability-selection-and-replication
 :link-type: doc
 
 How many classes the data support, whether the solution survives re-initialisation and
 resampling, the minimum viable stratum size, and cross-cohort replication.
+:::
+
+:::{grid-item-card} Discussion and next steps
+:link: investigations/discussion-and-next-steps
+:link-type: doc
+
+The results read together: what the reproduction and stability work establishes, what stays
+open, and the stratified analysis and genetics arm still to come.
 :::
 
 ::::
@@ -105,14 +127,21 @@ feature typing, the model wrapper, and the enrichment and alignment.
 
 :::{toctree}
 :hidden:
-:caption: Guides
+:caption: Technical guides
 
 guides/pipeline-and-caching
 guides/running-the-pipeline
 guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
-guides/reproducing-the-reference-classes
-guides/stability-selection-and-replication
+:::
+
+:::{toctree}
+:hidden:
+:caption: Investigations
+
+investigations/reproducing-the-reference-classes
+investigations/stability-selection-and-replication
+investigations/discussion-and-next-steps
 :::
 
 :::{toctree}

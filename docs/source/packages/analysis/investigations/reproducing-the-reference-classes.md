@@ -104,6 +104,21 @@ respectively), so their per-class correlation is uninformative and they rest on 
 The main per-class divergence from the published profile is that Social or behavioural shows
 weaker social-communication and restricted-or-repetitive enrichment here than in the paper.
 
+:::{figure} /_figures/reproduction.png
+:alt: Recovered class signatures against the published figure-1b profile, one panel per class
+:width: 100%
+:align: center
+
+The recovered class signatures (solid) against the values read from figure 1b of Litman et al.
+(dashed), one panel per named class, ordered by published class size. Each title gives the
+recovered and published class proportions and the per-class profile correlation, or notes that
+the class is anchor-confirmed where its published profile is saturated. Mixed ASD with
+developmental delay tracks the published profile closely ($r = 0.97$); Social or behavioural
+($r = 0.85$) shows the weaker self-injury, social-communication, and restricted-or-repetitive
+enrichment noted above; the recovered Broadly affected profile dips on the developmental
+category where the published one is saturated.
+:::
+
 ## Caveats
 
 The reproduction is benchmarked on the published profile and proportions, not on a

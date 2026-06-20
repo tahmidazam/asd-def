@@ -39,7 +39,7 @@ The reference solution comes first, then the stability and replication checks th
    ```
    `fit` then `align` are the reference solution. Their result, the per-category profile
    correlation and the named-class anchors, is the phase-1 reproduction gate (see
-   [reproducing the reference classes](reproducing-the-reference-classes)).
+   [reproducing the reference classes](../investigations/reproducing-the-reference-classes)).
 
 4. Grid over the number of components and report the information criteria:
    ```
@@ -63,7 +63,7 @@ The reference solution comes first, then the stability and replication checks th
    ```
 
 Stages 4 to 7 are the phase-2 stability and replication checks (see
-[stability, selection, and replication](stability-selection-and-replication)). The SSC
+[stability, selection, and replication](../investigations/stability-selection-and-replication)). The SSC
 milestone ages `replicate` reads are parsed from free text, described in
 [parsing the SSC milestone ages](parsing-ssc-milestone-ages).
 
@@ -90,6 +90,12 @@ Two consequences are worth keeping in mind:
 - A change to the computation that the hash does not capture, for example the SSC
   milestone-age parsing that `replicate` applies, does not change the hash. Pass `--force` to
   recompute in that case, otherwise the stage returns the cached result from before the change.
+
+A long run that is interrupted does not start over. The multi-seed stages, `select`, both
+`stability` modes, and `nmin`, checkpoint each completed unit (a seeded iteration, a fit, a
+replicate) inside the run directory, so re-running the same command resumes from where it
+stopped and reproduces the same result. `--force` discards the checkpoint and recomputes from
+the start.
 
 ## What is not yet runnable
 
