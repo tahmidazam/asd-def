@@ -1,8 +1,12 @@
-## 0.1.0 (2026-06-13)
+## v0.4.0 (2026-06-20)
 
 ### Feat
 
-- add dscat and docs packages with uv monorepo setup
+- **figures**: render the analysis results and publish them into the documentation
+- **analysis**: add resumable checkpointing and a non-convergence guard to the long stages
+- **analysis**: add phase-2 stability, selection, and replication tooling
+- **analysis**: parse SSC free-text milestone ages onto the schema
+- **analysis**: build the reference pipeline (cohort, fit, align)
 
 ## v0.3.0 (2026-06-14)
 

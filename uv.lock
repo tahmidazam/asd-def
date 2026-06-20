@@ -39,7 +39,7 @@ wheels = [
 
 [[package]]
 name = "analysis"
-version = "0.3.0"
+version = "0.4.0"
 source = { directory = "packages/analysis" }
 dependencies = [
     { name = "dscat" },
@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "asd-def"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "." }
 dependencies = [
     { name = "analysis" },
@@ -639,7 +639,7 @@ wheels = [
 
 [[package]]
 name = "docs"
-version = "0.3.0"
+version = "0.4.0"
 source = { directory = "packages/docs" }
 dependencies = [
     { name = "myst-parser" },
@@ -675,7 +675,7 @@ wheels = [
 
 [[package]]
 name = "dscat"
-version = "0.3.0"
+version = "0.4.0"
 source = { directory = "packages/dscat" }
 dependencies = [
     { name = "marker-pdf" },
@@ -718,7 +718,7 @@ wheels = [
 
 [[package]]
 name = "figures"
-version = "0.3.0"
+version = "0.4.0"
 source = { directory = "packages/figures" }
 dependencies = [
     { name = "analysis" },
