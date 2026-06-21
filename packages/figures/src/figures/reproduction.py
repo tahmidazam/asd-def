@@ -101,7 +101,7 @@ def reproduction_figure(
 
     with style.house_style():
         fig, axes = plt.subplots(2, 2, figsize=(9.0, 6.6), sharex=True, sharey=True)
-        for ax, name in zip(axes.flat, _PANEL_ORDER, strict=True):
+        for ax, name, letter in zip(axes.flat, _PANEL_ORDER, ("A", "B", "C", "D"), strict=True):
             cid = name_to_id[name]
             published = published_signature.loc[name].to_numpy(dtype=float)
             recovered = our_signature.loc[cid].to_numpy(dtype=float)
@@ -125,31 +125,41 @@ def reproduction_figure(
                 label="recovered (SPARK)",
                 zorder=3,
             )
-            subtitle = _panel_subtitle(
-                name,
-                our_proportions.get(cid),
-                published_proportions.get(name),
-                correlations.get(cid),
+            # The class proportions and per-class correlation annotate each panel without
+            # crowding the title, in the top-right corner kept readable by a light box.
+            ax.text(
+                0.97,
+                0.95,
+                _panel_subtitle(
+                    name,
+                    our_proportions.get(cid),
+                    published_proportions.get(name),
+                    correlations.get(cid),
+                ),
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 1.5},
             )
-            ax.set_title(f"{name}\n{subtitle}", fontsize=8)
+            style.panel_title(ax, letter, name)
             ax.set_ylim(-1.2, 1.2)
             ax.set_xticks(positions)
             ax.set_xticklabels(labels, rotation=45, ha="right")
 
         for ax in axes[:, 0]:
             ax.set_ylabel("Signed enrichment")
-        axes[0, 0].legend(loc="lower left", fontsize=6)
-        for ax, letter in zip(axes.flat, ("(a)", "(b)", "(c)", "(d)"), strict=True):
-            style.panel_letter(ax, letter)
+        handles, legend_labels = axes[0, 0].get_legend_handles_labels()
+        fig.legend(handles, legend_labels, loc="lower center", ncol=2, fontsize=7)
 
         overall = float(alignment["overall_correlation"])
         ci = alignment.get("overall_correlation_ci")
         ci_text = ""
         if isinstance(ci, dict) and ci.get("n_valid"):
-            ci_text = f" [{float(ci['ci_low']):.2f}, {float(ci['ci_high']):.2f}]"
-        held = "all anchors hold" if alignment.get("anchors_hold") else "anchors do not all hold"
+            ci_text = f", 95% CI [{float(ci['ci_low']):.2f}, {float(ci['ci_high']):.2f}]"
         fig.suptitle(
-            f"Reproducing the four classes (overall $r = {overall:.2f}${ci_text}, {held})", y=1.0
+            f"Recovered and published class signatures (overall $r = {overall:.2f}${ci_text})",
+            y=1.0,
         )
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+        fig.tight_layout(rect=(0.0, 0.05, 1.0, 0.97))
     return fig

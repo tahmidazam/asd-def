@@ -22,11 +22,11 @@ def _mode_label(aggregate: dict) -> str:
     """Return a short description of the stability run for the figure title."""
     if "n_fits" in aggregate:
         return (
-            f"multi-initialisation, {int(aggregate['n_fits'])} fits, top {int(aggregate['top_k'])}"
+            f"multi-initialisation ({int(aggregate['n_fits'])} fits, top {int(aggregate['top_k'])})"
         )
     if "n_reps" in aggregate:
-        return f"subsampling, {int(aggregate['n_reps'])} refits at fraction {aggregate['frac']:.2f}"
-    return "refits"
+        return f"{aggregate['frac']:.0%} subsampling ({int(aggregate['n_reps'])} refits)"
+    return "refitting"
 
 
 def stability_figure(
@@ -93,7 +93,6 @@ def stability_figure(
         ax_dist.set_xticklabels(["profile\ncorrelation", "adjusted\nRand index"])
         ax_dist.set_ylim(0.0, 1.05)
         ax_dist.set_ylabel("Value across refits")
-        ax_dist.set_title("Profile vs membership")
 
         # Panel (b): per-category profile correlation, uniformly high.
         values = [float(per_category[cat]) for cat in categories]
@@ -106,7 +105,6 @@ def stability_figure(
         )
         ax_cat.set_ylim(0.0, 1.05)
         ax_cat.set_ylabel("Mean profile correlation")
-        ax_cat.set_title("Per-category stability")
 
         # Panel (c): the mean class-overlap matrix; the diagonal is each class's retention.
         matrix = overlap_mean.to_numpy(dtype=float)
@@ -129,12 +127,12 @@ def stability_figure(
         ax_overlap.set_yticks(range(size))
         ax_overlap.set_xlabel("reference class")
         ax_overlap.set_ylabel("refit class")
-        ax_overlap.set_title("Mean class overlap")
         ax_overlap.grid(visible=False)
         fig.colorbar(image, ax=ax_overlap, fraction=0.046, pad=0.04)
 
-        for ax, letter in ((ax_dist, "(a)"), (ax_cat, "(b)"), (ax_overlap, "(c)")):
-            style.panel_letter(ax, letter)
-        fig.suptitle(f"Stability under {_mode_label(aggregate)}", y=1.0)
+        style.panel_title(ax_dist, "A", "Profile correlation and adjusted Rand index")
+        style.panel_title(ax_cat, "B", "Per-category profile correlation")
+        style.panel_title(ax_overlap, "C", "Mean class overlap")
+        fig.suptitle(f"Reference-fit stability under {_mode_label(aggregate)}", y=1.0)
         fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
     return fig

@@ -49,18 +49,22 @@ CATEGORY_LABELS: dict[str, str] = {
 }
 
 
-def panel_letter(ax: Axes, letter: str) -> None:
-    """Place a bold panel letter at the top-left corner of an axis."""
-    ax.text(
-        -0.2,
-        1.03,
-        letter,
-        transform=ax.transAxes,
-        fontsize=11,
-        fontweight="bold",
-        va="bottom",
-        ha="left",
-    )
+def panel_title(ax: Axes, letter: str, text: str) -> None:
+    """Set a left-aligned panel title prefixed with a bold letter label.
+
+    The letter is rendered in bold and the scientific title follows in the regular weight, so
+    each panel reads as, for example, "A  Information criteria", left-aligned over the axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axis to title.
+    letter : str
+        The panel letter, shown in bold (for example ``"A"``).
+    text : str
+        The scientific title that follows the letter.
+    """
+    ax.set_title(rf"$\mathbf{{{letter}}}$  {text}", loc="left")
 
 
 _RC_PARAMS: dict[str, object] = {

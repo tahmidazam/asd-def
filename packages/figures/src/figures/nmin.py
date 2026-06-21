@@ -104,7 +104,6 @@ def nmin_figure(
         ax_recovery.xaxis.set_minor_formatter(NullFormatter())
         ax_recovery.set_xlabel("Subsample size")
         ax_recovery.set_ylabel("Profile correlation to reference")
-        ax_recovery.set_title("Recovery vs sample size")
         ax_recovery.legend(loc="lower right", fontsize=6)
 
         # Panel (b): the smallest class proportion stays clear of zero, so no class collapses.
@@ -121,11 +120,10 @@ def nmin_figure(
         ax_class.set_ylim(0.0, 0.30)
         ax_class.set_xlabel("Subsample size")
         ax_class.set_ylabel("Smallest class proportion")
-        ax_class.set_title("Smallest class (no collapse)")
 
         for ax in (ax_recovery, ax_class):
             ax.tick_params(axis="x", labelrotation=45)
-        for ax, letter in ((ax_recovery, "(a)"), (ax_class, "(b)")):
-            style.panel_letter(ax, letter)
+        style.panel_title(ax_recovery, "A", "Profile correlation against subsample size")
+        style.panel_title(ax_class, "B", "Smallest class proportion")
         fig.tight_layout()
     return fig

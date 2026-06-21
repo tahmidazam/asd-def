@@ -35,7 +35,7 @@ _CRITERION_LABELS: dict[str, str] = {
 def _required_columns(criteria: Sequence[str]) -> set[str]:
     """Return the summary columns the figure needs for the given criteria."""
     columns = {"n_components"}
-    quantities = (*criteria, "val_log_likelihood", "smallest_class_proportion", "relative_entropy")
+    quantities = (*criteria, "val_log_likelihood", "smallest_class_proportion")
     for name in quantities:
         columns |= {f"{name}_mean", f"{name}_std"}
     return columns
@@ -134,25 +134,17 @@ def selection_figure(
             if np.isfinite(mean).any():
                 argmin = int(np.nanargmin(mean))
                 ax_ic.scatter(k[argmin], mean[argmin], color=colour, marker="v", s=25, zorder=5)
-        primary = summary[f"{criteria[0]}_mean"].to_numpy()
-        if np.isfinite(primary).any():
-            ax_ic.set_title(
-                f"Information criteria (minimum at $K={int(k[np.nanargmin(primary)])}$)"
-            )
-        else:
-            ax_ic.set_title("Information criteria")
         ax_ic.set_ylabel("Criterion (lower is better)")
         ax_ic.legend(loc="upper right")
         _add_reference_line(ax_ic, reference_k, label=f"Litman $K={reference_k}$")
 
-        # Panel (b): the cross-validated log-likelihood, the honest out-of-sample fit, which
-        # gains little past the reference choice.
+        # Panel (b): the cross-validated log-likelihood, the out-of-sample fit, which gains
+        # little past the reference choice.
         ll_mean = summary["val_log_likelihood_mean"].to_numpy()
         ll_std = summary["val_log_likelihood_std"].to_numpy()
         _plot_mean_band(
             ax_ll, k, ll_mean, ll_std, colour=style.PALETTE[2], label="Validation log-likelihood"
         )
-        ax_ll.set_title("Cross-validated fit")
         ax_ll.set_ylabel("Validation log-likelihood")
         if reference_k in k_int.tolist():
             position = int(np.where(k_int == reference_k)[0][0])
@@ -167,43 +159,24 @@ def selection_figure(
             ax_ll.legend(loc="lower right")
         _add_reference_line(ax_ll, reference_k)
 
-        # Panel (c): solution quality. The smallest class collapses towards zero as classes
-        # are added, while the relative entropy stays high, so class size, not classification
-        # certainty, is what marks the far-out solutions as not interpretable. Both are
-        # dimensionless quantities on the unit interval, so they share one axis (a twin axis
-        # would auto-scale the near-constant entropy and turn its noise into false structure).
+        # Panel (c): the smallest class proportion, which collapses towards zero as classes are
+        # added; it is class size, not classification certainty, that marks the higher-class
+        # solutions as not interpretable.
         prop_mean = summary["smallest_class_proportion_mean"].to_numpy()
         prop_std = summary["smallest_class_proportion_std"].to_numpy()
         _plot_mean_band(
-            ax_quality,
-            k,
-            prop_mean,
-            prop_std,
-            colour=style.PALETTE[0],
-            label="Smallest class proportion",
+            ax_quality, k, prop_mean, prop_std, colour=style.PALETTE[0], label="smallest class"
         )
-        ent_mean = summary["relative_entropy_mean"].to_numpy()
-        ent_std = summary["relative_entropy_std"].to_numpy()
-        _plot_mean_band(
-            ax_quality,
-            k,
-            ent_mean,
-            ent_std,
-            colour=style.PALETTE[1],
-            label="Relative entropy",
-            marker="s",
-        )
-        ax_quality.set_ylabel("Class proportion / relative entropy")
+        ax_quality.set_ylabel("Smallest class proportion")
         ax_quality.set_ylim(0.0, 1.05)
-        ax_quality.set_title("Solution quality")
-        ax_quality.legend(loc="center right")
         _add_reference_line(ax_quality, reference_k)
 
         for ax in (ax_ic, ax_ll, ax_quality):
             ax.set_xlabel("Number of latent classes $K$")
             ax.set_xticks(k_int.tolist())
-        for ax, letter in ((ax_ic, "(a)"), (ax_ll, "(b)"), (ax_quality, "(c)")):
-            style.panel_letter(ax, letter)
+        style.panel_title(ax_ic, "A", "Information criteria")
+        style.panel_title(ax_ll, "B", "Cross-validated log-likelihood")
+        style.panel_title(ax_quality, "C", "Smallest class proportion")
 
         fig.tight_layout()
     return fig
