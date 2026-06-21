@@ -134,36 +134,37 @@ stratification bins.
 
 ## The stratum-size floor
 
-The sweep takes twelve sizes from 500 to 11,000 probands, fifteen refits each, against the
-$r \ge 0.90$ benchmark the reproduction meets. On SPARK 2026-03-23 the per-size mean recovery
-clears the benchmark at every size, from 0.91 at 500 to 0.95 at 11,000, and is close to flat
-across the range rather than climbing from a low floor. The isotonic fit therefore puts the
-floor at 500, the smallest size tested, with a 90 per cent bootstrap interval of 500 to 1,787:
-recovery holds down to at least 500 probands, and the floor is at or below that.
+The sweep takes twelve sizes from 100 to 5,000 probands, fifteen refits each, against the
+$r \ge 0.90$ benchmark the reproduction meets. Going below 500 finds where recovery breaks down:
+on SPARK 2026-03-23 the per-size mean is about 0.72 at 100 and 150 probands, climbs through 0.84
+to 0.89 between 200 and 700, first clears the benchmark at 1,000 (0.93), and stays near 0.91 to
+0.93 from there to 5,000. The isotonic fit puts the floor, where recovery reaches the benchmark,
+at about 840 probands, with a 90 per cent bootstrap interval of 300 to 960; the smallest size to
+clear on its own is 1,000.
 
-No fit collapsed a class at any size; the smallest class stays at about 0.14 to 0.16 of each
-subsample throughout, so the model recovers four non-empty classes down to 500, and the floor
-turns on profile fidelity rather than on a class vanishing. An earlier, sparser sweep put the
-floor near 1,000, but the fifteen-replicate sampling here shows that was inflated by noise at
-the low end, where two independent fits of a small subsample can disagree by more than 0.1.
+The measure is noisy at the small sizes, where a fit on a few hundred probands over more than
+two hundred features is poorly determined and the per-fit scatter is wide below about 700. The
+robust reading is that recovery is poor below about 200 probands, marginal from there to about
+700, and reliable from about 1,000. No fit collapsed a class at any size; the smallest class
+stays at about 0.13 to 0.15 of each subsample throughout, so the floor turns on profile fidelity
+rather than on a class vanishing.
 
-For the stratification bins the interval matters more than the point estimate. Profile fidelity
-holds at 500, but there the smallest class holds only about 75 probands for a profile with
-several hundred free parameters, which is thin; at the upper bound of 1,787 it holds around 260.
-The conservative floor is therefore the upper bound, so the bins are best kept above about 1,800
-probands.
+For the stratification bins this puts the floor near 1,000 probands, where recovery clears
+reliably. There the smallest class holds only about 150 probands for a profile with several
+hundred free parameters, which is thin, so the bins are best kept comfortably above that, nearer
+2,000 where the smallest class has room.
 
 :::{figure} /_figures/stratum_size.png
 :alt: Recovery against subsample size and the minimum viable stratum size
 :width: 100%
 :align: center
 
-Recovery against subsample size, from an `analysis nmin` run (twelve sizes, fifteen refits
-each). (A) Each refit's profile correlation to the full-sample reference, with the per-size
-mean, the $r \ge 0.90$ benchmark, and the isotonic floor at 500 with its 90 per cent bootstrap
-interval (500 to 1,787). The per-size mean clears the benchmark across the whole range, so the
-floor sits at or below the smallest size tested. (B) The smallest class proportion stays near
-0.15 at every size, so no class collapses.
+Recovery against subsample size, from an `analysis nmin` run (twelve sizes from 100 to 5,000,
+fifteen refits each). (A) Each refit's profile correlation to the full-sample reference, with
+the per-size mean, the $r \ge 0.90$ benchmark, and the isotonic floor at about 840 with its 90
+per cent bootstrap interval (300 to 960). Recovery is poor below about 200 probands, climbs
+through the benchmark, and plateaus by 1,000. (B) The smallest class proportion stays near 0.14
+at every size, so no class collapses.
 :::
 
 ## Cross-cohort replication
