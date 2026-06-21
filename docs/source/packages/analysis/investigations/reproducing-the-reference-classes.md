@@ -3,12 +3,10 @@
 *This investigation rebuilds the four data-driven classes of Litman et al. (2025) on the SPARK release held here and names them as the authors did, so that every later test has a faithful, named reference to measure against.*
 
 The wider question is whether the four classes are a stable property of the phenotype or an
-artefact of fitting one mixture model to a pooled sample, which the later analysis tests by
-re-estimating the model within strata of age at diagnosis and diagnostic era. That test is
-only meaningful against a solid reference, so the first goal is to recover the four classes
-here and name them as the authors did. This investigation describes the feature typing, the
-model, the per-class enrichment, and how the classes are named, then reports the reproduction
-result, its uncertainty, and its caveats.
+artefact of fitting one mixture model to a pooled sample. The later analysis tests that by
+re-estimating the model within strata of age at diagnosis and diagnostic era, which is only
+meaningful against a solid reference. So the first goal is to recover the four classes here and
+name them as the authors did.
 
 ## Feature typing
 
@@ -40,14 +38,16 @@ takes around ten minutes and predicts a hard class label per proband.
 
 ## Per-class enrichment
 
-Each feature is then tested for enrichment in each class against the rest, in both
-directions: a binomial test for binary features and a Welch t-test for the others, with
-Benjamini-Hochberg correction within each class and direction. A feature is enriched or
-depleted in a class when its corrected $p$-value falls below $0.05$. The 24 reverse-coded SCQ
-social items have their direction flipped, and the features are summarised into the seven
-literature-defined categories (anxiety or mood, attention, disruptive behaviour, self-injury,
-social or communication, restricted or repetitive, and developmental) as the signed
-proportion enriched minus depleted. That seven-category vector is each class's signature.
+A feature is *enriched* in a class when probands there carry it more often, or score higher on
+it, than the rest of the cohort, and *depleted* when they carry or score less. Each feature is
+tested for this in every class against the rest, in both directions: a binomial test for binary
+features and a Welch $t$-test for the others, Benjamini-Hochberg corrected within each class and
+direction. A corrected $p$-value below $0.05$ marks the feature enriched or depleted. The 24
+reverse-coded SCQ social items have their direction flipped, and the features are summarised
+into the seven literature-defined categories (anxiety or mood, attention, disruptive behaviour,
+self-injury, social or communication, restricted or repetitive, and developmental) as the
+signed proportion enriched minus depleted. That seven-category vector is each class's
+*signature*.
 
 ## Naming the classes
 
@@ -84,13 +84,13 @@ figure's resolution. The signed values run from $-1$ (depleted across that categ
 | Mixed ASD with developmental delay | -0.90 | -0.45 | -0.65 | -0.10 | +0.10 | +0.05 | +0.45 |
 | Broadly affected | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 | +1.0 |
 
-Broadly affected sits near $+1$ and Moderate challenges near $-1$ across every category, so
-both profiles are saturated: their per-class correlation is uninformative and they rest on the
-anchors instead. The published class proportions the anchors use, also taken from the paper,
-are about 37, 34, 19, and 10 per cent for Social or behavioural, Moderate challenges, Mixed ASD
-with developmental delay, and Broadly affected. Every value in this section is read from the
-figure to its resolution, so it is approximate; obtaining the numeric supplementary tables would
-replace these with exact values and let the alignment use the published profile directly.
+Broadly affected sits near $+1$ and Moderate challenges near $-1$ across every category, so both
+profiles are saturated and their per-class correlation is undefined; they rest on the anchors
+instead. The published class proportions the anchors use, also from the paper, are about 37, 34,
+19, and 10 per cent for Social or behavioural, Moderate challenges, Mixed ASD with developmental
+delay, and Broadly affected. Every value here is read to the figure's resolution, so it is
+approximate; the numeric supplementary tables, if obtained, would replace them and let the
+alignment use the published profile directly.
 
 ## The reproduction result
 
@@ -104,11 +104,10 @@ taken over the full four-class, seven-category matrix (28 points), which matches
 own SSC-replication value of $r = 0.927$.
 
 The per-class correlations are $r = 0.97$ for Mixed ASD with developmental delay and $r = 0.85$
-for Social or behavioural. Each of these is taken over only the seven category points of one
-class, so it is a coarse, high-variance summary, read for direction rather than as a precise
-value. Broadly affected and Moderate challenges have saturated profiles (uniformly high and
-uniformly low respectively), so their per-class correlation is undefined and they rest on the
-anchors instead. The main per-class divergence from the published profile is that Social or
+for Social or behavioural. Each is taken over only the seven category points of one class, so it
+is coarse, read for direction rather than as a precise value. Broadly affected and Moderate
+challenges have saturated profiles (uniformly high and uniformly low respectively), so their
+per-class correlation is undefined and they rest on the anchors instead. The main per-class divergence from the published profile is that Social or
 behavioural shows weaker social-communication and restricted-or-repetitive enrichment here
 than in the paper.
 
@@ -118,24 +117,23 @@ than in the paper.
 :align: center
 
 The recovered class signatures (solid) against the values read from figure 1b of Litman et al.
-(dashed), one panel per named class, ordered by published class size. Each title gives the
-recovered and published class proportions and the per-class profile correlation, or notes that
-the class is anchor-confirmed where its published profile is saturated. Mixed ASD with
-developmental delay tracks the published profile closely ($r = 0.97$); Social or behavioural
-($r = 0.85$) shows the weaker self-injury, social-communication, and restricted-or-repetitive
-enrichment noted above; the recovered Broadly affected profile dips on the developmental
-category where the published one is saturated.
+(dashed), one panel per named class, ordered by published class size. Each panel notes the
+recovered and published class proportions and the per-class profile correlation, or that the
+class is anchor-confirmed where its published profile is saturated. Mixed ASD with developmental
+delay tracks the published profile closely ($r = 0.97$); Social or behavioural ($r = 0.85$)
+shows the weaker self-injury, social-communication, and restricted-or-repetitive enrichment
+noted above; the recovered Broadly affected profile dips on the developmental category where the
+published one is saturated.
 :::
 
-## How robust is the reproduction
+## Robustness of the reproduction
 
-Resampling the 11,704 probands with replacement, with the fitted labels held fixed, and
-recomputing the correlation each time puts a 95 per cent interval of $[0.893, 0.916]$ on the
-overall $r$, over 500 resamples. The reproduction is therefore precise to about $\pm 0.01$ from
-sampling alone. The bootstrap holds the model fit fixed, so it captures the sampling
-variability in the signature rather than the variability from refitting the model; and the
-resolution of the figure-read target is a further source of uncertainty that this interval does
-not capture.
+Resampling the 11,704 probands with replacement (the fitted labels held fixed) and recomputing
+the correlation over 500 resamples puts a 95 per cent interval of $[0.893, 0.916]$ on the
+overall $r$, so the reproduction is precise to about $\pm 0.01$ from sampling alone. Holding the
+fit fixed, the bootstrap captures the sampling variability in the signature, not the variability
+from refitting the model; the figure-read resolution of the target is a further, separate source
+of uncertainty.
 
 The seven-category profile the correlation rests on is itself stable, which the
 [stability investigation](stability-selection-and-replication) shows directly: across 200

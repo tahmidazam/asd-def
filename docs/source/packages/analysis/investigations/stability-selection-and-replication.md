@@ -3,13 +3,11 @@
 *This investigation tests how solid the reference solution is before the stratified work begins: how many classes the data support, whether the solution survives re-initialisation, resampling, and a second cohort, and how small a stratum can be before four-class recovery breaks down.*
 
 Reproducing the four classes is necessary but not sufficient: a partition can reproduce and
-still be an artefact of one fit, one initialisation, or one cohort. The second goal is to
-test how solid the reference solution is, three ways, before the stratified work begins. The
-`select` stage asks how many classes the data support; the `stability` stage asks whether the
-solution survives re-initialisation and resampling; the `replicate` stage asks whether it
-reappears in a second cohort. The `nmin` stage reuses the resampling machinery to fix how
-small a stratum can be before four-class recovery breaks down, which bounds the bins in the
-stratified analysis.
+still be an artefact of one fit, one initialisation, or one cohort. The `select` stage asks how
+many classes the data support; `stability` asks whether the solution survives re-initialisation
+and resampling; `replicate` asks whether it reappears in a second cohort; and `nmin` reuses the
+resampling machinery to fix how small a stratum can be before four-class recovery breaks down,
+which bounds the bins in the stratified analysis.
 
 Each stage compares a fitted solution to the named reference fit. The comparison currency is
 the seven-category signature from the reproduction stage: the signed proportion of each
@@ -45,20 +43,19 @@ show at a large sample, where the likelihood gain from an extra class outweighs 
 the parameters it adds. The cross-validated log-likelihood, the out-of-sample measure, gains
 little past four classes, and the higher-class solutions degenerate, their smallest class falling
 towards a few per cent of the cohort. Four classes is retained as the authors chose it, by
-reading the criteria rather than by an automatic rule.
+reading the criteria.
 
 :::{figure} /_figures/selection_criteria.png
 :alt: Model-selection criteria across one to ten latent classes
 :width: 100%
 :align: center
 
-Model selection across one to ten latent classes, from an `analysis select` run. (a) The
+Model selection across one to ten latent classes, from an `analysis select` run. (A) The
 information criteria fall throughout and reach their minimum at nine classes, the
-over-extraction expected at a sample of this size. (b) The cross-validated log-likelihood
-gains little beyond four classes. (c) The smallest class proportion falls towards zero as
-classes are added, while the relative entropy stays high, so it is class size rather than
-classification certainty that marks the higher-class solutions as uninterpretable. The dashed
-line marks the four classes chosen by Litman et al.
+over-extraction expected at a sample of this size. (B) The cross-validated log-likelihood gains
+little beyond four classes. (C) The smallest class proportion falls towards zero as classes are
+added; it is class size, not classification certainty, that marks the higher-class solutions as
+uninterpretable. The dashed line marks the four classes chosen by Litman et al.
 :::
 
 ## Multi-initialisation and subsampling stability
@@ -116,10 +113,10 @@ with membership that is softer at the edges.
 :align: center
 
 Stability of the reference fit under subsampling, from an `analysis stability` run (50 refits
-on random halves). (a) The seven-category profile correlation clusters near 0.92, while the
+on random halves). (A) The seven-category profile correlation clusters near 0.92, while the
 adjusted Rand index is more spread, around 0.65: the class definitions reproduce, the
-proband-level membership less so. (b) The per-category correlation is uniformly high,
-developmental included, in contrast to its weaker cross-cohort replication. (c) The mean
+proband-level membership less so. (B) The per-category correlation is uniformly high,
+developmental included, in contrast to its weaker cross-cohort replication. (C) The mean
 class-overlap matrix; its diagonal, each class's retention, runs from 0.83 to 0.87.
 :::
 
@@ -127,54 +124,46 @@ class-overlap matrix; its diagonal, each class's retention, runs from 0.83 to 0.
 
 The stratified analysis splits the cohort by age at diagnosis and by diagnostic era, and a
 four-class model over more than two hundred mixed features needs enough probands per class to
-estimate its densities. The `nmin` stage fixes the floor empirically rather than by a rule of
-thumb. It refits at descending sample sizes and records, at each size, the smallest class
-proportion, the scaled relative entropy, the average posterior certainty, and the profile
-correlation to the full-sample reference. The floor is read from a monotone (isotonic) fit of
-profile correlation against log-size: the smallest size at which the fitted recovery reaches
-the reproduction benchmark, with a bootstrap confidence interval. Pooling every fit makes this
-robust to the scatter a small replicate count produces, where the smallest individually
-clearing size is not (that size is still reported, for continuity). The floor becomes the lower
-bound on the stratification bins.
+estimate its densities. The `nmin` stage fixes the floor empirically: it refits at descending
+sample sizes and records, at each size, the profile correlation to the full-sample reference,
+with the smallest class proportion and the average posterior certainty as degradation checks.
+The floor is the smallest size at which a monotone (isotonic) fit of correlation against
+log-size reaches the reproduction benchmark, with a bootstrap interval; pooling every fit makes
+it robust to the scatter the recovery measure carries. That floor is the lower bound on the
+stratification bins.
 
 ## The stratum-size floor
 
-A first sweep at three replicates per size gave a tidy-looking 1,170 from the
-smallest-clearing-size rule, but its per-size correlation bounced from 0.81 to 0.98 with no
-clean fall, so the figure was noise. A concentrated sweep settles it better: six sizes from 600
-to 5,000 (where the crossing sits), ten replicates each, against the $r \ge 0.90$ benchmark the
-reproduction meets. On SPARK 2026-03-23 the isotonic fit puts the floor at about 1,000 probands,
-with a 90 per cent bootstrap interval of 600 to 3,955; the smallest individually clearing size
-agrees at 1,000.
+The sweep takes twelve sizes from 500 to 11,000 probands, fifteen refits each, against the
+$r \ge 0.90$ benchmark the reproduction meets. On SPARK 2026-03-23 the per-size mean recovery
+clears the benchmark at every size, from 0.91 at 500 to 0.95 at 11,000, and is close to flat
+across the range rather than climbing from a low floor. The isotonic fit therefore puts the
+floor at 500, the smallest size tested, with a 90 per cent bootstrap interval of 500 to 1,787:
+recovery holds down to at least 500 probands, and the floor is at or below that.
 
-The recovery measure is noisy in its own right, not only under-sampled. Even at ten replicates
-the per-size mean correlation hovers around the benchmark across the whole range (0.79 at 600,
-then 0.93, 0.87, 0.91, 0.89, 0.92 up to 5,000) rather than climbing cleanly, so two independent
-fits of a several-thousand-proband subsample still agree only to about 0.92. The monotone fit
-imposes the ordering recovery is expected to follow and the interval carries the residual
-scatter, which is why the floor is reported as a range. No fit collapsed a class at any size
-down to 600, so the model recovers four non-empty classes throughout and the floor turns on
-profile fidelity, the classes themselves surviving.
+No fit collapsed a class at any size; the smallest class stays at about 0.14 to 0.16 of each
+subsample throughout, so the model recovers four non-empty classes down to 500, and the floor
+turns on profile fidelity rather than on a class vanishing. An earlier, sparser sweep put the
+floor near 1,000, but the fifteen-replicate sampling here shows that was inflated by noise at
+the low end, where two independent fits of a small subsample can disagree by more than 0.1.
 
-For setting the stratification bins the interval matters more than the point. At the point
-estimate of 1,000 the smallest class (about 15 per cent) holds only around 150 probands for a
-profile with several hundred free parameters, which is thin; at the upper bound of about 3,955
-it holds around 580. The conservative floor is therefore the upper bound, and the phase-4 bins
-are best kept above about 2,000 probands, nearer 4,000 where the smallest class is comfortable.
-Tightening the interval further would take many more replicates for little gain, because much of
-the scatter comes from the fit itself and only partly from sampling.
+For the stratification bins the interval matters more than the point estimate. Profile fidelity
+holds at 500, but there the smallest class holds only about 75 probands for a profile with
+several hundred free parameters, which is thin; at the upper bound of 1,787 it holds around 260.
+The conservative floor is therefore the upper bound, so the bins are best kept above about 1,800
+probands.
 
 :::{figure} /_figures/stratum_size.png
 :alt: Recovery against subsample size and the minimum viable stratum size
 :width: 100%
 :align: center
 
-Recovery against subsample size, from an `analysis nmin` run (six sizes, ten refits each). (a)
-Each refit's profile correlation to the full-sample reference, with the per-size mean, the
-$r \ge 0.90$ benchmark, and the isotonic floor near 1,000 with its 90 per cent bootstrap
-interval (600 to 3,955). The recovery measure hovers near the benchmark across the whole range
-rather than climbing cleanly, so the floor is reported as a range. (b) The smallest class
-proportion stays clear of zero at every size, so no class collapses.
+Recovery against subsample size, from an `analysis nmin` run (twelve sizes, fifteen refits
+each). (A) Each refit's profile correlation to the full-sample reference, with the per-size
+mean, the $r \ge 0.90$ benchmark, and the isotonic floor at 500 with its 90 per cent bootstrap
+interval (500 to 1,787). The per-size mean clears the benchmark across the whole range, so the
+floor sits at or below the smallest size tested. (B) The smallest class proportion stays near
+0.15 at every size, so no class collapses.
 :::
 
 ## Cross-cohort replication
@@ -215,10 +204,9 @@ the developmental category (below) accounts for.
 :align: center
 
 Cross-cohort replication, from an `analysis replicate` run projecting the SPARK model onto 771
-SSC probands. (a) Every class-by-category signature value, SSC against SPARK, around the line
-of equality ($r = 0.76$). (b) The per-category correlation; the developmental category, the
-one built from the SSC milestone parsing rather than a standard instrument, sits well below
-the rest.
+SSC probands. (A) Every class-by-category signature value, SSC against SPARK, around the line of
+equality ($r = 0.76$). (B) The per-category correlation; the developmental category, the one
+built from the SSC milestone parsing rather than a standard instrument, sits well below the rest.
 :::
 
 The correlation is uneven across the seven categories:
@@ -258,14 +246,11 @@ interrupt: `select`, both `stability` modes, and `nmin` checkpoint each complete
 continue from where they stopped when re-run, reproducing the same result as an uninterrupted
 run. See [the pipeline and its cache](../guides/pipeline-and-caching.md) for how the checkpoints work.
 
-The replication carries two honest caveats. The SSC harmonisation relies on the package's own
-milestone handling: the authors used a hand-cleaned background-history file that was not
-released, so the raw free-text milestone ages are parsed into months here rather than read
-from their clean file. That parsing is what the developmental category rests on, and it is
-where the projection departs most from the published profile. And the shared-feature
-complete-case reduction leaves a sample below the full SSC release, so the replication is
-reported with its sample size and read against the published value rather than offered as an
-exact reproduction.
+The replication carries two caveats. The SSC milestone ages are parsed from free text here, not
+read from the authors' unreleased hand-cleaned file; that parsing is what the developmental
+category rests on, and where the projection departs most from the published profile. And the
+shared-feature complete-case reduction leaves a sample below the full SSC release, so the
+replication is read against the published value rather than offered as an exact reproduction.
 
 ## What this establishes
 
