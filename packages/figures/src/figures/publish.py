@@ -49,6 +49,7 @@ FIGURES: tuple[FigureSpec, ...] = (
     FigureSpec("stability", "stability", "stability"),
     FigureSpec("nmin", "nmin", "stratum_size"),
     FigureSpec("replicate", "replicate", "replication"),
+    FigureSpec("subset", "align", "subset_comparison"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}

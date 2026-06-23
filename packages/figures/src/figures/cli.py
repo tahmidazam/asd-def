@@ -21,6 +21,7 @@ from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
+from figures.subset import subset_comparison_figure
 
 app = typer.Typer(
     name="figures",
@@ -116,6 +117,54 @@ def nmin(run: str | None = _RUN, name: str = _name("stratum_size"), fmt: str = _
     per_fit, summary, metrics = data.load_nmin(run_directory)
     figure = nmin_figure(per_fit, summary, metrics)
     _write(root, "nmin", run_directory, figure, name, fmt)
+
+
+def _named_proportions(root: Path, align_hash: str) -> dict[str, float]:
+    """Return one align run's class proportions keyed by named class."""
+    run_directory = data.resolve_run(root, "align", align_hash)
+    _, _, alignment, our_props, _ = data.load_alignment(run_directory, root)
+    mapping = alignment["mapping"]
+    return {mapping[str(cid)]: fraction for cid, fraction in our_props.items()}
+
+
+@app.command()
+def subset(
+    full_align: str = typer.Option("a5e4220612cc3564", help="Full-release align run hash."),
+    subset_align: str = typer.Option("f925f49f27d51bd7", help="V9-subset align run hash."),
+    control_align: str = typer.Option("46ede877a8aca499", help="Size-matched align run hash."),
+    full_select: str = typer.Option("ab88110bae17a09a", help="Full-release select run hash."),
+    subset_select: str = typer.Option("63a12d5534bddbeb", help="V9-subset select run hash."),
+    control_select: str = typer.Option("b2218e6d55dd3205", help="Size-matched select run hash."),
+    name: str = _name("subset_comparison"),
+    fmt: str = _FMT,
+) -> None:
+    """Compare class proportions and model selection across the full, subset, and control cuts."""
+    from analysis import reference
+
+    root = find_repo_root()
+    proportions = {
+        "Litman 2025": dict(reference.PUBLISHED_PROPORTIONS),
+        "Full release": _named_proportions(root, full_align),
+        "V9 subset": _named_proportions(root, subset_align),
+        "Size-matched": _named_proportions(root, control_align),
+    }
+    selection = {
+        "Full release": data.load_selection_summary(data.resolve_run(root, "select", full_select)),
+        "V9 subset": data.load_selection_summary(data.resolve_run(root, "select", subset_select)),
+        "Size-matched": data.load_selection_summary(
+            data.resolve_run(root, "select", control_select)
+        ),
+    }
+    figure = subset_comparison_figure(
+        proportions,
+        selection,
+        cut_order=["Litman 2025", "Full release", "V9 subset", "Size-matched"],
+        class_order=list(reference.PUBLISHED_PROPORTIONS),
+    )
+    # The figure spans several runs; the V9 subset is its primary source, so it is written and
+    # published under that align run.
+    run_directory = data.resolve_run(root, "align", subset_align)
+    _write(root, "align", run_directory, figure, name, fmt)
 
 
 @app.command()

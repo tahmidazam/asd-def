@@ -15,6 +15,7 @@ from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
+from figures.subset import subset_comparison_figure
 from matplotlib.figure import Figure
 
 _CATEGORIES = [
@@ -145,6 +146,45 @@ def test_replication_figure_mismatched_signatures() -> None:
     spark, ssc = _signature_pair()
     with pytest.raises(ValueError, match="share shape and columns"):
         replication_figure(spark, ssc.iloc[:, :5], _replication_metrics())
+
+
+# ---- subset comparison figure ------------------------------------------------
+_CLASSES = ["Social/behavioral", "Moderate challenges", "Mixed ASD with DD", "Broadly affected"]
+
+
+def _subset_inputs() -> tuple[dict, dict]:
+    proportions = {
+        "Litman 2025": dict(zip(_CLASSES, [0.37, 0.34, 0.19, 0.10], strict=True)),
+        "Full release": dict(zip(_CLASSES, [0.39, 0.29, 0.18, 0.15], strict=True)),
+        "V9 subset": dict(zip(_CLASSES, [0.31, 0.34, 0.20, 0.15], strict=True)),
+    }
+    summary = pd.DataFrame({"n_components": range(1, 11), "bic_mean": np.linspace(10, 1, 10)})
+    selection = {"Full release": summary, "V9 subset": summary}
+    return proportions, selection
+
+
+def test_subset_comparison_figure_structure() -> None:
+    proportions, selection = _subset_inputs()
+    fig = subset_comparison_figure(
+        proportions,
+        selection,
+        cut_order=["Litman 2025", "Full release", "V9 subset"],
+        class_order=_CLASSES,
+    )
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) == 2  # proportions + selection traces
+
+
+def test_subset_comparison_figure_missing_class() -> None:
+    proportions, selection = _subset_inputs()
+    proportions["V9 subset"].pop("Broadly affected")
+    with pytest.raises(ValueError, match="missing classes"):
+        subset_comparison_figure(
+            proportions,
+            selection,
+            cut_order=["Litman 2025", "Full release", "V9 subset"],
+            class_order=_CLASSES,
+        )
 
 
 # ---- stability figure --------------------------------------------------------
