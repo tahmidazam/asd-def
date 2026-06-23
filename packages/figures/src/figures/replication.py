@@ -1,11 +1,14 @@
 """The cross-cohort replication figure: SPARK class signatures projected onto the SSC.
 
 Built from a ``replicate`` run, the figure shows how closely the seven-category class
-signatures agree between the SPARK fit and its projection onto the SSC. Panel (a) scatters
-every class-by-category value, SSC against SPARK, around the line of equality; panel (b) gives
-the per-category correlation, where the developmental category sits well below the rest. That
-gap is the SSC milestone parsing rather than the classes, as the stability figure shows the
-developmental category is as stable as the others within SPARK.
+signatures agree between the SPARK fit and its projection onto the SSC, against the values
+Litman et al. (2025) report. Panel (a) scatters every class-by-category value, SSC against
+SPARK, around the line of equality; panel (b) gives the per-category correlation with the
+published per-category coefficients overlaid. Each per-category coefficient is taken over the
+four classes alone, so it shifts easily when one class moves; the overall correlation, over
+all 28 class-by-category points, is the stabler quantity. The developmental category sits
+below the rest, a gap the replication investigation examines rather than ascribes to a single
+cause.
 """
 
 from __future__ import annotations
@@ -16,6 +19,24 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from figures import style
+
+# Litman et al. (2025) reported SSC-replication values, overlaid as the reference our
+# projection is read against. The overall r = 0.927 (P < 1e-4) is from the Results text and
+# Extended Data Fig. 6, where their model was trained on 6,393 SPARK probands and applied to
+# 861 in the SSC. The per-category coefficients are quoted in the Methods ("Phenotypic
+# replication in the SSC"); the Methods gives the seven values without naming an order, so
+# they are matched to the category order of figure 2c (the released features_to_visualize),
+# which is SEVEN_CATEGORIES order.
+LITMAN_OVERALL_R: float = 0.927
+LITMAN_CATEGORY_R: dict[str, float] = {
+    "anxiety/mood": 0.98,
+    "attention": 0.92,
+    "disruptive behavior": 0.94,
+    "self-injury": 0.92,
+    "social/communication": 0.89,
+    "restricted/repetitive": 0.97,
+    "developmental": 0.98,
+}
 
 
 def replication_figure(
@@ -90,7 +111,7 @@ def replication_figure(
         ax_scatter.text(
             0.97,
             0.03,
-            f"$r = {overall:.2f}${ci_text}{n_text}",
+            f"$r = {overall:.2f}${ci_text}{n_text}\nLitman 2025: $r = {LITMAN_OVERALL_R:.3f}$",
             transform=ax_scatter.transAxes,
             ha="right",
             va="bottom",
@@ -99,19 +120,38 @@ def replication_figure(
         )
         ax_scatter.legend(loc="upper left", ncol=2, fontsize=6)
 
-        # Panel (b): the per-category correlation, with developmental the clear outlier.
+        # Panel (b): the per-category correlation, with Litman et al.'s published values
+        # overlaid as the reference each bar is read against.
         values = [
             float(per_category[cat]) if per_category.get(cat) is not None else np.nan
             for cat in categories
         ]
         positions = np.arange(len(categories))
         ax_bar.bar(positions, values, color=[colours[cat] for cat in categories])
+        ax_bar.scatter(
+            positions,
+            [LITMAN_CATEGORY_R[cat] for cat in categories],
+            marker="D",
+            s=26,
+            color=style.REFERENCE_COLOUR,
+            edgecolor="white",
+            linewidth=0.5,
+            zorder=4,
+            label="Litman 2025, per category",
+        )
         ax_bar.axhline(
             overall,
             color=style.REFERENCE_COLOUR,
             linestyle="--",
             linewidth=1.0,
-            label=f"overall $r = {overall:.2f}$",
+            label=f"this work, overall $r = {overall:.2f}$",
+        )
+        ax_bar.axhline(
+            LITMAN_OVERALL_R,
+            color=style.REFERENCE_COLOUR,
+            linestyle=":",
+            linewidth=1.0,
+            label=f"Litman 2025, overall $r = {LITMAN_OVERALL_R:.3f}$",
         )
         ax_bar.set_xticks(positions)
         ax_bar.set_xticklabels(
@@ -119,7 +159,7 @@ def replication_figure(
         )
         ax_bar.set_ylim(0.0, 1.05)
         ax_bar.set_ylabel("Profile correlation, SPARK vs SSC")
-        ax_bar.legend(loc="lower left")
+        ax_bar.legend(loc="lower left", fontsize=6)
 
         style.panel_title(ax_scatter, "A", "Class signatures")
         style.panel_title(ax_bar, "B", "Per-category profile correlation")
