@@ -168,8 +168,13 @@ figure's resolution, not from a numeric supplementary table, so the correlation 
 the figure. The cohort is also larger than the authors' (11,704 against 5,392), because the
 release is later and broader.
 
-With those caveats, the four classes reproduce with the correct structure, clean naming, and
-matching proportions. This named fit is the fixed reference the stratified analysis is measured
+With those caveats, the four classes reproduce with the correct structure and clean naming, and
+proportions of the same order as the published ones. The match is closest for the two middle
+classes; the smallest, Broadly affected, is about 15 per cent here against the published 10, the
+one proportion that stands apart. Whether that gap and the others trace to the records added since
+the authors' release is taken up in
+[isolating the records added since V9](isolating-the-new-records). This named fit is the fixed
+reference the stratified analysis is measured
 against: that work asks whether the same four classes survive re-estimation within strata of age
 at diagnosis and diagnostic era. Reproducibility is necessary for that test but is not the same
 as validity. A partition can reproduce across samples and still reflect parent-reported,

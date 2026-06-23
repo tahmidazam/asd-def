@@ -38,9 +38,12 @@ uninterpretable. The dashed line marks the four classes chosen by Litman et al.
 On SPARK 2026-03-23 the information criteria do not select four: they fall across the whole grid
 and reach their minimum at nine classes. This is the over-extraction these criteria are known to
 show at a large sample, where the likelihood gain from an extra class outweighs the penalty on
-the parameters it adds. The cross-validated log-likelihood, the out-of-sample measure, gains
-little past four classes, and the higher-class solutions degenerate, their smallest class falling
-towards a few per cent of the cohort.
+the parameters it adds. Cutting the cohort back to the records present at the authors' V9 freeze
+moves the minimum only to eight classes, still far from four (see
+[isolating the records added since V9](isolating-the-new-records)), so the over-extraction is not
+simply an artefact of the later release's size. The cross-validated log-likelihood, the
+out-of-sample measure, gains little past four classes, and the higher-class solutions degenerate,
+their smallest class falling towards a few per cent of the cohort.
 
 The choice of four classes is not made by an automatic rule. The released code asserts it
 visually, with a reference line at four on every criterion panel, and hard-codes four for the

@@ -114,6 +114,10 @@ or jump to one.
    do in the SSC, at $r = 0.89$ ($p = 0.006$), with a bootstrap interval $[0.79, 0.93]$ that
    includes the authors' published $0.927$; six of the seven categories correlate at $0.85$ or
    above, the developmental category lower at $0.79$.
+6. {doc}`Do the records added since V9 explain the divergences? <investigations/isolating-the-new-records>`
+   Partly: cutting back to the authors' V9 freeze (5,324 probands against their 5,392) shifts the
+   class proportions compositionally, but the overall correlation is unchanged, the smallest class
+   stays near 15 per cent rather than 10, and the criteria still over-extract.
 
 Taken together, the reproduction and these checks show the pooled reference is solid enough at the
 profile level to anchor the stratified test. That matters because the test compares
@@ -121,6 +125,9 @@ stratum-specific fits against this reference, and a fragile baseline would make 
 uninterpretable. The class profiles reproduce across initialisations, resamples, and a second
 cohort, the developmental category lower than the rest there; the membership is softer at the
 boundaries; and the stratum-size floor sets the lower bound on how finely the cohort can be split.
+Cutting the cohort back to the records present at the authors' V9 freeze shows the differences from
+their class proportions are partly compositional, carried by the records added since, while the
+overall reproduction and the inflated smallest class are unchanged by the cut.
 
 What comes next is the stratified analysis itself. With the stratification plan, the bins, the
 drift metrics, the null, and the decision thresholds frozen in advance so the result is
@@ -167,6 +174,7 @@ investigations/selecting-the-number-of-classes
 investigations/stability-under-refitting
 investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
+investigations/isolating-the-new-records
 :::
 
 :::{toctree}
