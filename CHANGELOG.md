@@ -1,3 +1,17 @@
+## v0.5.0 (2026-06-23)
+
+### Feat
+
+- **figures**: overlay the published per-category values on the replication figure
+- **figures**: restyle the figures with bold left-aligned panel titles
+- **figures**: show the bootstrap interval on the reproduction and replication figures
+- **analysis**: add bootstrap confidence intervals to the reproduction and replication correlations
+
+### Fix
+
+- **analysis**: recover the SSC replication to match the authors
+- derive package __version__ from installed metadata
+
 ## v0.4.0 (2026-06-20)
 
 ### Feat

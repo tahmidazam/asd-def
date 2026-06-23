@@ -1,6 +1,6 @@
 [project]
 name = "dscat"
-version = "0.4.0"
+version = "0.5.0"
 description = "Searchable catalogue over versioned tabular research datasets"
 requires-python = ">=3.12"
 dependencies = [
