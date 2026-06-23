@@ -86,7 +86,14 @@ class SscCohort:
         return items.join(summary[keep], how="outer")
 
     def _rbsr(self) -> pd.DataFrame:
-        return self._read("rbs_r_raw").rename(columns=SSC_RBSR_RENAME)
+        items = self._read("rbs_r_raw").rename(columns=SSC_RBSR_RENAME)
+        # The RBS-R subscale totals (i_stereotyped_behavior_score ... vi_restricted) live in
+        # the separate scored table under the same names the author feature list uses, so they
+        # are joined alongside the raw items rather than dropped (the authors' SSC set carries
+        # both the items and the subscale scores).
+        scores = self._read("rbs_r")
+        subscale = [c for c in scores.columns if c in self._features and c not in items.columns]
+        return items.join(scores[subscale], how="outer")
 
     def _cbcl(self) -> pd.DataFrame:
         return self._read("cbcl_6_18").rename(columns=SSC_CBCL_RENAME)

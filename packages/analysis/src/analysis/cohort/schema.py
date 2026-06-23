@@ -90,9 +90,22 @@ SSC_YES_NO: dict[str, int] = {"yes": 1, "no": 0}
 MILESTONE_AGE_FEATURES: frozenset[str] = frozenset(SSC_BH_RENAME.values())
 
 # Free-text milestone entries that carry no numeric age; parsed to missing.
-_NO_AGE: frozenset[str] = frozenset(
-    {"na", "n/a", "none", "never", "not yet", "unknown", "normal", "varies", "?"}
+_NO_AGE: frozenset[str] = frozenset({"na", "n/a", "none", "unknown", "normal", "varies", "?"})
+
+# The SPARK milestone dropdowns code "milestone not yet achieved" as 888 and cap real ages at
+# "over 7 years" (85 months), so a free-text SSC entry stating the milestone was never reached
+# maps to 888 to match (rather than dropping the proband at the complete-case step, which would
+# discard exactly the severe-delay cases that carry the developmental signal). A parsed age
+# above the cap is set to 85, as the SPARK dropdown would.
+_NOT_YET_CODE = 888.0
+_MAX_AGE_MONTHS = 85.0
+_NOT_YET_RE = re.compile(
+    r"\bnever\b|\bnot\s+yet\b|\bhas\s*n['’]?t\b|\bhas\s+not\b|\bdoes\s*n['’]?t\b"
+    r"|\bdoes\s+not\b|\bdid\s*n['’]?t\b|\bdid\s+not\b|\bunable\b|\bcan\s*not\b"
+    r"|\bcan['’]?t\b|\bnot\s+able\b",
+    re.IGNORECASE,
 )
+_HAS_DIGIT_RE = re.compile(r"\d")
 
 _NUMBER = r"\d+(?:\.\d+)?"
 # Units, longest spelling first so an anchored match prefers the full word.
@@ -215,15 +228,17 @@ def parse_age_months(value: object) -> float | None:
     (``"12-14"``, ``"18 months to 2 years"``, ``"7 or 8 months"``) is read as its midpoint. A
     bound (``"<3 mos"``, ``"before 1 year"``) has the bound dropped and the stated age taken.
 
-    Some entries are deliberately left missing, so they drop at the complete-case step as in
-    the released pipeline: text with no numeric age (``"never"``, ``"normal"``, ``"on time"``);
-    a calendar date entered in the age field (``"03/2003"``); a regression or loss narrative
-    (``"12 mos (lost at 15 mos)"``); and a bare number left after a bound (``"under 2"``),
-    whose scale (years or months) is ambiguous. The parsing rules and the forms left missing
-    are set out in the package's milestone-parsing guide.
+    A statement that the milestone was never reached (``"never"``, ``"not yet"``, ``"hasn't"``)
+    with no age given returns the SPARK "not yet" code of 888, so those severe-delay probands
+    are kept and coded as SPARK codes them, rather than dropped. Other entries are left missing
+    and drop at the complete-case step: text with no numeric age (``"normal"``, ``"on time"``,
+    ``"unknown"``); a calendar date entered in the age field (``"03/2003"``); a regression or
+    loss narrative (``"12 mos (lost at 15 mos)"``); and a bare number left after a bound
+    (``"under 2"``), whose scale (years or months) is ambiguous.
 
-    The parsed ages stay continuous in months rather than being snapped to the SPARK dropdown
-    grid, because the milestone features are modelled as continuous.
+    A parsed age above the SPARK "over 7 years" code is capped at 85 months, matching the
+    dropdown and discarding mis-parsed outliers. The parsing rules and the forms left missing
+    are set out in the package's milestone-parsing guide.
 
     Parameters
     ----------
@@ -237,9 +252,14 @@ def parse_age_months(value: object) -> float | None:
     """
     if not isinstance(value, str):
         if isinstance(value, (int, float)) and not math.isnan(value):
-            return float(value)  # an already-numeric cell (numpy floats included)
+            v = float(value)  # an already-numeric cell (numpy floats included)
+            return _NOT_YET_CODE if v == _NOT_YET_CODE else min(v, _MAX_AGE_MONTHS)
         return None
     text = html.unescape(value).strip().lower()
+    # A statement that the milestone was never reached maps to the SPARK "not yet" code (888),
+    # provided no age is also given ("not until 18 months" still parses to 18).
+    if _NOT_YET_RE.search(text) and not _HAS_DIGIT_RE.search(text):
+        return _NOT_YET_CODE
     text = text.rstrip(".").replace("~", "").replace(",", "").replace("+", "")
     text = text.replace(_HALF, ".5").replace(_QUARTER, ".25").replace(_THREE_QUARTER, ".75")
     text = _LEADING_RE.sub("", text)
@@ -260,9 +280,11 @@ def parse_age_months(value: object) -> float | None:
     if "birth" in text:
         return 0.0
     months = _parse_range(text)
-    if months is not None:
-        return months
-    return _single_age_months(text)
+    if months is None:
+        months = _single_age_months(text)
+    # Cap a parsed age at the SPARK "over 7 years" code, which also discards mis-parsed
+    # outliers (a stray "18" read as years gives 216 months, well beyond any real milestone).
+    return None if months is None else min(months, _MAX_AGE_MONTHS)
 
 
 def load_feature_list(path: Path) -> list[str]:

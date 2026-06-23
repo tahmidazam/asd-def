@@ -155,9 +155,7 @@ def test_parse_age_months_unicode_fraction() -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        "never",
         "normal",
-        "not yet",
         "n/a",
         "?",
         "",
@@ -175,6 +173,23 @@ def test_parse_age_months_unicode_fraction() -> None:
 )
 def test_parse_age_months_missing_forms(raw: object) -> None:
     assert parse_age_months(raw) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["never", "not yet", "hasn't walked", "has not", "doesn't", "unable", "can't", "not able"],
+)
+def test_parse_age_months_not_yet_maps_to_spark_code(raw: str) -> None:
+    # A milestone stated as never reached takes the SPARK "888 = Not yet" code, not missing,
+    # so the severe-delay proband is kept rather than dropped at the complete-case step.
+    assert parse_age_months(raw) == 888.0
+
+
+@pytest.mark.parametrize(("raw", "months"), [("18 years", 85.0), ("100 months", 85.0)])
+def test_parse_age_months_caps_high_values(raw: str, months: float) -> None:
+    # A parsed age above the SPARK "over 7 years" code caps at 85 months, which also discards
+    # mis-parsed outliers.
+    assert parse_age_months(raw) == months
 
 
 def test_reconcile_defers_to_pickle_and_flags_conflict() -> None:
