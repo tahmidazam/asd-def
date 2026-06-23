@@ -15,8 +15,7 @@ authors saved.
 The backend takes an optional records cutoff (``as_of``) that restricts the cohort to the
 probands present at an earlier SPARK freeze, so a later release can be cut back to (an
 approximation of) the data Litman et al. fit on. See
-:doc:`/packages/analysis/guides/reconstructing-the-litman-cohort` for the method and its
-limits.
+:doc:`/packages/analysis/guides/subsetting-to-the-v9-freeze` for the method and its limits.
 """
 
 from __future__ import annotations

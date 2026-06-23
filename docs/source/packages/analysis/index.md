@@ -81,6 +81,14 @@ Turning the SSC's free-text developmental-milestone ages into months: the forms 
 and the entries left missing.
 :::
 
+:::{grid-item-card} Subsetting the cohort to the V9 freeze
+:link: guides/subsetting-to-the-v9-freeze
+:link-type: doc
+
+Cutting a later SPARK release back in time to the probands present at Litman's V9 freeze: the
+roster and completion gates, and what the cut recovers.
+:::
+
 ::::
 
 ## Investigations
@@ -147,6 +155,7 @@ guides/pipeline-and-caching
 guides/running-the-pipeline
 guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
+guides/subsetting-to-the-v9-freeze
 :::
 
 :::{toctree}
