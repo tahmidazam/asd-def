@@ -36,7 +36,10 @@ dev = [
 # The docs package owns the Sphinx toolchain (see packages/docs/pyproject.toml); this
 # non-default group just pulls it in, keeping Sphinx out of the default dev and CI
 # environment. Run it with `uv run --group docs docs <build|serve|clean>`.
-docs = ["docs"]
+docs = [
+    "docs",
+    "sphinxcontrib-mermaid>=2.0.2",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["packages/dscat/tests", "packages/analysis/tests", "packages/figures/tests"]

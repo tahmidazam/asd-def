@@ -64,6 +64,7 @@ extensions = [
     "myst_parser",  # author pages in Markdown (MyST)
     "sphinx_design",  # grids, cards, tabs; pairs with the pydata theme
     "sphinx_copybutton",  # copy button on code blocks
+    "sphinxcontrib.mermaid",  # render mermaid diagrams in the docs
 ]
 
 templates_path = ["_templates"]
@@ -180,3 +181,11 @@ html_theme_options = {
 # Strip interactive prompts (">>> ", "... ", "$ ") when copying code blocks.
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
+
+# -- sphinxcontrib-mermaid ---------------------------------------------------
+
+# Diagrams render client-side from the mermaid runtime, pinned to an exact version and
+# fetched from the jsDelivr CDN at view time. Pinning keeps the rendered output stable
+# across builds; the version here is the one the extension defaults to, set explicitly so
+# an extension upgrade cannot change it silently.
+mermaid_version = "11.12.1"
