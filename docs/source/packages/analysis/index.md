@@ -8,30 +8,38 @@ The package is built one pipeline stage at a time. Each stage is a CLI subcomman
 named inputs and writes its outputs plus a manifest under a content-addressed `artefacts/`
 directory, so a later run recomputes only what changed.
 
-## Implemented stages
+## The pipeline
 
-- `analysis cohort` builds the harmonised proband-by-feature matrix from a SPARK release and
-  the authors' final feature list, and writes the reconciled feature typing.
-- `analysis fit` fits the reference general finite mixture model and predicts a class label
-  per proband.
-- `analysis align` summarises each class into the seven literature-defined categories and
-  aligns the recovered classes to Litman's four named classes.
-- `analysis select` grids over the number of components and reports the information criteria
-  (validation log-likelihood, AIC, BIC, sample-size-adjusted BIC, consistent AIC, the
-  approximate weight of evidence, the relative entropy, the average posterior certainty, and
-  the smallest class proportion).
-- `analysis stability` summarises multi-initialisation stability (ranking many single-init
-  fits by log-likelihood) or subsampling stability (refitting on random halves), comparing
-  each fit to the reference by profile correlation, class overlap, and the adjusted Rand
-  index.
-- `analysis nmin` refits at descending sample sizes to fix the minimum viable stratum size
-  for the later stratified work.
-- `analysis replicate` fits a fresh model on the SPARK features shared with the SSC, projects
-  it onto the SSC, and correlates the seven-category profiles against a permutation null.
+Three stages build the named reference, and four more stress-test it. The `cohort` stage builds
+the harmonised proband-by-feature matrix, `fit` fits the reference four-class mixture model, and
+`align` names the classes; the four checks branch from there. The remaining stages (the
+stratified analysis and reporting) are listed under "planned" in `analysis --help` and are added
+as the work proceeds.
 
-The cohort layer sits behind one interface with a SPARK and an SSC backend, so a stage runs
-on either cohort. The remaining stages (the stratified analysis and reporting) are listed
-under "planned" in `analysis --help` and are added as the work proceeds.
+:::{mermaid}
+flowchart LR
+  subgraph reference [Build the reference]
+    direction LR
+    cohort[cohort] --> fit[fit] --> align[align]
+  end
+  align --> stability[stability]
+  align --> nmin[nmin]
+  cohort --> select[select]
+  cohort --> replicate[replicate]
+:::
+
+The cohort layer sits behind one interface with a SPARK and an SSC backend, so a stage runs on
+either cohort. Each stage and where its result is reported:
+
+| Stage | What it does | Reported in |
+| --- | --- | --- |
+| `cohort` | Builds the harmonised proband-by-feature matrix from a SPARK release and the authors' final feature list, with the reconciled feature typing. | {doc}`The cohort interface <guides/the-cohort-interface>` |
+| `fit` | Fits the reference four-class general finite mixture model and predicts a class label per proband. | {doc}`Reproducing the reference classes <investigations/reproducing-the-reference-classes>` |
+| `align` | Summarises each class into the seven literature-defined categories and aligns the recovered classes to Litman's four named classes. | {doc}`Reproducing the reference classes <investigations/reproducing-the-reference-classes>` |
+| `select` | Grids over the number of components and reports the information criteria. | {doc}`Selecting the number of classes <investigations/selecting-the-number-of-classes>` |
+| `stability` | Ranks many single-init fits by log-likelihood, and refits on random halves, comparing each fit to the reference. | {doc}`Stability under refitting <investigations/stability-under-refitting>` |
+| `nmin` | Refits at descending sample sizes to fix the minimum viable stratum size. | {doc}`The minimum viable stratum size <investigations/the-minimum-stratum-size>` |
+| `replicate` | Fits on the SPARK features shared with the SSC, projects onto the SSC, and correlates the profiles against a permutation null. | {doc}`Replicating in the SSC <investigations/replicating-in-the-ssc>` |
 
 ## Technical guides
 
@@ -77,30 +85,44 @@ and the entries left missing.
 
 ## Investigations
 
-What the analysis finds: the reproduction of the reference classes, and the tests of how solid
-that solution is. Each investigation opens with its purpose, embeds the figures it reports, and
-reads the results with what they set up next.
+The investigations follow the analysis as a sequence of questions, each with its own figure and
+result. Each page opens with the question it answers and its headline result, embeds the figure
+it reports, and folds the method detail into expandable sections. Read top to bottom for the arc,
+or jump to one.
 
-::::{grid} 1 1 2 2
-:gutter: 3
+1. {doc}`Do the four classes reproduce? <investigations/reproducing-the-reference-classes>` They
+   do: proportions 39/29/18/15 against the published 37/34/19/10, every named-class anchor holds,
+   and the overall profile correlates with the published figure at $r = 0.90$.
+2. {doc}`How many classes do the data support? <investigations/selecting-the-number-of-classes>`
+   The selection criteria over-extract at this sample size (their minimum is at nine classes);
+   four is retained by reading them, as the authors did.
+3. {doc}`Do the classes survive re-initialisation and resampling? <investigations/stability-under-refitting>`
+   The profiles reproduce at 0.91 to 0.92 and no class ever collapses; proband-level membership is
+   softer (adjusted Rand 0.63 to 0.65).
+4. {doc}`How small a stratum stays viable? <investigations/the-minimum-stratum-size>` Recovery is
+   reliable from about 1,000 probands (isotonic floor about 840), so the stratification bins are
+   best kept nearer 2,000.
+5. {doc}`Do the classes replicate in a second cohort? <investigations/replicating-in-the-ssc>` They
+   do in the SSC, at $r = 0.89$ ($p = 0.006$), with a bootstrap interval $[0.79, 0.93]$ that
+   includes the authors' published $0.927$; six of the seven categories correlate at $0.85$ or
+   above, the developmental category lower at $0.79$.
 
-:::{grid-item-card} Reproducing the reference classes
-:link: investigations/reproducing-the-reference-classes
-:link-type: doc
+Taken together, the reproduction and these checks show the pooled reference is solid enough at the
+profile level to anchor the stratified test. That matters because the test compares
+stratum-specific fits against this reference, and a fragile baseline would make any drift
+uninterpretable. The class profiles reproduce across initialisations, resamples, and a second
+cohort, the developmental category lower than the rest there; the membership is softer at the
+boundaries; and the stratum-size floor sets the lower bound on how finely the cohort can be split.
 
-Feature typing, the mixture model, per-class enrichment, naming the classes, and the
-reproduction result.
-:::
-
-:::{grid-item-card} Stability, selection, and replication
-:link: investigations/stability-selection-and-replication
-:link-type: doc
-
-How many classes the data support, whether the solution survives re-initialisation and
-resampling, the minimum viable stratum size, and cross-cohort replication.
-:::
-
-::::
+What comes next is the stratified analysis itself. With the stratification plan, the bins, the
+drift metrics, the null, and the decision thresholds frozen in advance so the result is
+confirmatory, the model is re-estimated within strata of age at diagnosis and diagnostic era, each
+stratum's classes are aligned to this named reference, and the drift is read against two
+baselines: a permutation null that re-fits within strata of the same sizes formed by shuffling the
+stratum labels, and the distance between distinct reference classes. The era axis carries its own
+threat, the lag between when the phenotype is measured and when the diagnosis was made, which is
+quantified and tested rather than assumed away. Once the genotype data are available, the same
+strata are the setting for testing whether the genotype-to-phenotype mapping drifts.
 
 ## Reference
 
@@ -132,7 +154,10 @@ guides/parsing-ssc-milestone-ages
 :caption: Investigations
 
 investigations/reproducing-the-reference-classes
-investigations/stability-selection-and-replication
+investigations/selecting-the-number-of-classes
+investigations/stability-under-refitting
+investigations/the-minimum-stratum-size
+investigations/replicating-in-the-ssc
 :::
 
 :::{toctree}

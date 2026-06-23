@@ -48,6 +48,11 @@ plus signs removed), then matched against a set of forms:
 - a bound or inequality has the bound dropped and the stated age taken: `<3 mos`, `>42 mos`,
   `before 1 year`, `under 12 months`. HTML-escaped angle brackets (`&lt;`, `&gt;`) are decoded
   first.
+- an explicit statement that the milestone was never reached (`never`, `not yet`, `hasn't
+  walked`, `unable to`) is read as the SPARK `888 = not yet` code, not as a missing value, so a
+  proband with a severe delay is kept rather than dropped at the complete-case step. The cue has
+  to carry no digit, so a dated note such as `12 mos (lost at 15 mos)` is handled as a regression
+  narrative below, not as a never-reached milestone.
 
 ## What it leaves missing, and why
 
@@ -55,8 +60,9 @@ Some entries carry no single age, so the parser returns a missing value and they
 complete-case step, exactly as a missing milestone would. Leaving them missing is a choice,
 not a gap:
 
-- text with no number: `never`, `normal`, `on time`, `unsure`, `within normal limits`. These
-  are not ages.
+- text with no number: `normal`, `on time`, `unsure`, `within normal limits`. These are not
+  ages. (A `never` or `not yet` that states the milestone was not reached is the exception above,
+  read as the SPARK not-yet code.)
 - a calendar date entered in the age field: `03/2003`, `12/01`, `09/27/93`. Reading these as a
   number of months would be wrong, so they are excluded.
 - a regression or loss narrative: `12 mos (lost at 15 mos)`, `18 months then declined till
@@ -78,6 +84,8 @@ not a gap:
   grid.
 - A week is converted at 30.4375 days per month, the mean length of a Gregorian month, so
   weeks and months sit on one continuous scale.
+- A parsed age above the SPARK `over 7 years` code is capped at 85 months, the top of the SPARK
+  milestone dropdown, which also discards the occasional mis-parsed outlier.
 
 ## Result
 
@@ -88,9 +96,9 @@ and regression narratives. The ceiling now is the data itself, since a share of 
 responses are qualitative rather than point ages, and that is a fidelity limit on the SSC
 replication regardless of how the text is parsed.
 
-Two SPARK milestones, `combined_phrases_age_mos` and `repeat_grade`, have no SSC source at
-all. That is a coverage gap in the instrument, separate from parsing, so the SSC backend
-provides the nine milestones the SSC does collect.
+Two SPARK background-history features, the milestone age `combined_phrases_age_mos` and the
+school item `repeat_grade`, have no SSC source at all. That is a coverage gap in the instrument,
+separate from parsing, so the SSC backend provides the nine milestones the SSC does collect.
 
 The parsing entry point is {py:func}`analysis.cohort.schema.parse_age_months`. For where it
 sits in the cohort layer, see [the cohort interface](the-cohort-interface).

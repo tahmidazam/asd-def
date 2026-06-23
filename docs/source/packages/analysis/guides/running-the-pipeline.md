@@ -62,9 +62,12 @@ The reference solution comes first, then the stability and replication checks th
    uv run analysis replicate
    ```
 
-Stages 4 to 7 are the phase-2 stability and replication checks (see
-[stability, selection, and replication](../investigations/stability-selection-and-replication)). The SSC
-milestone ages `replicate` reads are parsed from free text, described in
+Stages 4 to 7 are the phase-2 stability and replication checks, each reported in its own
+investigation: [selecting the number of classes](../investigations/selecting-the-number-of-classes),
+[stability under refitting](../investigations/stability-under-refitting),
+[the minimum viable stratum size](../investigations/the-minimum-stratum-size), and
+[replicating in the SSC](../investigations/replicating-in-the-ssc). The SSC milestone ages
+`replicate` reads are parsed from free text, described in
 [parsing the SSC milestone ages](parsing-ssc-milestone-ages).
 
 ## What depends on what

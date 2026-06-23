@@ -108,7 +108,10 @@ clean completion the checkpoints are removed, the Parquet outputs having superse
 ## Determinism and dependencies
 
 Every fit takes an explicit seed, recorded in the manifest, so a run is reproducible given
-the same environment. The modelling stack is kept current and shared across the monorepo in
+the same environment. The released stability, subsampling, and selection fits are not seeded,
+so they are not reproducible run to run; seeding every fit here, and deriving each unit's seed
+from its index, is the one deliberate divergence from the released procedure for the multi-seed
+stages, and it is what lets them resume (above). The modelling stack is kept current and shared across the monorepo in
 one lockfile rather than pinned or isolated: a dependency such as pandas or scikit-learn is
 a single consistent version across packages. The authors fit with an older StepMix (1.2.5);
 this work uses the current major version (3.x), and the reproduction benchmark, not a
