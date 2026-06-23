@@ -190,7 +190,9 @@ def build_matrix(
     )
 
 
-def get_cohort(dataset: str, version: str, root: Path | None = None) -> Cohort:
+def get_cohort(
+    dataset: str, version: str, root: Path | None = None, *, as_of: str | None = None
+) -> Cohort:
     """Return the backend for a dataset.
 
     Parameters
@@ -201,6 +203,10 @@ def get_cohort(dataset: str, version: str, root: Path | None = None) -> Cohort:
         Dataset version.
     root : Path, optional
         Repository root. Defaults to the discovered root.
+    as_of : str, optional
+        A records cutoff passed to the SPARK backend (for example ``"2022-12-12"``); it
+        restricts the cohort to the probands present at that freeze. Ignored by cohorts that
+        do not carry the timing fields the cutoff needs (the SSC).
 
     Returns
     -------
@@ -216,7 +222,7 @@ def get_cohort(dataset: str, version: str, root: Path | None = None) -> Cohort:
     if dataset == "spark":
         from analysis.cohort.spark import SparkCohort
 
-        return SparkCohort(root, version)
+        return SparkCohort(root, version, as_of=as_of)
     if dataset == "ssc":
         from analysis.cohort.ssc import SscCohort
 

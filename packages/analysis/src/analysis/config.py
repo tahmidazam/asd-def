@@ -26,6 +26,13 @@ REFERENCE_VERSION = "2026-03-23"
 COVARIATES: tuple[str, ...] = ("sex", "age_at_eval_years")
 AGE_AT_EVAL_RANGE: tuple[int, int] = (4, 18)
 
+# The freeze date of the SPARK Phenotype Dataset version Litman et al. fit on (V9). The paper
+# text names only "V9"; the released preprocessing pins the date, hard-coding the directory
+# ``SPARK_collection_v9_2022-12-12`` and per-instrument ``<table>_2022-12-12.csv``. Passing
+# this as the cohort ``--as-of`` cutoff reconstructs the probands present at that freeze from a
+# later release, to test whether divergences from the paper trace to records added since.
+V9_CUTOFF = "2022-12-12"
+
 # The instruments integrated into the cohort matrix, with the per-instrument validity flag
 # and missingness counter the released preprocessing screens on (where the instrument has
 # one). Order matters only for reproducible logging.

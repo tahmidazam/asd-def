@@ -37,10 +37,23 @@ def _todo(stage: str, phase: int) -> None:
     raise typer.Exit(1)
 
 
-def _cohort_params(root: Path, dataset: str, version: str) -> dict[str, object]:
-    """Return the hashing parameters for the cohort (and typing) stage."""
+def _cohort_params(
+    root: Path,
+    dataset: str,
+    version: str,
+    *,
+    as_of: str | None = None,
+    sample_n: int | None = None,
+    sample_seed: int = 0,
+) -> dict[str, object]:
+    """Return the hashing parameters for the cohort (and typing) stage.
+
+    The records cutoff and the size-matched subsample enter the hash only when set, so a
+    default (full-cohort) run keeps the same hash as before they existed and its cache stays
+    valid. A cutoff or subsample run lands at its own hash, cached separately.
+    """
     typing_dir = config.litman_typing_dir(root)
-    return {
+    params: dict[str, object] = {
         "dataset": dataset,
         "version": version,
         "feature_list": cache.file_digest(config.author_feature_list(root)),
@@ -51,18 +64,40 @@ def _cohort_params(root: Path, dataset: str, version: str) -> dict[str, object]:
             for name in ("binary", "categorical", "continuous")
         },
     }
+    if as_of is not None:
+        params["as_of"] = as_of
+    if sample_n is not None:
+        params["sample_n"] = sample_n
+        params["sample_seed"] = sample_seed
+    return params
 
 
-def _run_cohort(root: Path, dataset: str, version: str, *, force: bool) -> tuple[str, dict]:
+def _run_cohort(
+    root: Path,
+    dataset: str,
+    version: str,
+    *,
+    force: bool,
+    as_of: str | None = None,
+    sample_n: int | None = None,
+    sample_seed: int = 0,
+) -> tuple[str, dict]:
     """Build (or load) the cohort matrix and typing, returning the run hash and metrics."""
-    params = _cohort_params(root, dataset, version)
+    params = _cohort_params(
+        root, dataset, version, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     with run_context("cohort", params, root=root, force=force) as ctx:
         if ctx.cache_hit:
             manifest = cache.read_manifest(ctx.run_dir) or {}
             return ctx.run_hash, manifest.get("metrics", {})
         feature_names = load_feature_list(config.author_feature_list(root))
-        cohort = get_cohort(dataset, version, root)
+        cohort = get_cohort(dataset, version, root, as_of=as_of)
         integrated = cohort.integrate()
+        if sample_n is not None:
+            # The size-matched control: a random draw of the full cohort, separating "fewer
+            # records" (this draw) from "different records" (the cutoff subset) when the two
+            # are read side by side.
+            integrated = integrated.sample(n=sample_n, random_state=sample_seed)
         matrix = build_matrix(integrated, feature_names, dataset, version)
         typing, report = features.build_typing(
             root, dataset, version, feature_names, frame=integrated
@@ -87,6 +122,8 @@ def _run_cohort(root: Path, dataset: str, version: str, *, force: bool) -> tuple
             "typing_counts": typing.counts,
             "typing_conflicts": n_conflicts,
             "supports_timing": cohort.supports_timing(),
+            "as_of": as_of,
+            "sample_n": sample_n,
         }
         ctx.log.info(
             "cohort %s/%s: %d probands, typing %s, %d typing conflict(s)",
@@ -116,20 +153,36 @@ def _load_cohort_matrix(root: Path, cohort_hash: str, dataset: str, version: str
 _DATASET = typer.Option(config.REFERENCE_DATASET, "--dataset", "-d", help="Cohort id.")
 _VERSION = typer.Option(config.REFERENCE_VERSION, "--version", "-v", help="Dataset version.")
 _FORCE = typer.Option(False, "--force", help="Recompute even on a cache hit.")
+_AS_OF = typer.Option(
+    None,
+    "--as-of",
+    help="Restrict to records present at a SPARK freeze (e.g. 2022-12-12, the V9 cut).",
+)
+_SAMPLE_N = typer.Option(
+    None, "--sample-n", help="Draw a random subsample of this many probands (size-matched control)."
+)
+_SAMPLE_SEED = typer.Option(0, "--sample-seed", help="Seed for --sample-n.")
 
 
 @app.command()
 def cohort(
     dataset: str = _DATASET,
     version: str = _VERSION,
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Build the harmonised proband-by-feature matrix and its typing manifest."""
     root = find_repo_root()
-    run_hash, metrics = _run_cohort(root, dataset, version, force=force)
+    run_hash, metrics = _run_cohort(
+        root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     typer.echo(f"cohort {dataset}/{version}: run {cache.short_hash(run_hash)}")
     typer.echo(f"  probands={metrics['n_probands']} features={metrics['n_features']}")
     typer.echo(f"  typing={metrics['typing_counts']} conflicts={metrics['typing_conflicts']}")
+    if as_of is not None or sample_n is not None:
+        typer.echo(f"  as_of={as_of} sample_n={sample_n}")
 
 
 def _fit_params(cohort_hash: str, n_components: int, n_init: int, seed: int) -> dict[str, object]:
@@ -171,16 +224,23 @@ def _load_reference(
     n_init: int,
     seed: int,
     force: bool,
+    as_of: str | None = None,
+    sample_n: int | None = None,
+    sample_seed: int = 0,
 ):
     """Load the cached reference cohort, typing, labels, and enrichment.
 
     The reference is the canonical fit (``analysis fit``) and its alignment
     (``analysis align``); the stability, nmin, and report stages compare against it. Exits
     non-zero with guidance when either stage has not completed cleanly for these settings.
+    The records cutoff and size-matched subsample select which cohort (and so which reference
+    fit) to compare against, so a cutoff run resolves its own subset reference.
     """
     from analysis.paths import run_dir
 
-    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    cohort_hash, _ = _run_cohort(
+        root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     fit_hash = cache.compute_hash(_fit_params(cohort_hash, n_components, n_init, seed))
@@ -214,11 +274,16 @@ def fit(
     n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Random restarts (StepMix n_init)."),
     seed: int = typer.Option(0, help="Random seed for reproducible restarts."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Fit the reference general finite mixture model and predict class labels."""
     root = find_repo_root()
-    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    cohort_hash, _ = _run_cohort(
+        root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     params = _fit_params(cohort_hash, n_components, n_init, seed)
     with run_context("fit", params, root=root, force=force) as ctx:
         if ctx.cache_hit:
@@ -257,6 +322,9 @@ def align(
     n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Random restarts (StepMix n_init)."),
     seed: int = typer.Option(0, help="Random seed for reproducible restarts."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Compute the seven-category signature and align our classes to Litman's named classes."""
@@ -264,7 +332,9 @@ def align(
     from analysis.paths import run_dir
 
     root = find_repo_root()
-    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    cohort_hash, _ = _run_cohort(
+        root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     fit_hash = cache.compute_hash(_fit_params(cohort_hash, n_components, n_init, seed))
     fit_dir = run_dir(root, "fit", cache.short_hash(fit_hash))
     if not _completed(fit_dir):
@@ -352,13 +422,18 @@ def select(
     n_init: int = typer.Option(1, help="Random restarts per fit (Litman validation use 1)."),
     cv: int = typer.Option(3, help="Cross-validation folds for the validation log-likelihood."),
     seed: int = typer.Option(0, help="Base seed; iteration i uses seed+i."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Grid over the number of components and report the information criteria."""
     from analysis import selection
 
     root = find_repo_root()
-    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    cohort_hash, _ = _run_cohort(
+        root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     k_values = list(range(k_min, k_max + 1))
     params = {
         "cohort": cohort_hash,
@@ -421,6 +496,9 @@ def stability(
     ref_n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Reference fit n_init to load."),
     ref_seed: int = typer.Option(0, help="Seed of the reference fit to compare against."),
     seed: int = typer.Option(0, help="Base seed for the stability fits."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Summarise multi-initialisation or subsampling stability of the reference fit."""
@@ -439,6 +517,9 @@ def stability(
         n_init=ref_n_init,
         seed=ref_seed,
         force=force,
+        as_of=as_of,
+        sample_n=sample_n,
+        sample_seed=sample_seed,
     )
     category_map = features.load_category_map(config.author_category_map(root))
 
@@ -527,6 +608,9 @@ def nmin(
     n_components: int = typer.Option(config.DEFAULT_N_COMPONENTS, help="Number of latent classes."),
     ref_n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Reference fit n_init to load."),
     seed: int = typer.Option(0, help="Base seed."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Find the minimum viable stratum size by refitting at descending sample sizes."""
@@ -534,7 +618,16 @@ def nmin(
 
     root = find_repo_root()
     matrix, typing, ref_labels, ref_enrichment, align_hash = _load_reference(
-        root, dataset, version, n_components=n_components, n_init=ref_n_init, seed=0, force=force
+        root,
+        dataset,
+        version,
+        n_components=n_components,
+        n_init=ref_n_init,
+        seed=0,
+        force=force,
+        as_of=as_of,
+        sample_n=sample_n,
+        sample_seed=sample_seed,
     )
     category_map = features.load_category_map(config.author_category_map(root))
 
@@ -607,6 +700,9 @@ def replicate(
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="Random restarts for the SPARK fit."),
     n_permutations: int = typer.Option(200, help="SSC label permutations for the null (0 skips)."),
     seed: int = typer.Option(0, help="Random seed."),
+    as_of: str | None = _AS_OF,
+    sample_n: int | None = _SAMPLE_N,
+    sample_seed: int = _SAMPLE_SEED,
     force: bool = _FORCE,
 ) -> None:
     """Project the SPARK model onto the SSC and correlate the category profiles."""
@@ -615,7 +711,11 @@ def replicate(
     from analysis.cohort.schema import load_feature_list
 
     root = find_repo_root()
-    spark_hash, _ = _run_cohort(root, "spark", version, force=force)
+    # The cutoff and subsample apply to the SPARK training cohort only; the SSC is projected
+    # onto in full, since the records cutoff is a SPARK-side timing field.
+    spark_hash, _ = _run_cohort(
+        root, "spark", version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
+    )
     params = {
         "spark_cohort": spark_hash,
         "ssc_version": ssc_version,
