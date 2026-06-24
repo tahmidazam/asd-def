@@ -10,20 +10,25 @@ exposes the subset of the schema the SSC instruments cover.
 Two caveats are recorded honestly. The authors read the background-history milestones from
 a hand-cleaned file that was not released, so both the SSC-to-SPARK mapping (``SSC_BH_RENAME``)
 and the parse of the raw free-text ages into months (``parse_age_months``) are ours, and
-two SPARK milestone features have no SSC equivalent. The fidelity of this backend to the
-authors' SSC pipeline, and the exact shared-feature contract, are confirmed in the SSC
-replication stage (phase 2). The backend does not provide diagnosis-timing fields.
+two SPARK milestone features have no SSC equivalent. The SSC milestone ages are free text
+without a consistent unit, so a bare number is ambiguous between months and years; the scale
+is resolved per milestone against the SPARK reference distribution (``_milestone_priors`` and
+``build_milestone_disambiguator``), so that a small number reads as months on an early
+milestone and as years on a late one, as a human cleaner reads it. The fidelity of this
+backend to the authors' SSC pipeline, and the exact shared-feature contract, are confirmed in
+the SSC replication stage (phase 2). The backend does not provide diagnosis-timing fields.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
 
 from analysis import config
-from analysis.cohort import open_catalogue, source_csv
+from analysis.cohort import open_catalogue, read_columns, source_csv
 from analysis.cohort.schema import (
     MILESTONE_AGE_FEATURES,
     SSC_BH_RENAME,
@@ -32,6 +37,7 @@ from analysis.cohort.schema import (
     SSC_SCQ_RENAME,
     SSC_SEX_ENCODING,
     SSC_YES_NO,
+    build_milestone_disambiguator,
     load_feature_list,
     parse_age_months,
 )
@@ -98,10 +104,49 @@ class SscCohort:
     def _cbcl(self) -> pd.DataFrame:
         return self._read("cbcl_6_18").rename(columns=SSC_CBCL_RENAME)
 
+    def _milestone_priors(self) -> dict[str, Callable[[float], float]]:
+        """Build per-milestone scale resolvers from the SPARK reference distribution.
+
+        The SSC milestone ages are free text without a consistent unit, so a bare number is
+        ambiguous between months and years. SPARK records the same milestones as ages in
+        months, so its distribution resolves the scale (:func:`build_milestone_disambiguator`).
+        The prior is read from the reference SPARK release; if its source is unavailable the
+        resolvers are omitted and a bare number is read as months.
+
+        Returns
+        -------
+        dict of str to callable
+            A scale resolver per milestone feature the prior could be built for.
+        """
+        try:
+            path = source_csv(
+                self._cat,
+                self.root,
+                config.REFERENCE_DATASET,
+                config.REFERENCE_VERSION,
+                "background_history_child",
+            )
+        except FileNotFoundError:
+            log.warning(
+                "SPARK milestone prior unavailable (%s/%s); SSC milestone scale not disambiguated",
+                config.REFERENCE_DATASET,
+                config.REFERENCE_VERSION,
+            )
+            return {}
+        spark = read_columns(path, list(MILESTONE_AGE_FEATURES))
+        priors: dict[str, Callable[[float], float]] = {}
+        for col in MILESTONE_AGE_FEATURES:
+            if col in spark.columns:
+                values = pd.to_numeric(spark[col], errors="coerce").to_numpy(dtype=float)
+                priors[col] = build_milestone_disambiguator(values)
+        return priors
+
     def _background_history(self) -> pd.DataFrame:
         df = self._read("ssc_background_hx").rename(columns=SSC_BH_RENAME)
+        priors = self._milestone_priors()
         for col in df.columns.intersection(MILESTONE_AGE_FEATURES):
-            df[col] = df[col].map(parse_age_months)
+            resolver = priors.get(col)
+            df[col] = df[col].map(lambda v, d=resolver: parse_age_months(v, disambiguate=d))
         return df
 
     def integrate(self) -> pd.DataFrame:

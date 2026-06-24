@@ -12,7 +12,12 @@ import csv
 import html
 import math
 import re
+from collections.abc import Callable
+from functools import cache
 from pathlib import Path
+
+import numpy as np
+from scipy.stats import gaussian_kde
 
 # Recoding of the CBCL competence items from their string answers to ordinal integers,
 # verbatim from the released ``process_integrate_phenotype_data.py``. Applied across the
@@ -214,7 +219,9 @@ def _parse_range(text: str) -> float | None:
     return None
 
 
-def parse_age_months(value: object) -> float | None:
+def parse_age_months(
+    value: object, *, disambiguate: Callable[[float], float] | None = None
+) -> float | None:
     r"""Parse a free-text developmental-milestone age into months.
 
     The SSC records milestone ages as free text, whereas the SPARK features are ages in
@@ -240,10 +247,20 @@ def parse_age_months(value: object) -> float | None:
     dropdown and discarding mis-parsed outliers. The parsing rules and the forms left missing
     are set out in the package's milestone-parsing guide.
 
+    A bare number carries no unit, so its scale is ambiguous: "4" on bowel training is four
+    years, but "13" on walking is thirteen months. When ``disambiguate`` is given, a unit-less
+    number (and a bare number left after a bound, such as "under 2") is passed to it to resolve
+    that scale; ``build_milestone_disambiguator`` builds such a resolver from the SPARK reference
+    distribution. Without ``disambiguate`` a bare number is read as months, as the released code
+    did, and a bare number left after a bound stays missing.
+
     Parameters
     ----------
     value : object
         A raw milestone cell: a string, a number, or a missing value.
+    disambiguate : callable, optional
+        A resolver mapping a unit-less age in ``x`` to its value in months, choosing between
+        ``x`` (months) and ``12 * x`` (years). When omitted, a bare number is taken as months.
 
     Returns
     -------
@@ -253,7 +270,11 @@ def parse_age_months(value: object) -> float | None:
     if not isinstance(value, str):
         if isinstance(value, (int, float)) and not math.isnan(value):
             v = float(value)  # an already-numeric cell (numpy floats included)
-            return _NOT_YET_CODE if v == _NOT_YET_CODE else min(v, _MAX_AGE_MONTHS)
+            if v == _NOT_YET_CODE:
+                return _NOT_YET_CODE
+            if disambiguate is not None and v > 0:
+                v = disambiguate(v)  # a numeric cell is unit-less, so its scale is resolved too
+            return min(v, _MAX_AGE_MONTHS)
         return None
     text = html.unescape(value).strip().lower()
     # A statement that the milestone was never reached maps to the SPARK "not yet" code (888),
@@ -267,7 +288,12 @@ def parse_age_months(value: object) -> float | None:
     bounded = stripped != text
     text = stripped.strip()
     if bounded and _BARE_NUMBER_RE.fullmatch(text):
-        return None
+        # A bare number left after a bound has an ambiguous scale (years or months). A
+        # milestone prior resolves it ("under 2" on bowel training reads as two years);
+        # without one it stays missing, as the released code left it.
+        if disambiguate is None:
+            return None
+        return min(disambiguate(float(text)), _MAX_AGE_MONTHS)
     text = _TRAILING_OLD_RE.sub("", text)
     text = _YO_RE.sub(" years", text)
     text = _AGE_RE.sub(r"\g<1> years", text)
@@ -279,12 +305,66 @@ def parse_age_months(value: object) -> float | None:
         return None
     if "birth" in text:
         return 0.0
+    had_unit = bool(_UNIT_TOKEN_RE.search(text))
     months = _parse_range(text)
     if months is None:
         months = _single_age_months(text)
+    if months is None:
+        return None
+    # A unit-less number is ambiguous in scale, so a milestone prior resolves it; without one
+    # a bare number is read as months, as the released code did.
+    if disambiguate is not None and not had_unit and months > 0:
+        months = disambiguate(months)
     # Cap a parsed age at the SPARK "over 7 years" code, which also discards mis-parsed
     # outliers (a stray "18" read as years gives 216 months, well beyond any real milestone).
-    return None if months is None else min(months, _MAX_AGE_MONTHS)
+    return min(months, _MAX_AGE_MONTHS)
+
+
+def build_milestone_disambiguator(spark_months: np.ndarray) -> Callable[[float], float]:
+    r"""Build a scale resolver for one milestone from its SPARK distribution.
+
+    SPARK records each milestone as an age in months on a fixed dropdown grid, so its
+    distribution is a clean, large-sample reference. The SSC records the same milestones as
+    free text without a consistent unit, so a bare number is ambiguous between months and
+    years. The returned resolver decides, for a unit-less number $x$, between $x$ months and
+    $12x$ months by which reading has the higher likelihood under the SPARK distribution in
+    log-age space. This reads a small number as months for early milestones (a child walks at
+    "13" months) and as years for late ones (a child is bowel trained at "4" years), matching
+    how a human reads the field, rather than applying a blanket per-milestone unit rule.
+
+    The years reading is only considered when $12x$ stays within the milestone cap; a value
+    whose months reading already exceeds plausible ages keeps the months reading. A degenerate
+    reference (fewer than two distinct ages) yields an identity resolver.
+
+    Parameters
+    ----------
+    spark_months : numpy.ndarray
+        The SPARK ages in months for one milestone. Non-finite values, the "not yet" code, and
+        ages at or above the 85-month cap are dropped before the distribution is estimated.
+
+    Returns
+    -------
+    callable
+        A function mapping a unit-less age ``x`` to its resolved value in months.
+    """
+    s = np.asarray(spark_months, dtype=float)
+    s = s[np.isfinite(s)]
+    s = s[(s > 0) & (s < _MAX_AGE_MONTHS)]
+    if s.size < 2 or np.ptp(s) == 0:
+        return lambda x: x
+    kde = gaussian_kde(np.log(s))
+
+    @cache
+    def resolve(x: float) -> float:
+        if x <= 0:
+            return x
+        years = x * 12.0
+        if years >= _MAX_AGE_MONTHS:
+            return x  # the years reading exceeds the milestone cap, so keep the months reading
+        as_months, as_years = kde.logpdf(np.log([x, years]))
+        return years if as_years > as_months else x
+
+    return resolve
 
 
 def load_feature_list(path: Path) -> list[str]:

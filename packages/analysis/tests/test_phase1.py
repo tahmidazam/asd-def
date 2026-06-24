@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from analysis import cache
 from analysis.align import hungarian_align
-from analysis.cohort.schema import parse_age_months
+from analysis.cohort.schema import build_milestone_disambiguator, parse_age_months
 from analysis.enrich import SEVEN_CATEGORIES, category_signature, feature_enrichment
 from analysis.features import (
     Typing,
@@ -190,6 +190,47 @@ def test_parse_age_months_caps_high_values(raw: str, months: float) -> None:
     # A parsed age above the SPARK "over 7 years" code caps at 85 months, which also discards
     # mis-parsed outliers.
     assert parse_age_months(raw) == months
+
+
+# A late milestone whose SPARK ages cluster around three to four and a half years, and an early
+# one clustering around a year, give the scale resolver its reference distribution.
+_LATE_PRIOR = build_milestone_disambiguator(np.array([36.0, 42.0, 48.0, 54.0] * 50))
+_EARLY_PRIOR = build_milestone_disambiguator(np.array([11.0, 12.0, 13.0, 14.0, 15.0] * 50))
+
+
+def test_build_milestone_disambiguator_late_reads_small_as_years() -> None:
+    # On a milestone whose SPARK ages are years, a bare "4" is four years, not four months.
+    assert _LATE_PRIOR(4.0) == 48.0
+    assert _LATE_PRIOR(3.0) == 36.0
+    # A value already in the months range of the reference is kept.
+    assert _LATE_PRIOR(42.0) == 42.0
+
+
+def test_build_milestone_disambiguator_early_keeps_small_as_months() -> None:
+    # On an early milestone (walking ~13 months), a small number stays months.
+    assert _EARLY_PRIOR(6.0) == 6.0
+    assert _EARLY_PRIOR(13.0) == 13.0
+
+
+def test_build_milestone_disambiguator_degenerate_is_identity() -> None:
+    # A reference with no spread cannot inform the scale, so the resolver is the identity.
+    prior = build_milestone_disambiguator(np.array([42.0, 42.0, 42.0]))
+    assert prior(4.0) == 4.0
+
+
+def test_parse_age_months_disambiguates_unitless_and_bounds() -> None:
+    # A unit-less number and a bare number left after a bound are resolved by the prior; an
+    # explicit unit is trusted as written and a numeric cell is resolved like a bare number.
+    assert parse_age_months("4", disambiguate=_LATE_PRIOR) == 48.0
+    assert parse_age_months("under 2", disambiguate=_LATE_PRIOR) == 24.0
+    assert parse_age_months(4.0, disambiguate=_LATE_PRIOR) == 48.0
+    assert parse_age_months("4 months", disambiguate=_LATE_PRIOR) == 4.0
+    assert parse_age_months("4 years", disambiguate=_LATE_PRIOR) == 48.0
+    # An early-milestone prior keeps a small unit-less number as months.
+    assert parse_age_months("13", disambiguate=_EARLY_PRIOR) == 13.0
+    # Without a prior, behaviour is unchanged: a bare number is months, a bounded one is missing.
+    assert parse_age_months("4") == 4.0
+    assert parse_age_months("under 2") is None
 
 
 def test_reconcile_defers_to_pickle_and_flags_conflict() -> None:
