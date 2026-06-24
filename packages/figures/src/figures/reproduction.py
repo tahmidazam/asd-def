@@ -34,15 +34,24 @@ _PANEL_ORDER: tuple[str, ...] = (
 
 
 def _panel_subtitle(
-    name: str,
     our_proportion: float | None,
     published_proportion: float | None,
     correlation: float | None,
+    comparison_proportion: float | None = None,
 ) -> str:
-    """Compose the per-panel annotation of class size and profile correlation."""
+    """Compose the per-panel annotation of class size and profile correlation.
+
+    With a comparison proportion, the size line reads ``full / V9 vs published``; otherwise
+    ``recovered vs published``.
+    """
     parts: list[str] = []
     if our_proportion is not None and published_proportion is not None:
-        parts.append(f"{our_proportion:.0%} vs {published_proportion:.0%}")
+        if comparison_proportion is not None:
+            parts.append(
+                f"{our_proportion:.0%} / {comparison_proportion:.0%} vs {published_proportion:.0%}"
+            )
+        else:
+            parts.append(f"{our_proportion:.0%} vs {published_proportion:.0%}")
     parts.append(f"$r = {correlation:.2f}$" if correlation is not None else "anchor-confirmed")
     return ", ".join(parts)
 
@@ -53,6 +62,7 @@ def reproduction_figure(
     alignment: dict,
     our_proportions: dict[int, float],
     published_proportions: dict[str, float],
+    comparison: dict | None = None,
 ) -> Figure:
     """Build the reproduction figure from an ``align`` run.
 
@@ -71,6 +81,11 @@ def reproduction_figure(
         The recovered class proportions, by class id.
     published_proportions : dict of str to float
         The published class proportions, by named class.
+    comparison : dict, optional
+        A second condition's reproduction (the V9 subset), with keys ``signature``,
+        ``alignment``, and ``proportions`` mirroring the primary arguments. When given, each
+        panel adds the subset's recovered signature and the size line reads
+        ``full / V9 vs published``.
 
     Returns
     -------
@@ -97,7 +112,13 @@ def reproduction_figure(
     if missing:
         raise ValueError(f"published signature is missing classes: {missing}")
 
-    recovered_colour = style.PALETTE[0]
+    comp_name_to_id: dict[str, int] = {}
+    if comparison is not None:
+        comp_name_to_id = {
+            name: int(cid) for cid, name in comparison["alignment"]["mapping"].items()
+        }
+
+    full_colour, v9_colour = style.PALETTE[0], style.PALETTE[2]
 
     with style.house_style():
         fig, axes = plt.subplots(2, 2, figsize=(9.0, 6.6), sharex=True, sharey=True)
@@ -120,21 +141,35 @@ def reproduction_figure(
             ax.plot(
                 positions,
                 recovered,
-                color=recovered_colour,
+                color=full_colour,
                 marker="o",
-                label="recovered (SPARK)",
+                label="recovered (full 2026)",
                 zorder=3,
             )
+            comp_proportion = None
+            if comparison is not None and name in comp_name_to_id:
+                comp_cid = comp_name_to_id[name]
+                comp_recovered = comparison["signature"].loc[comp_cid].to_numpy(dtype=float)
+                ax.plot(
+                    positions,
+                    comp_recovered,
+                    color=v9_colour,
+                    marker="o",
+                    markersize=4,
+                    label="recovered (V9 subset)",
+                    zorder=4,
+                )
+                comp_proportion = comparison["proportions"].get(comp_cid)
             # The class proportions and per-class correlation annotate each panel without
             # crowding the title, in the top-right corner kept readable by a light box.
             ax.text(
                 0.97,
                 0.95,
                 _panel_subtitle(
-                    name,
                     our_proportions.get(cid),
                     published_proportions.get(name),
                     correlations.get(cid),
+                    comp_proportion,
                 ),
                 transform=ax.transAxes,
                 ha="right",

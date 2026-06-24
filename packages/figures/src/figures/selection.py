@@ -79,6 +79,7 @@ def selection_figure(
     *,
     reference_k: int = 4,
     criteria: Sequence[str] = ("bic", "aic", "caic"),
+    comparison: pd.DataFrame | None = None,
 ) -> Figure:
     """Build the model-selection figure from a ``select`` summary table.
 
@@ -91,13 +92,19 @@ def selection_figure(
         The number of classes to mark with a reference line (the Litman choice).
     criteria : sequence of str, optional
         The information criteria to draw in the first panel; the first is emphasised.
-        Defaults to ``("bic", "aic", "caic")``.
+        Defaults to ``("bic", "aic", "caic")``. Ignored when ``comparison`` is given, where the
+        first panel shows the leading criterion alone for both conditions.
+    comparison : pandas.DataFrame, optional
+        A second condition's summary (the V9 subset). When given, each panel overlays the two
+        conditions, the full release solid and the subset dashed, so the effect of cutting the
+        cohort back to V9 on model selection is visible. The first panel then shows the leading
+        criterion (BIC) for both conditions rather than the three criteria of one.
 
     Returns
     -------
     matplotlib.figure.Figure
         A three-panel figure: the information criteria, the cross-validated log-likelihood,
-        and the smallest-class proportion with the relative entropy.
+        and the smallest-class proportion.
 
     Raises
     ------
@@ -111,30 +118,62 @@ def selection_figure(
     summary = summary.sort_values("n_components")
     k = summary["n_components"].to_numpy()
     k_int = k.astype(int)
+    comp = comparison.sort_values("n_components") if comparison is not None else None
+    full_colour, v9_colour = style.PALETTE[0], style.PALETTE[2]
+
+    def _mark_min(ax: Axes, x: np.ndarray, mean: np.ndarray, colour: str) -> None:
+        if np.isfinite(mean).any():
+            argmin = int(np.nanargmin(mean))
+            ax.scatter(x[argmin], mean[argmin], color=colour, marker="v", s=28, zorder=5)
 
     with style.house_style():
         fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.6))
         ax_ic, ax_ll, ax_quality = axes
 
         # Panel (a): the information criteria, which keep falling and formally minimise far
-        # out along the grid in a sample this large.
-        for index, name in enumerate(criteria):
-            colour = style.PALETTE[index % len(style.PALETTE)]
-            mean = summary[f"{name}_mean"].to_numpy()
-            std = summary[f"{name}_std"].to_numpy()
-            _plot_mean_band(
-                ax_ic,
-                k,
-                mean,
-                std,
-                colour=colour,
-                label=_CRITERION_LABELS.get(name, name.upper()),
-                alpha=1.0 if index == 0 else 0.6,
+        # out along the grid in a sample this large. With a comparison, the leading criterion
+        # is shown for both conditions instead of three criteria of one.
+        if comp is None:
+            for index, name in enumerate(criteria):
+                colour = style.PALETTE[index % len(style.PALETTE)]
+                mean = summary[f"{name}_mean"].to_numpy()
+                std = summary[f"{name}_std"].to_numpy()
+                _plot_mean_band(
+                    ax_ic,
+                    k,
+                    mean,
+                    std,
+                    colour=colour,
+                    label=_CRITERION_LABELS.get(name, name.upper()),
+                    alpha=1.0 if index == 0 else 0.6,
+                )
+                _mark_min(ax_ic, k, mean, colour)
+        else:
+            # The criterion scales with sample size, so the two cohorts sit at very different
+            # absolute levels; each is normalised within its own curve to [0, 1] so that where
+            # it minimises is comparable.
+            lead = criteria[0]
+            comp_k = comp["n_components"].to_numpy()
+
+            def _scaled(values: np.ndarray) -> np.ndarray:
+                spread = np.nanmax(values) - np.nanmin(values)
+                return (
+                    (values - np.nanmin(values)) / spread if spread > 0 else np.zeros_like(values)
+                )
+
+            full_mean = _scaled(summary[f"{lead}_mean"].to_numpy())
+            comp_mean = _scaled(comp[f"{lead}_mean"].to_numpy())
+            ax_ic.plot(k, full_mean, color=full_colour, marker="o", label="Full 2026")
+            ax_ic.plot(
+                comp_k, comp_mean, color=v9_colour, marker="o", linestyle="--", label="V9 subset"
             )
-            if np.isfinite(mean).any():
-                argmin = int(np.nanargmin(mean))
-                ax_ic.scatter(k[argmin], mean[argmin], color=colour, marker="v", s=25, zorder=5)
-        ax_ic.set_ylabel("Criterion (lower is better)")
+            _mark_min(ax_ic, k, full_mean, full_colour)
+            _mark_min(ax_ic, comp_k, comp_mean, v9_colour)
+        ax_ic.set_ylabel(
+            f"{_CRITERION_LABELS.get(criteria[0], criteria[0].upper())} (scaled within cut)"
+            if comp is not None
+            else "Criterion (lower is better)"
+        )
         ax_ic.legend(loc="upper right")
         _add_reference_line(ax_ic, reference_k, label=f"Litman $K={reference_k}$")
 
@@ -143,10 +182,24 @@ def selection_figure(
         ll_mean = summary["val_log_likelihood_mean"].to_numpy()
         ll_std = summary["val_log_likelihood_std"].to_numpy()
         _plot_mean_band(
-            ax_ll, k, ll_mean, ll_std, colour=style.PALETTE[2], label="Validation log-likelihood"
+            ax_ll,
+            k,
+            ll_mean,
+            ll_std,
+            colour=full_colour,
+            label="Full 2026" if comp is not None else "Validation log-likelihood",
         )
+        if comp is not None:
+            ax_ll.plot(
+                comp["n_components"].to_numpy(),
+                comp["val_log_likelihood_mean"].to_numpy(),
+                color=v9_colour,
+                marker="o",
+                linestyle="--",
+                label="V9 subset",
+            )
         ax_ll.set_ylabel("Validation log-likelihood")
-        if reference_k in k_int.tolist():
+        if reference_k in k_int.tolist() and comp is None:
             position = int(np.where(k_int == reference_k)[0][0])
             ax_ll.scatter(
                 k[position],
@@ -156,7 +209,7 @@ def selection_figure(
                 zorder=5,
                 label="elbow",
             )
-            ax_ll.legend(loc="lower right")
+        ax_ll.legend(loc="lower right")
         _add_reference_line(ax_ll, reference_k)
 
         # Panel (c): the smallest class proportion, which collapses towards zero as classes are
@@ -165,8 +218,23 @@ def selection_figure(
         prop_mean = summary["smallest_class_proportion_mean"].to_numpy()
         prop_std = summary["smallest_class_proportion_std"].to_numpy()
         _plot_mean_band(
-            ax_quality, k, prop_mean, prop_std, colour=style.PALETTE[0], label="smallest class"
+            ax_quality,
+            k,
+            prop_mean,
+            prop_std,
+            colour=full_colour,
+            label="Full 2026" if comp is not None else "smallest class",
         )
+        if comp is not None:
+            ax_quality.plot(
+                comp["n_components"].to_numpy(),
+                comp["smallest_class_proportion_mean"].to_numpy(),
+                color=v9_colour,
+                marker="o",
+                linestyle="--",
+                label="V9 subset",
+            )
+            ax_quality.legend(loc="upper right")
         ax_quality.set_ylabel("Smallest class proportion")
         ax_quality.set_ylim(0.0, 1.05)
         _add_reference_line(ax_quality, reference_k)

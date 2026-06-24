@@ -43,6 +43,7 @@ def replication_figure(
     spark_signature: pd.DataFrame,
     ssc_signature: pd.DataFrame,
     metrics: dict,
+    comparison: dict | None = None,
 ) -> Figure:
     """Build the cross-cohort replication figure from a ``replicate`` run.
 
@@ -52,8 +53,13 @@ def replication_figure(
         The class-by-category signature matrices (one row per class, one column per category)
         for the SPARK fit and its SSC projection. They must share shape and columns.
     metrics : dict
-        The replication metrics, with ``overall_correlation``, ``category_correlation`` (one
-        entry per category), and optionally ``n_ssc``.
+        The replication metrics for the primary condition (the full release), with
+        ``overall_correlation``, ``category_correlation`` (one entry per category), and
+        optionally ``n_ssc``.
+    comparison : dict, optional
+        A second condition's metrics (the V9-subset projection), with the same keys. When
+        given, the per-category panel groups the two conditions side by side against the
+        published values, so the effect of cutting the training cohort back to V9 is visible.
 
     Returns
     -------
@@ -75,7 +81,8 @@ def replication_figure(
     categories = list(spark_signature.columns)
     colours = {cat: style.PALETTE[i % len(style.PALETTE)] for i, cat in enumerate(categories)}
     overall = float(metrics["overall_correlation"])
-    per_category = metrics["category_correlation"]
+    # Condition colours for the per-category panel: the full release and the V9 subset.
+    full_colour, v9_colour = style.PALETTE[0], style.PALETTE[2]
 
     with style.house_style():
         fig, (ax_scatter, ax_bar) = plt.subplots(1, 2, figsize=(8.4, 3.9))
@@ -120,14 +127,35 @@ def replication_figure(
         )
         ax_scatter.legend(loc="upper left", ncol=2, fontsize=6)
 
-        # Panel (b): the per-category correlation, with Litman et al.'s published values
-        # overlaid as the reference each bar is read against.
-        values = [
-            float(per_category[cat]) if per_category.get(cat) is not None else np.nan
-            for cat in categories
-        ]
+        # Panel (b): the per-category correlation for each training condition, with Litman et
+        # al.'s published values overlaid as the reference each bar is read against.
+        def _values(source: dict) -> list[float]:
+            per_cat = source["category_correlation"]
+            return [
+                float(per_cat[cat]) if per_cat.get(cat) is not None else np.nan
+                for cat in categories
+            ]
+
         positions = np.arange(len(categories))
-        ax_bar.bar(positions, values, color=[colours[cat] for cat in categories])
+        if comparison is None:
+            ax_bar.bar(positions, _values(metrics), color=[colours[cat] for cat in categories])
+        else:
+            width = 0.4
+            comp_overall = float(comparison["overall_correlation"])
+            ax_bar.bar(
+                positions - width / 2,
+                _values(metrics),
+                width,
+                color=full_colour,
+                label=f"Full 2026 ($r = {overall:.2f}$)",
+            )
+            ax_bar.bar(
+                positions + width / 2,
+                _values(comparison),
+                width,
+                color=v9_colour,
+                label=f"V9 subset ($r = {comp_overall:.2f}$)",
+            )
         ax_bar.scatter(
             positions,
             [LITMAN_CATEGORY_R[cat] for cat in categories],
@@ -137,21 +165,7 @@ def replication_figure(
             edgecolor="white",
             linewidth=0.5,
             zorder=4,
-            label="Litman 2025, per category",
-        )
-        ax_bar.axhline(
-            overall,
-            color=style.REFERENCE_COLOUR,
-            linestyle="--",
-            linewidth=1.0,
-            label=f"this work, overall $r = {overall:.2f}$",
-        )
-        ax_bar.axhline(
-            LITMAN_OVERALL_R,
-            color=style.REFERENCE_COLOUR,
-            linestyle=":",
-            linewidth=1.0,
-            label=f"Litman 2025, overall $r = {LITMAN_OVERALL_R:.3f}$",
+            label=f"Litman 2025 ($r = {LITMAN_OVERALL_R:.3f}$)",
         )
         ax_bar.set_xticks(positions)
         ax_bar.set_xticklabels(
