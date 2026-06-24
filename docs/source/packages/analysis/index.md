@@ -114,10 +114,12 @@ or jump to one.
    do in the SSC, at $r = 0.89$ ($p = 0.006$), with a bootstrap interval $[0.79, 0.93]$ that
    includes the authors' published $0.927$; six of the seven categories correlate at $0.85$ or
    above, the developmental category lower at $0.79$.
-6. {doc}`Do the records added since V9 explain the divergences? <investigations/isolating-the-new-records>`
-   Partly: cutting back to the authors' V9 freeze (5,324 probands against their 5,392) shifts the
-   class proportions compositionally, but the overall correlation is unchanged, the smallest class
-   stays near 15 per cent rather than 10, and the criteria still over-extract.
+
+Several of these investigations carry a third condition alongside the full `2026-03-23` release and
+the published values: the cohort cut back to the records present at the authors' V9 freeze (see
+{doc}`subsetting the cohort to the V9 freeze <guides/subsetting-to-the-v9-freeze>`). Comparing the
+full release, the V9 subset, and the paper shows which differences from the published solution trace
+to the records added since V9.
 
 Taken together, the reproduction and these checks show the pooled reference is solid enough at the
 profile level to anchor the stratified test. That matters because the test compares
@@ -127,7 +129,8 @@ cohort, the developmental category lower than the rest there; the membership is 
 boundaries; and the stratum-size floor sets the lower bound on how finely the cohort can be split.
 Cutting the cohort back to the records present at the authors' V9 freeze shows the differences from
 their class proportions are partly compositional, carried by the records added since, while the
-overall reproduction and the inflated smallest class are unchanged by the cut.
+overall reproduction, the inflated smallest class, and the SSC developmental gap are unchanged by
+the cut.
 
 What comes next is the stratified analysis itself. With the stratification plan, the bins, the
 drift metrics, the null, and the decision thresholds frozen in advance so the result is
@@ -174,7 +177,6 @@ investigations/selecting-the-number-of-classes
 investigations/stability-under-refitting
 investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
-investigations/isolating-the-new-records
 :::
 
 :::{toctree}

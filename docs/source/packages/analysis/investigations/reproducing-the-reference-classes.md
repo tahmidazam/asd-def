@@ -26,14 +26,17 @@ rest of the analysis is measured against.
 :width: 100%
 :align: center
 
-The recovered class signatures (solid) against the values read from figure 1b of Litman et al.
-(dashed), one panel per named class, ordered by published class size. Each panel notes the
-recovered and published class proportions and the per-class profile correlation, or that the
-class is anchor-confirmed where its published profile is saturated. Mixed ASD with developmental
-delay tracks the published profile closely ($r = 0.97$); Social or behavioural ($r = 0.85$)
-shows the weaker self-injury, social-communication, and restricted-or-repetitive enrichment
-noted below; the recovered Broadly affected profile dips on the developmental category where the
-published one is saturated.
+The recovered class signatures against the values read from figure 1b of Litman et al. (dashed),
+one panel per named class, ordered by published class size. Each panel draws two recovered
+conditions, the full `2026-03-23` release and the cohort cut back to the records present at the
+authors' V9 freeze (see
+{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`), and notes
+the two recovered proportions against the published one. The two conditions' signatures sit almost
+on top of each other in every panel, so the V9 cut leaves the class shapes unchanged and moves only
+the proportions. Mixed ASD with developmental delay tracks the published profile closely
+($r = 0.97$); Social or behavioural ($r = 0.85$) shows the weaker self-injury, social-communication,
+and restricted-or-repetitive enrichment noted below; the recovered Broadly affected profile dips on
+the developmental category where the published one is saturated.
 :::
 
 ## Reading the result
@@ -169,12 +172,15 @@ the figure. The cohort is also larger than the authors' (11,704 against 5,392), 
 release is later and broader.
 
 With those caveats, the four classes reproduce with the correct structure and clean naming, and
-proportions of the same order as the published ones. The match is closest for the two middle
-classes; the smallest, Broadly affected, is about 15 per cent here against the published 10, the
-one proportion that stands apart. Whether that gap and the others trace to the records added since
-the authors' release is taken up in
-[isolating the records added since V9](isolating-the-new-records). This named fit is the fixed
-reference the stratified analysis is measured
+proportions of the same order as the published ones. The smallest, Broadly affected, is about 15
+per cent here against the published 10, the one proportion that stands apart. Cutting the cohort
+back to the records present at the authors' V9 freeze (the third condition in the figure) shifts the
+two largest classes toward the published split, Social or behavioural from 39 to 34 per cent and
+Moderate challenges from 29 to 31, against the published 37 and 34, while leaving the smallest class
+at 15 and the recovered signatures unchanged. A size-matched random subsample of the full release
+does not reproduce those shifts, so they track the V9 records rather than the smaller sample, while
+the inflated smallest class is unmoved by the cut. This named fit is the fixed reference the
+stratified analysis is measured
 against: that work asks whether the same four classes survive re-estimation within strata of age
 at diagnosis and diagnostic era. Reproducibility is necessary for that test but is not the same
 as validity. A partition can reproduce across samples and still reflect parent-reported,

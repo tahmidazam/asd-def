@@ -27,12 +27,16 @@ per cent of it.
 :width: 90%
 :align: center
 
-Cross-cohort replication, from an `analysis replicate` run projecting the SPARK model onto 798 SSC
+Cross-cohort replication, from `analysis replicate` runs projecting the SPARK model onto 798 SSC
 probands. (A) Every class-by-category signature value, SSC against SPARK, around the line of
 equality ($r = 0.89$, $[0.79, 0.93]$), with the authors' overall $r = 0.927$ noted alongside. (B)
-The per-category correlation (bars) against the values Litman et al. (2025) report (markers), with
-the two overall correlations as reference lines; developmental, the one category the SSC builds
-from parsed milestone ages rather than a standard instrument, sits below the rest.
+The per-category correlation for two training conditions, the full `2026-03-23` release and the
+cohort cut back to the records present at the authors' V9 freeze (see
+{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`), against the
+values Litman et al. (2025) report (markers). The two conditions sit almost on top of each other in
+every category, so training on the v9-era records does not lift the replication; developmental, the
+one category the SSC builds from parsed milestone ages rather than a standard instrument, stays
+below the rest in both ($0.79$ full, $0.78$ subset, against the published $0.98$).
 :::
 
 ## Reading the result
@@ -78,6 +82,12 @@ category whose signal rests on those classes is estimated from very few probands
 read as the joint effect of the reduced feature set, the free-text milestone parse standing in for
 the authors' hand-cleaned file, and the thin projected classes, rather than as any one of them.
 The overall $r$, taken over the full four-class, seven-category profile, is the stabler summary.
+
+One source the gap is not, is the size or composition of the SPARK training cohort. Retraining on
+the cohort cut back to the records present at the authors' V9 freeze (the second condition in the
+figure) gives a developmental correlation of $0.78$, against $0.79$ on the full release, and leaves
+every other category within $0.02$, so the divergence sits on the SSC side of the projection, in the
+milestone parsing and the thin projected classes, not in the SPARK records the model is trained on.
 
 The class sizes under projection are more skewed than under the SPARK fit: the SSC places about
 62 per cent of its probands in the largest class (against 39 per cent under the shared-feature

@@ -25,12 +25,15 @@ by an automatic rule.
 :width: 100%
 :align: center
 
-Model selection across one to ten latent classes, from an `analysis select` run. (A) The
-information criteria fall throughout and reach their minimum at nine classes, the over-extraction
-expected at a sample of this size. (B) The cross-validated log-likelihood gains little beyond
-four classes. (C) The smallest class proportion falls towards zero as classes are added; it is
-class size, not classification certainty, that marks the higher-class solutions as
-uninterpretable. The dashed line marks the four classes chosen by Litman et al.
+Model selection across one to ten latent classes, from `analysis select` runs on the full
+`2026-03-23` release and on the cohort cut back to the records present at the authors' V9 freeze
+(the subset; see {doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`).
+(A) The Bayesian information criterion, normalised within each cut since it scales with sample
+size, reaches its minimum at nine classes on the full release and eight on the V9 subset, both far
+out along the grid. (B) The cross-validated log-likelihood gains little beyond four classes in
+either cut. (C) The smallest class proportion falls towards zero as classes are added; it is class
+size, not classification certainty, that marks the higher-class solutions as uninterpretable. The
+dashed line marks the four classes chosen by Litman et al.
 :::
 
 ## Reading the result
@@ -39,9 +42,8 @@ On SPARK 2026-03-23 the information criteria do not select four: they fall acros
 and reach their minimum at nine classes. This is the over-extraction these criteria are known to
 show at a large sample, where the likelihood gain from an extra class outweighs the penalty on
 the parameters it adds. Cutting the cohort back to the records present at the authors' V9 freeze
-moves the minimum only to eight classes, still far from four (see
-[isolating the records added since V9](isolating-the-new-records)), so the over-extraction is not
-simply an artefact of the later release's size. The cross-validated log-likelihood, the
+(the second condition in the figure) moves the minimum only to eight classes, still far from four,
+so the over-extraction is not simply an artefact of the later release's size. The cross-validated log-likelihood, the
 out-of-sample measure, gains little past four classes, and the higher-class solutions degenerate,
 their smallest class falling towards a few per cent of the cohort.
 
