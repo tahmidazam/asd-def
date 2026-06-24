@@ -13,13 +13,13 @@ across the two cohorts, the same measure the authors used to declare replication
 :class: tip
 
 The classes replicate. The SPARK model projects onto 798 SSC probands across the 106 shared
-features, and the seven-category profiles correlate at $r = 0.89$, beyond a permutation null
-(calibrated $p = 0.006$). A proband bootstrap puts a 95 per cent interval of $[0.79, 0.93]$ on
-that value, which includes the authors' published $r = 0.927$. Six of the seven categories
-correlate at $0.85$ or above, five of them at $0.90$ or above; developmental is the lowest at
-$0.79$, the one category the SSC builds entirely from parsed milestone ages. The interval stays
-wide because the SSC sample is small and its two smallest classes hold only about four and five
-per cent of it.
+features, and the seven-category profiles correlate at $r = 0.90$, beyond a permutation null
+(calibrated $p = 0.006$). A proband bootstrap puts a 95 per cent interval of $[0.79, 0.94]$ on
+that value, which includes the authors' published $r = 0.927$. All seven categories correlate at
+$0.85$ or above and five of them at $0.90$ or above; the two lowest are developmental at $0.86$
+and attention at $0.85$, and developmental departs most from the published value, the one category
+the SSC builds entirely from parsed milestone ages. The interval stays wide because the SSC sample
+is small and its two smallest classes hold only about four and five per cent of it.
 :::
 
 :::{figure} /_figures/replication.png
@@ -29,20 +29,20 @@ per cent of it.
 
 Cross-cohort replication, from `analysis replicate` runs projecting the SPARK model onto 798 SSC
 probands. (A) Every class-by-category signature value, SSC against SPARK, around the line of
-equality ($r = 0.89$, $[0.79, 0.93]$), with the authors' overall $r = 0.927$ noted alongside. (B)
+equality ($r = 0.90$, $[0.79, 0.94]$), with the authors' overall $r = 0.927$ noted alongside. (B)
 The per-category correlation for two training conditions, the full `2026-03-23` release and the
 cohort cut back to the records present at the authors' V9 freeze (see
 {doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`), against the
-values Litman et al. (2025) report (markers). The two conditions sit almost on top of each other in
-every category, so training on the v9-era records does not lift the replication; developmental, the
-one category the SSC builds from parsed milestone ages rather than a standard instrument, stays
-below the rest in both ($0.79$ full, $0.78$ subset, against the published $0.98$).
+values Litman et al. (2025) report (markers). The two conditions track each other (overall $r = 0.90$
+for both), so the SPARK records the model trains on do not drive the replication; developmental, the
+one category the SSC builds from parsed milestone ages rather than a standard instrument, reads
+$0.86$ on the full release and $0.91$ on the subset, against the published $0.98$.
 :::
 
 ## Reading the result
 
 On the SSC 15.3 release the SPARK model projects onto 798 probands, across the 106 features the
-two cohorts share, and the seven-category profiles correlate at $r = 0.89$. The permutation null
+two cohorts share, and the seven-category profiles correlate at $r = 0.90$. The permutation null
 puts that value beyond chance: of the 172 label shuffles that yield a defined correlation, none
 reaches the observed $r$, so the calibrated $p$-value is $(1 + 0) / (1 + 172) = 0.006$. A shuffle
 that flattens a class profile gives an undefined correlation and drops from the null, so the
@@ -50,7 +50,7 @@ $p$-value rests on the shuffles that produced a usable profile; with more permut
 would tighten, but it already places the observed correlation outside the null.
 
 Resampling the 798 SSC probands, again with the projected labels held fixed, puts a 95 per cent
-interval of $[0.79, 0.93]$ on the overall $r$, over 500 resamples. That interval is wider than the
+interval of $[0.79, 0.94]$ on the overall $r$, over 500 resamples. That interval is wider than the
 reproduction's $[0.89, 0.92]$, because the SSC sample is small and its two smallest classes hold
 only about four and five per cent of it, but it includes the authors' published $r = 0.927$. The
 replication is therefore clearly above the permutation null and statistically consistent with the
@@ -61,33 +61,36 @@ against the coefficient Litman et al. (2025) report for the same category:
 
 | Category | This work | Litman 2025 |
 | --- | --- | --- |
-| restricted or repetitive | 0.98 | 0.97 |
-| anxiety or mood | 0.95 | 0.98 |
-| self-injury | 0.94 | 0.92 |
+| restricted or repetitive | 0.97 | 0.97 |
+| self-injury | 0.96 | 0.92 |
+| anxiety or mood | 0.92 | 0.98 |
 | disruptive behaviour | 0.90 | 0.94 |
 | social or communication | 0.90 | 0.89 |
+| developmental | 0.86 | 0.98 |
 | attention | 0.85 | 0.92 |
-| developmental | 0.79 | 0.98 |
 
-Six of the seven sit within about $0.07$ of the published value, three of them above it. The
-developmental category is the lone divergence, $0.79$ against the published $0.98$. It is the one
-category the SSC assembles entirely from the background-history milestone ages: the five
-academic-performance features and one of the two phrase milestones that also belong to the
-category have no SSC source, so unlike the others it carries none of the standard-instrument
-items (see [parsing the SSC milestone ages](../guides/parsing-ssc-milestone-ages)). Two further
-properties shape that single value. Each per-category correlation is taken over the four classes
-alone, the coarsest of the seven readings, so it moves sharply when one class shifts; and under
-projection two of the four classes hold only about four and five per cent of the SSC, so a
-category whose signal rests on those classes is estimated from very few probands. The gap is best
-read as the joint effect of the reduced feature set, the free-text milestone parse standing in for
-the authors' hand-cleaned file, and the thin projected classes, rather than as any one of them.
-The overall $r$, taken over the full four-class, seven-category profile, is the stabler summary.
+Six of the seven sit within about $0.07$ of the published value, three of them at or above it.
+Developmental shows the largest gap, $0.86$ against the published $0.98$. It is the one category
+the SSC assembles entirely from the background-history milestone ages: of the eleven developmental
+features, the SSC provides the nine milestone ages, while the second phrase milestone
+(`combined_phrases_age_mos`) and the school item (`repeat_grade`) have no SSC source, so unlike
+the others it carries none of the standard-instrument items (see
+[parsing the SSC milestone ages](../guides/parsing-ssc-milestone-ages)). Two further properties
+shape the value. Each per-category correlation is taken over the four classes alone, the coarsest
+of the seven readings, so it moves sharply when one class shifts; and under projection two of the
+four classes hold only about four and five per cent of the SSC, so a category whose signal rests on
+those classes is estimated from very few probands. The gap is best read as the joint effect of the
+milestone ages standing in for the authors' hand-cleaned file, the two absent features, and the
+thin projected classes, rather than as any one of them. The overall $r$, taken over the full
+four-class, seven-category profile, is the stabler summary.
 
-One source the gap is not, is the size or composition of the SPARK training cohort. Retraining on
-the cohort cut back to the records present at the authors' V9 freeze (the second condition in the
-figure) gives a developmental correlation of $0.78$, against $0.79$ on the full release, and leaves
-every other category within $0.02$, so the divergence sits on the SSC side of the projection, in the
-milestone parsing and the thin projected classes, not in the SPARK records the model is trained on.
+The records the SPARK model trains on do not drive the gap. Retraining on the cohort cut back to the
+records present at the authors' V9 freeze (the second condition in the figure; see
+{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`) gives an
+overall correlation of $0.90$, matching the full release, with a developmental correlation of $0.91$
+against $0.86$ on the full release. Developmental is no lower on the smaller, earlier cohort, so the
+divergence from the published value sits on the SSC side of the projection, in the milestone ages and
+the thin projected classes, not in the SPARK training records.
 
 The class sizes under projection are more skewed than under the SPARK fit: the SSC places about
 62 per cent of its probands in the largest class (against 39 per cent under the shared-feature

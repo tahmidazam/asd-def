@@ -139,6 +139,10 @@ nitpick_ignore = [
     # strict build.
     ("py:class", "TypeAliasForwardRef"),
     ("py:class", "'dscat.model.FeatureRow'"),
+    # The ``callable`` builtin used as a NumPy-docstring parameter type: napoleon emits a
+    # ``py:class`` cross-reference, but ``callable`` is a builtin function, not a class, so it
+    # cannot resolve and renders as plain text.
+    ("py:class", "callable"),
 ]
 
 # -- MyST (Markdown) ---------------------------------------------------------
