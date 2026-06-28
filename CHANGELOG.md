@@ -1,3 +1,17 @@
+## v0.6.0 (2026-06-28)
+
+### Feat
+
+- **analysis**: add binning policies and the strata feasibility check
+- **analysis**: resolve SSC milestone age scale against the SPARK distribution
+- **figures**: show the V9 cut as a condition in the existing figures
+- **figures**: compare class proportions and selection across cohort cuts
+- **analysis**: reconstruct the V9 cohort via a records cutoff
+
+### Fix
+
+- **analysis**: key the replicate cache on the SSC frame content
+
 ## v0.5.0 (2026-06-23)
 
 ### Feat

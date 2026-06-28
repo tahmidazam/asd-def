@@ -1,6 +1,6 @@
 [project]
 name = "figures"
-version = "0.5.0"
+version = "0.6.0"
 description = "Matplotlib figures for the Litman stability analysis"
 requires-python = ">=3.12"
 dependencies = [
