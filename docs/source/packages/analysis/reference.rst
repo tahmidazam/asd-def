@@ -5,9 +5,10 @@ API reference
 The importable ``analysis`` API. The package is built stage by stage, so this reference
 grows as each pipeline stage is added. It currently covers the command-line interface, the
 run and caching infrastructure, the cohort abstraction, feature typing, the mixture-model
-wrapper, the enrichment and alignment used to recover and name the reference classes, and
-the model selection, stability, and cross-cohort replication that test the recovered
-solution.
+wrapper, the enrichment and alignment used to recover and name the reference classes, the
+model selection, stability, and cross-cohort replication that test the recovered solution,
+and the stratification axes, binning policies, and acceptance requirements that the
+stratified analysis is judged against before its bins are frozen.
 
 Command-line interface
 =========================================
@@ -85,4 +86,16 @@ Selection, stability, and replication
    :members:
 
 .. automodule:: analysis.replicate
+   :members:
+
+Stratification and pre-registration
+=========================================
+
+.. automodule:: analysis.strata
+   :members:
+
+.. automodule:: analysis.strata_data
+   :members:
+
+.. automodule:: analysis.requirements
    :members:

@@ -109,6 +109,7 @@ napoleon_type_aliases = {
     "DiffResult": "dscat.diff.DiffResult",
     "IngestSummary": "dscat.ingest.IngestSummary",
     "Format": "dscat.output.Format",
+    "BinningPolicy": "analysis.strata.BinningPolicy",
 }
 python_use_unqualified_type_names = True  # display the short type names, still linked
 

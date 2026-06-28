@@ -9,6 +9,7 @@ its stage is implemented.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 
 import typer
@@ -772,6 +773,131 @@ def replicate(
         f"n_ssc={ctx.metrics['n_ssc']} overall r={ctx.metrics['overall_correlation']} "
         f"p={ctx.metrics['p_value']}"
     )
+
+
+@app.command(name="strata-describe")
+def strata_describe(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    quantile_bins: int = typer.Option(4, help="Bins for the quantile sensitivity policy."),
+    force: bool = _FORCE,
+) -> None:
+    """Characterise the stratification axes and test the candidate binning policies.
+
+    A phase-3 (pre-registration) stage. It builds age at diagnosis, the derived diagnostic
+    era, and the measurement-to-diagnosis lag for the modelling cohort, then evaluates each
+    binning policy on both axes against the acceptance requirements
+    (:mod:`analysis.requirements`): the substantive fixed bands, an equal-frequency quantile
+    split, and the max-equal split that is the chosen primary scheme. No model is fitted; the
+    output feeds the frozen bin choice (plan sections 7 and 12).
+    """
+    import pandas as pd
+
+    from analysis import requirements, strata_data
+    from analysis import strata as strata_mod
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, _typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    thresholds = requirements.DEFAULT_THRESHOLDS
+    quantile = strata_mod.QuantileBins(q=quantile_bins)
+    max_equal = strata_mod.MaxEqualBins(min_bin_size=thresholds.min_bin_size)
+    policies = {
+        "age_at_diagnosis": {
+            "bands": strata_mod.PROVISIONAL_AGE_BANDS,
+            "quantile": quantile,
+            "max_equal": max_equal,
+        },
+        "era": {
+            "bands": strata_mod.PROVISIONAL_ERA_BANDS,
+            "quantile": quantile,
+            "max_equal": max_equal,
+        },
+    }
+    params = {
+        "cohort": cohort_hash,
+        "policies": {a: {n: p.spec() for n, p in d.items()} for a, d in policies.items()},
+        "thresholds": asdict(thresholds),
+    }
+    with run_context("strata-describe", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"strata-describe: cache hit {cache.short_hash(ctx.run_hash)}; {metrics}")
+            return
+
+        data = strata_data.build_strata_data(
+            root,
+            version,
+            matrix.features.index,
+            matrix.covariates["age_at_eval_years"],
+            matrix.covariates["sex"],
+        )
+        axis_series = {
+            "age_at_diagnosis": data.axes["age_at_diagnosis_years"],
+            "era": data.axes["diagnosis_year"],
+        }
+
+        req_rows: list[dict[str, object]] = []
+        count_rows: list[dict[str, object]] = []
+        demo_frames: list[pd.DataFrame] = []
+        summary: dict[str, dict[str, object]] = {}
+        for axis, axis_policies in policies.items():
+            for pname, policy in axis_policies.items():
+                report = requirements.evaluate_policy(
+                    policy,
+                    axis_series[axis],
+                    lag=data.lag,
+                    covariates=data.demographics,
+                    thresholds=thresholds,
+                )
+                for r in report.results:
+                    req_rows.append(
+                        {
+                            "axis": axis,
+                            "policy": pname,
+                            "key": r.key,
+                            "tier": r.tier,
+                            "status": r.status,
+                            "observed": r.observed,
+                            "threshold": r.threshold,
+                            "detail": r.detail,
+                        }
+                    )
+                for bin_label, n in report.counts.items():
+                    count_rows.append({"axis": axis, "policy": pname, "bin": bin_label, "n": n})
+                if report.demographics is not None:
+                    demo = report.demographics.reset_index(names="covariate")
+                    demo.insert(0, "policy", pname)
+                    demo.insert(0, "axis", axis)
+                    demo_frames.append(demo)
+                summary[f"{axis}/{pname}"] = {
+                    "eligible": report.eligible,
+                    "flags": report.flags,
+                    "n_assigned": report.n_assigned,
+                    "counts": report.counts,
+                }
+
+        cache.save_frame(pd.DataFrame(req_rows), ctx.path("requirements.parquet"))
+        cache.save_frame(pd.DataFrame(count_rows), ctx.path("bin_counts.parquet"))
+        cache.save_frame(
+            pd.concat(demo_frames, ignore_index=True), ctx.path("demographics.parquet")
+        )
+        cache.save_frame(data.axes.reset_index(), ctx.path("axes.parquet"))
+        cache.save_frame(data.instrument_years.reset_index(), ctx.path("instrument_years.parquet"))
+        cache.save_json(data.diagnostics, ctx.path("distributions.json"))
+        cache.save_json(summary, ctx.path("policy_summary.json"))
+
+        ctx.metrics = {
+            "eligibility": {k: v["eligible"] for k, v in summary.items()},
+            "flags": {k: v["flags"] for k, v in summary.items()},
+            "contemporaneity": data.diagnostics["contemporaneity"],
+        }
+        ctx.log.info("strata-describe eligibility: %s", ctx.metrics["eligibility"])
+    typer.echo(f"strata-describe {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    for key, eligible in ctx.metrics["eligibility"].items():
+        verdict = "eligible" if eligible else "INELIGIBLE"
+        typer.echo(f"  {key}: {verdict}  flags={ctx.metrics['flags'][key]}")
 
 
 @app.command(rich_help_panel=_PLANNED)
