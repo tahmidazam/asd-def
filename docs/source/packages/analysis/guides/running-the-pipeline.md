@@ -62,13 +62,20 @@ The reference solution comes first, then the stability and replication checks th
    uv run analysis replicate
    ```
 
+8. Characterise the stratification axes and test the binning policies:
+   ```
+   uv run analysis strata-describe
+   ```
+
 Stages 4 to 7 are the phase-2 stability and replication checks, each reported in its own
 investigation: [selecting the number of classes](../investigations/selecting-the-number-of-classes),
 [stability under refitting](../investigations/stability-under-refitting),
 [the minimum viable stratum size](../investigations/the-minimum-stratum-size), and
 [replicating in the SSC](../investigations/replicating-in-the-ssc). The SSC milestone ages
 `replicate` reads are parsed from free text, described in
-[parsing the SSC milestone ages](parsing-ssc-milestone-ages).
+[parsing the SSC milestone ages](parsing-ssc-milestone-ages). Stage 8 is the phase-3 feasibility
+check that fixes the stratification bins, described in
+[choosing the stratification bins](choosing-the-stratification-bins).
 
 ## What depends on what
 
@@ -78,6 +85,7 @@ investigation: [selecting the number of classes](../investigations/selecting-the
   guidance if either is missing for the chosen settings.
 - `select` and `replicate` need only the cohort, not the reference, so they can run at any
   point once the data is in place.
+- `strata-describe` needs only the cohort too, and fits no model.
 
 ## Re-running and the cache
 
@@ -104,4 +112,5 @@ the start.
 
 The `strata`, `stratify`, `drift`, `sensitivity`, and `report` stages are planned for later
 phases. They appear under "Planned" in `uv run analysis --help` and exit with a note rather
-than running. The pipeline implemented so far ends at `replicate`.
+than running. The pipeline implemented so far ends at `strata-describe`, the phase-3 feasibility
+check; the stratified fits and their drift metrics come next.

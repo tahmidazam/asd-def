@@ -4,17 +4,14 @@ The analysis package for the Litman stability workstream: reproducing the data-d
 classes of Litman et al. (2025) and testing whether they hold within strata of age at
 diagnosis and diagnostic era.
 
-The package is built one pipeline stage at a time. Each stage is a CLI subcommand that reads
-named inputs and writes its outputs plus a manifest under a content-addressed `artefacts/`
-directory, so a later run recomputes only what changed.
+Each stage is a CLI subcommand that reads named inputs and writes its outputs plus a manifest
+under a content-addressed `artefacts/` directory, so a later run recomputes only what changed.
 
 ## The pipeline
 
 Three stages build the named reference, and four more stress-test it. The `cohort` stage builds
 the harmonised proband-by-feature matrix, `fit` fits the reference four-class mixture model, and
-`align` names the classes; the four checks branch from there. The remaining stages (the
-stratified analysis and reporting) are listed under "planned" in `analysis --help` and are added
-as the work proceeds.
+`align` names the classes; the four checks branch from there.
 
 :::{mermaid}
 flowchart LR
@@ -26,6 +23,7 @@ flowchart LR
   align --> nmin[nmin]
   cohort --> select[select]
   cohort --> replicate[replicate]
+  cohort --> strata[strata-describe]
 :::
 
 The cohort layer sits behind one interface with a SPARK and an SSC backend, so a stage runs on
@@ -40,11 +38,12 @@ either cohort. Each stage and where its result is reported:
 | `stability` | Ranks many single-init fits by log-likelihood, and refits on random halves, comparing each fit to the reference. | {doc}`Stability under refitting <investigations/stability-under-refitting>` |
 | `nmin` | Refits at descending sample sizes to fix the minimum viable stratum size. | {doc}`The minimum viable stratum size <investigations/the-minimum-stratum-size>` |
 | `replicate` | Fits on the SPARK features shared with the SSC, projects onto the SSC, and correlates the profiles against a permutation null. | {doc}`Replicating in the SSC <investigations/replicating-in-the-ssc>` |
+| `strata-describe` | Builds the age-at-diagnosis and diagnostic-era axes, the lag, and the demographics, and tests each binning policy against the acceptance requirements. | {doc}`Choosing the stratification bins <guides/choosing-the-stratification-bins>` |
 
 ## Technical guides
 
 How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
-and the SSC milestone parsing.
+the SSC milestone parsing, and choosing the stratification bins.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -89,14 +88,20 @@ Cutting a later SPARK release back in time to the probands present at Litman's V
 roster and completion gates, and what the cut recovers.
 :::
 
+:::{grid-item-card} Choosing the stratification bins
+:link: guides/choosing-the-stratification-bins
+:link-type: doc
+
+The binning policies, the acceptance requirements a partition must meet, and the
+`strata-describe` check that fixes the bins the stratified analysis runs on.
+:::
+
 ::::
 
 ## Investigations
 
-The investigations follow the analysis as a sequence of questions, each with its own figure and
-result. Each page opens with the question it answers and its headline result, embeds the figure
-it reports, and folds the method detail into expandable sections. Read top to bottom for the arc,
-or jump to one.
+Each investigation answers one question, with its own figure and headline result. Read in order
+for the arc, or jump to one.
 
 1. {doc}`Do the four classes reproduce? <investigations/reproducing-the-reference-classes>` They
    do: proportions 39/29/18/15 against the published 37/34/19/10, every named-class anchor holds,
@@ -115,32 +120,10 @@ or jump to one.
    includes the authors' published $0.927$; six of the seven categories correlate at $0.85$ or
    above, the developmental category lower at $0.79$.
 
-Several of these investigations carry a third condition alongside the full `2026-03-23` release and
-the published values: the cohort cut back to the records present at the authors' V9 freeze (see
-{doc}`subsetting the cohort to the V9 freeze <guides/subsetting-to-the-v9-freeze>`). Comparing the
-full release, the V9 subset, and the paper shows which differences from the published solution trace
-to the records added since V9.
-
-Taken together, the reproduction and these checks show the pooled reference is solid enough at the
-profile level to anchor the stratified test. That matters because the test compares
-stratum-specific fits against this reference, and a fragile baseline would make any drift
-uninterpretable. The class profiles reproduce across initialisations, resamples, and a second
-cohort, the developmental category lower than the rest there; the membership is softer at the
-boundaries; and the stratum-size floor sets the lower bound on how finely the cohort can be split.
-Cutting the cohort back to the records present at the authors' V9 freeze shows the differences from
-their class proportions are partly compositional, carried by the records added since, while the
-overall reproduction, the inflated smallest class, and the SSC developmental gap are unchanged by
-the cut.
-
-What comes next is the stratified analysis itself. With the stratification plan, the bins, the
-drift metrics, the null, and the decision thresholds frozen in advance so the result is
-confirmatory, the model is re-estimated within strata of age at diagnosis and diagnostic era, each
-stratum's classes are aligned to this named reference, and the drift is read against two
-baselines: a permutation null that re-fits within strata of the same sizes formed by shuffling the
-stratum labels, and the distance between distinct reference classes. The era axis carries its own
-threat, the lag between when the phenotype is measured and when the diagnosis was made, which is
-quantified and tested rather than assumed away. Once the genotype data are available, the same
-strata are the setting for testing whether the genotype-to-phenotype mapping drifts.
+Several of these investigations carry a third condition alongside the full `2026-03-23` release
+and the published values: the cohort cut back to the records present at the authors' V9 freeze
+(see {doc}`subsetting the cohort to the V9 freeze <guides/subsetting-to-the-v9-freeze>`), which
+isolates the differences that trace to the records added since.
 
 ## Reference
 
@@ -166,6 +149,7 @@ guides/running-the-pipeline
 guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
 guides/subsetting-to-the-v9-freeze
+guides/choosing-the-stratification-bins
 :::
 
 :::{toctree}
