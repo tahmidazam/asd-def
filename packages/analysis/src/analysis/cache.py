@@ -1,10 +1,20 @@
 """Content-addressed cache: run hashes, manifests, and artefact serialization.
 
 A stage's output is identified by a hash over the inputs that determine it (dataset and
-version, the feature-list digest, model hyperparameters, the covariate set, the seed, the
-stratum definition, and the package commit). A run is a cache hit when a manifest with the
-same hash already exists and finished cleanly, so a later session recomputes only what
-changed (plan section 11).
+version, the feature-list digest, model hyperparameters, the covariate set, the seed, and
+the stratum definition). A run is a cache hit when a manifest with the same hash already
+exists and finished cleanly, so a later session recomputes only what changed (plan
+section 11).
+
+The git commit and the resolved package versions are recorded in each manifest for
+provenance, but neither enters the hash. The repository keeps the manuscript and the docs
+site beside the analysis code, so its HEAD moves (and the working tree reads ``-dirty``)
+on edits that touch no analysis input; folding that commit into every hash would discard
+the expensive fit and stability caches on each unrelated commit. A change the hash should
+react to is caught at a finer grain instead: a stage that builds its data inline digests
+the result with :func:`frame_digest`, so a harmonisation edit that alters the data
+invalidates the cache while one that does not, a comment or a refactor, leaves it valid.
+The ``replicate`` stage does this for the integrated SSC frame.
 
 This module holds the hashing, the manifest read and write, the environment capture, and
 the serialization helpers. The :mod:`analysis.run` module composes them into the
@@ -108,6 +118,36 @@ def file_digest(path: Path) -> str:
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
+    return h.hexdigest()
+
+
+def frame_digest(df: pd.DataFrame) -> str:
+    """Return a stable SHA-256 hex digest of a dataframe's content.
+
+    Hashes the column names and the per-row values (the index included), so a different
+    parse, a renamed column, or a dropped proband yields a different digest. The result does
+    not depend on row order: the row hashes are sorted before they are combined, so two
+    frames holding the same probands and values agree.
+
+    Use this to fold a matrix built inline into a run hash. The :func:`compute_hash`
+    parameters of the cohort stage cover the input files and settings but not the
+    harmonisation code, so a code-only change (the milestone parser, an SSC rename map) leaves
+    them unchanged; digesting the built frame captures that change instead.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The frame to digest.
+
+    Returns
+    -------
+    str
+        The 64-character hex digest.
+    """
+    h = hashlib.sha256()
+    h.update(canonical_json([str(c) for c in df.columns]).encode("utf-8"))
+    row_hashes = pd.util.hash_pandas_object(df, index=True).sort_values().to_numpy()
+    h.update(row_hashes.tobytes())
     return h.hexdigest()
 
 

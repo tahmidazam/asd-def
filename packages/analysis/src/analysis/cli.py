@@ -717,9 +717,17 @@ def replicate(
     spark_hash, _ = _run_cohort(
         root, "spark", version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
     )
+    # Build the SSC cohort before the run hash so its content enters the hash, as the SPARK
+    # cohort does through its run hash. The cohort-stage hash covers the input files and
+    # settings but not the harmonisation code, so an SSC-side code change (the milestone
+    # parser, a rename map, the milestone priors) leaves it unmoved; digesting the integrated
+    # frame makes any such change invalidate the cache without --force. The SSC build then runs
+    # on a cache hit too, which is the cost of hashing what was previously computed inline.
+    ssc_integrated = get_cohort("ssc", ssc_version, root).integrate()
     params = {
         "spark_cohort": spark_hash,
         "ssc_version": ssc_version,
+        "ssc_cohort": cache.frame_digest(ssc_integrated),
         "category_map": cache.file_digest(config.author_category_map(root)),
         "n_components": n_components,
         "n_init": n_init,
@@ -734,8 +742,6 @@ def replicate(
         spark_matrix, typing = _load_cohort_matrix(root, spark_hash, "spark", version)
         feature_names = load_feature_list(config.author_feature_list(root))
         feature_set = set(feature_names)
-        ssc = get_cohort("ssc", ssc_version, root)
-        ssc_integrated = ssc.integrate()
         ssc_available = [
             c for c in ssc_integrated.columns if c in feature_set and c not in config.COVARIATES
         ]

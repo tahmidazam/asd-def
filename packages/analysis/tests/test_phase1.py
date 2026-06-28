@@ -32,6 +32,15 @@ def test_hash_is_order_invariant_and_input_sensitive() -> None:
     assert cache.compute_hash(a) != cache.compute_hash(changed)
 
 
+def test_frame_digest_is_row_order_invariant_and_content_sensitive() -> None:
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}, index=["x", "y", "z"])
+    changed_value = df.copy()
+    changed_value.loc["x", "a"] = 9.0
+    assert cache.frame_digest(df) == cache.frame_digest(df.loc[["z", "x", "y"]])
+    assert cache.frame_digest(df) != cache.frame_digest(changed_value)
+    assert cache.frame_digest(df) != cache.frame_digest(df.rename(columns={"a": "c"}))
+
+
 def test_run_context_caches_and_captures_log(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ANALYSIS_ROOT", str(tmp_path))
     calls = {"n": 0}
