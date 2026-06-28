@@ -1148,10 +1148,199 @@ def stratify(
     )
 
 
-@app.command(rich_help_panel=_PLANNED)
-def drift() -> None:
-    """Align stratum classes to the reference and measure drift against the null."""
-    _todo("drift", 4)
+@app.command()
+def drift(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per fit."),
+    n_permutations: int = typer.Option(
+        config.DEFAULT_N_PERMUTATIONS,
+        "--n-permutations",
+        help="Permutations for the matched-size null. The frozen confirmatory value is 1000; "
+        "pass 1 to smoke-test the pipeline or 100 for an overnight pilot.",
+    ),
+    seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
+    min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
+    force: bool = _FORCE,
+) -> None:
+    """Align stratum classes to the reference and measure drift against the permutation null.
+
+    A phase-4 stage (the confirmatory core, frozen in plan section 12a). For an axis it reads
+    the observed per-stratum fits (the stratify stage), aligns each stratum's classes to the
+    pooled reference by the Hungarian algorithm on their centroids, and computes each aligned
+    class's normalised centroid shift. It then builds the matched-size permutation null: for
+    each of ``--n-permutations`` permutations it partitions the cohort into pseudo-strata of
+    the real stratum sizes, refits the GFMM in each, and records the same drift, so the
+    observed shift is read against same-size random partitions. The refits run across a process
+    pool (each fit is single-core) and stream to a resumable checkpoint; the observed shift, the
+    null draws, and a Benjamini-Hochberg-controlled decision are stored.
+    """
+    import os
+    from collections import defaultdict
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    import pandas as pd
+
+    from analysis import checkpoint, model, strata_data
+    from analysis import drift as drift_mod
+    from analysis import strata as strata_mod
+    from analysis.paths import run_dir
+    from analysis.progress import task_bar
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = cache.compute_hash(
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+    )
+    ref_path = run_dir(root, "fit", cache.short_hash(ref_fit_hash)) / "centroids.parquet"
+    if not ref_path.is_file():
+        raise typer.BadParameter(f"no reference fit centroids at {ref_path}; run `analysis fit`")
+    ref_centroids = cache.load_frame(ref_path)
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    pooled_sd = measurement_data.std()
+
+    data = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+    assignment = policy.assign(data.axes[column])
+    labels = assignment.labels
+    sizes = [int((assignment.codes == label).sum()) for label in labels]
+    assigned = assignment.codes[assignment.codes.notna()].index
+
+    stratify_params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "policy": policy.spec(),
+        "n_components": config.DEFAULT_N_COMPONENTS,
+        "n_init": n_init,
+        "seed": seed,
+        "limit": 0,
+    }
+    stratify_dir = run_dir(root, "stratify", cache.short_hash(cache.compute_hash(stratify_params)))
+    observed: dict[str, dict[int, float]] = {}
+    for label in labels:
+        cpath = stratify_dir / f"centroids_{axis}_{label}.parquet"
+        if not cpath.is_file():
+            raise typer.BadParameter(
+                f"no stratify centroids for {axis}/{label}; run `analysis stratify --axis {axis}`"
+            )
+        cent = cache.load_frame(cpath).set_index("class")
+        observed[label] = drift_mod.stratum_drift(cent, ref_centroids, pooled_sd)
+
+    params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "ref_fit": ref_fit_hash,
+        "policy": policy.spec(),
+        "n_init": n_init,
+        "n_permutations": n_permutations,
+        "seed": seed,
+    }
+    n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    with run_context("drift", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"drift: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
+
+        log = checkpoint.CheckpointLog(ctx.path(f"{axis}.null.checkpoint.jsonl"))
+        null_records: list[dict] = list(log.load())
+        done = {(r["perm"], r["s_idx"]) for r in null_records}
+
+        with (
+            task_bar(n_permutations * len(labels), f"drift null {axis}") as bar,
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
+            bar.update(len(done))
+            for perm in range(n_permutations):
+                pending = [s for s in range(len(labels)) if (perm, s) not in done]
+                if not pending:
+                    continue
+                chunks = drift_mod.null_partition(assigned, sizes, seed=perm)
+                futures = {
+                    pool.submit(
+                        drift_mod.fit_pseudo_stratum,
+                        matrix.features.loc[chunks[s]],
+                        matrix.covariates.loc[chunks[s]],
+                        typing,
+                        ref_centroids,
+                        pooled_sd,
+                        n_init,
+                        seed + perm * len(labels) + s,
+                    ): s
+                    for s in pending
+                }
+                for fut in as_completed(futures):
+                    s = futures[fut]
+                    drift_vals = {int(k): float(v) for k, v in fut.result().items()}
+                    rec = {"perm": perm, "s_idx": s, "drift": drift_vals}
+                    log.append(rec)
+                    null_records.append(rec)
+                    bar.update(1)
+                    bar.set_postfix({"perm": perm, "stratum": labels[s]})
+
+        null: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+        for r in null_records:
+            for ref_class, val in r["drift"].items():
+                null[int(r["s_idx"])][int(ref_class)].append(float(val))
+
+        separation = drift_mod.class_separation(ref_centroids, pooled_sd)
+        rows: list[dict] = []
+        for s_idx, label in enumerate(labels):
+            for ref_class, obs in observed[label].items():
+                read = drift_mod.read_against_null(obs, null[s_idx][int(ref_class)])
+                rows.append(
+                    {
+                        **read,
+                        "stratum": label,
+                        "ref_class": int(ref_class),
+                        "drift_vs_separation": obs / separation if separation else float("nan"),
+                    }
+                )
+        decision = pd.DataFrame(rows)
+        decision["fdr_significant"] = drift_mod.benjamini_hochberg(
+            decision["p_value"].to_numpy(), q=0.05
+        )
+        cache.save_frame(decision, ctx.path(f"decision_{axis}.parquet"))
+        cache.save_frame(
+            pd.DataFrame(
+                [
+                    {"perm": r["perm"], "s_idx": r["s_idx"], "ref_class": rc, "drift": v}
+                    for r in null_records
+                    for rc, v in r["drift"].items()
+                ]
+            ),
+            ctx.path(f"null_{axis}.parquet"),
+        )
+        n_sig = int(decision["fdr_significant"].sum())
+        ctx.metrics = {
+            "axis": axis,
+            "n_permutations": n_permutations,
+            "class_separation": separation,
+            "n_tests": len(decision),
+            "n_significant": n_sig,
+        }
+        checkpoint.clear_checkpoints(ctx.run_dir)
+    typer.echo(f"drift {axis} {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  {ctx.metrics['n_significant']}/{ctx.metrics['n_tests']} stratum-classes drift beyond "
+        f"the N={n_permutations} null (BH q=0.05); class separation {separation:.3f}"
+    )
 
 
 @app.command(rich_help_panel=_PLANNED)

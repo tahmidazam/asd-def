@@ -102,3 +102,9 @@ Stratification and pre-registration
 
 .. automodule:: analysis.requirements
    :members:
+
+Stratified analysis
+=========================================
+
+.. automodule:: analysis.drift
+   :members:
