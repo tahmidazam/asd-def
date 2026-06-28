@@ -1148,6 +1148,77 @@ def stratify(
     )
 
 
+def _run_drift_null(
+    root: Path,
+    null_params: dict,
+    *,
+    features,
+    covariates,
+    typing,
+    reference_labels,
+    assigned,
+    sizes: list[int],
+    n_labels: int,
+    n_init: int,
+    n_permutations: int,
+    seed: int,
+    workers: int,
+    force: bool,
+):
+    """Fit the permutation null and store each pseudo-stratum's summary.
+
+    The heavy, method-independent half of the drift stage: it refits within size-shuffled
+    pseudo-strata and stores the centroids and reference contingency (not a drift value), so
+    the alignment and distance can be chosen afterwards without re-fitting. Keyed only by the
+    fitting parameters, concurrent across the single-core fits, and resumable through the same
+    append-only store it writes. Returns the run directory holding ``null_summaries``.
+    """
+    import os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    from analysis import checkpoint
+    from analysis import drift as drift_mod
+    from analysis.progress import task_bar
+
+    n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    with run_context("drift-null", null_params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            return ctx.run_dir
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
+        store = checkpoint.CheckpointLog(ctx.path("null_summaries.checkpoint.jsonl"))
+        done = {(r["perm"], r["s_idx"]) for r in store.load()}
+        with (
+            task_bar(n_permutations * n_labels, "drift null") as bar,
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
+            bar.update(len(done))
+            for perm in range(n_permutations):
+                pending = [s for s in range(n_labels) if (perm, s) not in done]
+                if not pending:
+                    continue
+                chunks = drift_mod.null_partition(assigned, sizes, seed=perm)
+                futures = {
+                    pool.submit(
+                        drift_mod.summarise_pseudo_stratum,
+                        features.loc[chunks[s]],
+                        covariates.loc[chunks[s]],
+                        typing,
+                        reference_labels,
+                        n_init,
+                        seed + perm * n_labels + s,
+                    ): s
+                    for s in pending
+                }
+                for fut in as_completed(futures):
+                    s = futures[fut]
+                    store.append(drift_mod.serialise_summary(fut.result(), perm, s))
+                    bar.update(1)
+                    bar.set_postfix({"perm": perm})
+        ctx.metrics = {"n_permutations": n_permutations, "n_units": n_permutations * n_labels}
+    return ctx.run_dir
+
+
 @app.command()
 def drift(
     axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
@@ -1160,6 +1231,12 @@ def drift(
         help="Permutations for the matched-size null. The frozen confirmatory value is 1000; "
         "pass 1 to smoke-test the pipeline or 100 for an overnight pilot.",
     ),
+    alignment: str = typer.Option(
+        "membership", help="Alignment method: membership (default) or centroid."
+    ),
+    distance: str = typer.Option(
+        "euclidean", help="Distance method: euclidean (default) or mean-abs."
+    ),
     seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
     workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
@@ -1167,19 +1244,18 @@ def drift(
 ) -> None:
     """Align stratum classes to the reference and measure drift against the permutation null.
 
-    A phase-4 stage (the confirmatory core, frozen in plan section 12a). For an axis it reads
-    the observed per-stratum fits (the stratify stage), aligns each stratum's classes to the
-    pooled reference by the Hungarian algorithm on their centroids, and computes each aligned
-    class's normalised centroid shift. It then builds the matched-size permutation null: for
-    each of ``--n-permutations`` permutations it partitions the cohort into pseudo-strata of
-    the real stratum sizes, refits the GFMM in each, and records the same drift, so the
-    observed shift is read against same-size random partitions. The refits run across a process
-    pool (each fit is single-core) and stream to a resumable checkpoint; the observed shift, the
-    null draws, and a Benjamini-Hochberg-controlled decision are stored.
+    A phase-4 stage (the confirmatory core, frozen in plan section 12a), split so the analysis
+    is decoupled from the fitting. The heavy half (the ``drift-null`` sub-stage) refits within
+    size-shuffled pseudo-strata and stores each fit's centroids and reference contingency,
+    keyed only by the fitting parameters. This cheap half then aligns and measures: it reads
+    the observed per-stratum fits (the stratify stage) and the stored null fits, applies the
+    chosen ``--alignment`` and ``--distance`` over them, and reads each aligned class's drift
+    against its size-matched null (beyond the 95th percentile, Benjamini-Hochberg controlled).
+    Because the fits are stored, changing the alignment or distance re-measures without
+    re-fitting. The alignment confidence (per-class Jaccard, overall adjusted Rand index) is
+    reported alongside, so a large shift with low overlap reads as reorganisation, not drift.
     """
-    import os
     from collections import defaultdict
-    from concurrent.futures import ProcessPoolExecutor, as_completed
 
     import pandas as pd
 
@@ -1187,10 +1263,17 @@ def drift(
     from analysis import drift as drift_mod
     from analysis import strata as strata_mod
     from analysis.paths import run_dir
-    from analysis.progress import task_bar
 
     if axis not in ("age_at_diagnosis", "era"):
         raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+    if alignment not in drift_mod.ALIGNMENTS:
+        raise typer.BadParameter(f"alignment must be one of {sorted(drift_mod.ALIGNMENTS)}")
+    if distance not in drift_mod.DISTANCES:
+        raise typer.BadParameter(f"distance must be one of {sorted(drift_mod.DISTANCES)}")
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
 
     root = find_repo_root()
     cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
@@ -1199,12 +1282,17 @@ def drift(
     ref_fit_hash = cache.compute_hash(
         _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
     )
-    ref_path = run_dir(root, "fit", cache.short_hash(ref_fit_hash)) / "centroids.parquet"
-    if not ref_path.is_file():
-        raise typer.BadParameter(f"no reference fit centroids at {ref_path}; run `analysis fit`")
-    ref_centroids = cache.load_frame(ref_path)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    if not (ref_dir / "centroids.parquet").is_file():
+        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
+    ref_centroids = cache.load_frame(ref_dir / "centroids.parquet")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
     measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
-    pooled_sd = measurement_data.std()
+    reference = drift_mod.ReferenceModel(
+        centroids=ref_centroids, pooled_sd=measurement_data.std(), labels=ref_labels
+    )
+    aligner = drift_mod.ALIGNMENTS[alignment]
+    distancer = drift_mod.DISTANCES[distance]
 
     data = strata_data.build_strata_data(
         root,
@@ -1230,17 +1318,8 @@ def drift(
         "limit": 0,
     }
     stratify_dir = run_dir(root, "stratify", cache.short_hash(cache.compute_hash(stratify_params)))
-    observed: dict[str, dict[int, float]] = {}
-    for label in labels:
-        cpath = stratify_dir / f"centroids_{axis}_{label}.parquet"
-        if not cpath.is_file():
-            raise typer.BadParameter(
-                f"no stratify centroids for {axis}/{label}; run `analysis stratify --axis {axis}`"
-            )
-        cent = cache.load_frame(cpath).set_index("class")
-        observed[label] = drift_mod.stratum_drift(cent, ref_centroids, pooled_sd)
 
-    params = {
+    null_params = {
         "cohort": cohort_hash,
         "axis": axis,
         "ref_fit": ref_fit_hash,
@@ -1249,66 +1328,77 @@ def drift(
         "n_permutations": n_permutations,
         "seed": seed,
     }
-    n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
-    with run_context("drift", params, root=root, force=force) as ctx:
+    null_dir = _run_drift_null(
+        root,
+        null_params,
+        features=matrix.features,
+        covariates=matrix.covariates,
+        typing=typing,
+        reference_labels=ref_labels,
+        assigned=assigned,
+        sizes=sizes,
+        n_labels=len(labels),
+        n_init=n_init,
+        n_permutations=n_permutations,
+        seed=seed,
+        workers=workers,
+        force=force,
+    )
+
+    measure_params = {
+        "null": cache.compute_hash(null_params),
+        "stratify": cache.compute_hash(stratify_params),
+        "axis": axis,
+        "alignment": alignment,
+        "distance": distance,
+    }
+    with run_context("drift", measure_params, root=root, force=force) as ctx:
         if ctx.cache_hit:
             cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
             typer.echo(f"drift: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
             return
-        if force:
-            checkpoint.clear_checkpoints(ctx.run_dir)
 
-        log = checkpoint.CheckpointLog(ctx.path(f"{axis}.null.checkpoint.jsonl"))
-        null_records: list[dict] = list(log.load())
-        done = {(r["perm"], r["s_idx"]) for r in null_records}
+        observed: dict[str, drift_mod.DriftResult] = {}
+        for label in labels:
+            cpath = stratify_dir / f"centroids_{axis}_{label}.parquet"
+            lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
+            if not cpath.is_file() or not lpath.is_file():
+                raise typer.BadParameter(
+                    f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
+                )
+            summary = drift_mod.StratumSummary(
+                centroids=cache.load_frame(cpath).set_index("class"),
+                contingency=drift_mod.contingency_table(
+                    labels_series(cache.load_frame(lpath)), ref_labels
+                ),
+                n=int((assignment.codes == label).sum()),
+            )
+            observed[label] = drift_mod.compute_drift(summary, reference, aligner, distancer)
 
-        with (
-            task_bar(n_permutations * len(labels), f"drift null {axis}") as bar,
-            ProcessPoolExecutor(max_workers=n_workers) as pool,
-        ):
-            bar.update(len(done))
-            for perm in range(n_permutations):
-                pending = [s for s in range(len(labels)) if (perm, s) not in done]
-                if not pending:
-                    continue
-                chunks = drift_mod.null_partition(assigned, sizes, seed=perm)
-                futures = {
-                    pool.submit(
-                        drift_mod.fit_pseudo_stratum,
-                        matrix.features.loc[chunks[s]],
-                        matrix.covariates.loc[chunks[s]],
-                        typing,
-                        ref_centroids,
-                        pooled_sd,
-                        n_init,
-                        seed + perm * len(labels) + s,
-                    ): s
-                    for s in pending
-                }
-                for fut in as_completed(futures):
-                    s = futures[fut]
-                    drift_vals = {int(k): float(v) for k, v in fut.result().items()}
-                    rec = {"perm": perm, "s_idx": s, "drift": drift_vals}
-                    log.append(rec)
-                    null_records.append(rec)
-                    bar.update(1)
-                    bar.set_postfix({"perm": perm, "stratum": labels[s]})
+        null_store = checkpoint.CheckpointLog(null_dir / "null_summaries.checkpoint.jsonl")
+        null_drift: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+        for rec in null_store.load():
+            result = drift_mod.compute_drift(
+                drift_mod.deserialise_summary(rec), reference, aligner, distancer
+            )
+            for ref_class, value in result.distances.items():
+                null_drift[int(rec["s_idx"])][int(ref_class)].append(value)
 
-        null: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
-        for r in null_records:
-            for ref_class, val in r["drift"].items():
-                null[int(r["s_idx"])][int(ref_class)].append(float(val))
-
-        separation = drift_mod.class_separation(ref_centroids, pooled_sd)
+        separation = drift_mod.class_separation(reference, distancer)
         rows: list[dict] = []
         for s_idx, label in enumerate(labels):
-            for ref_class, obs in observed[label].items():
-                read = drift_mod.read_against_null(obs, null[s_idx][int(ref_class)])
+            result = observed[label]
+            for ref_class, obs in result.distances.items():
+                read = drift_mod.read_against_null(obs, null_drift[s_idx][int(ref_class)])
                 rows.append(
                     {
                         **read,
                         "stratum": label,
                         "ref_class": int(ref_class),
+                        "jaccard": float(
+                            result.alignment.quality.get(int(ref_class), float("nan"))
+                        ),
+                        "ari": float(result.alignment.overall),
                         "drift_vs_separation": obs / separation if separation else float("nan"),
                     }
                 )
@@ -1316,30 +1406,25 @@ def drift(
         decision["fdr_significant"] = drift_mod.benjamini_hochberg(
             decision["p_value"].to_numpy(), q=0.05
         )
+        decision["reorganised"] = decision["jaccard"] < 0.5
         cache.save_frame(decision, ctx.path(f"decision_{axis}.parquet"))
-        cache.save_frame(
-            pd.DataFrame(
-                [
-                    {"perm": r["perm"], "s_idx": r["s_idx"], "ref_class": rc, "drift": v}
-                    for r in null_records
-                    for rc, v in r["drift"].items()
-                ]
-            ),
-            ctx.path(f"null_{axis}.parquet"),
-        )
-        n_sig = int(decision["fdr_significant"].sum())
+        n_drift = int((decision["fdr_significant"] & ~decision["reorganised"]).sum())
+        n_reorg = int(decision["reorganised"].sum())
         ctx.metrics = {
             "axis": axis,
+            "alignment": alignment,
+            "distance": distance,
             "n_permutations": n_permutations,
             "class_separation": separation,
             "n_tests": len(decision),
-            "n_significant": n_sig,
+            "n_drift": n_drift,
+            "n_reorganised": n_reorg,
         }
-        checkpoint.clear_checkpoints(ctx.run_dir)
-    typer.echo(f"drift {axis} {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(f"drift {axis} ({alignment}/{distance}): run {cache.short_hash(ctx.run_hash)}")
     typer.echo(
-        f"  {ctx.metrics['n_significant']}/{ctx.metrics['n_tests']} stratum-classes drift beyond "
-        f"the N={n_permutations} null (BH q=0.05); class separation {separation:.3f}"
+        f"  {ctx.metrics['n_drift']}/{ctx.metrics['n_tests']} classes drift beyond the "
+        f"N={n_permutations} null (BH q=0.05); {ctx.metrics['n_reorganised']} reorganised "
+        f"(low overlap); separation {separation:.3f}"
     )
 
 
