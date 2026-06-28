@@ -1235,7 +1235,8 @@ def drift(
         "membership", help="Alignment method: membership (default) or centroid."
     ),
     distance: str = typer.Option(
-        "euclidean", help="Distance method: euclidean (default) or mean-abs."
+        "mahalanobis",
+        help="Distance method: mahalanobis (default), euclidean, mean-abs, or jsd.",
     ),
     seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
     workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
@@ -1262,6 +1263,7 @@ def drift(
     from analysis import checkpoint, model, strata_data
     from analysis import drift as drift_mod
     from analysis import strata as strata_mod
+    from analysis.cohort import CohortMatrix
     from analysis.paths import run_dir
 
     if axis not in ("age_at_diagnosis", "era"):
@@ -1283,14 +1285,15 @@ def drift(
         _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
     )
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
-    if not (ref_dir / "centroids.parquet").is_file():
+    if not (ref_dir / "labels.parquet").is_file():
         raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
-    ref_centroids = cache.load_frame(ref_dir / "centroids.parquet")
     ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
     measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
-    reference = drift_mod.ReferenceModel(
-        centroids=ref_centroids, pooled_sd=measurement_data.std(), labels=ref_labels
-    )
+    # The reference carries the per-class centroids and dispersions plus the Ledoit-Wolf-shrunk
+    # within-class precision, recomputed from the pooled fit's measurement data and labels (the
+    # recomputed centroids match the stored fit centroids; this also gives the precision and
+    # dispersions the Mahalanobis and Jensen-Shannon distances need).
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
     aligner = drift_mod.ALIGNMENTS[alignment]
     distancer = drift_mod.DISTANCES[distance]
 
@@ -1360,19 +1363,21 @@ def drift(
 
         observed: dict[str, drift_mod.DriftResult] = {}
         for label in labels:
-            cpath = stratify_dir / f"centroids_{axis}_{label}.parquet"
             lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
-            if not cpath.is_file() or not lpath.is_file():
+            if not lpath.is_file():
                 raise typer.BadParameter(
                     f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
                 )
-            summary = drift_mod.StratumSummary(
-                centroids=cache.load_frame(cpath).set_index("class"),
-                contingency=drift_mod.contingency_table(
-                    labels_series(cache.load_frame(lpath)), ref_labels
-                ),
-                n=int((assignment.codes == label).sum()),
+            # Rebuild the stratum's measurement data (so the per-class dispersions the
+            # distributional distance needs are available) and re-summarise under the stored
+            # stratum labels; the recomputed centroids match the stratify fit's.
+            members = assignment.codes[assignment.codes == label].index
+            sub = CohortMatrix(
+                matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
             )
+            stratum_md = model.prepare_inputs(sub, typing)[0]
+            stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
+            summary = drift_mod.summarise(stratum_md, stratum_labels, ref_labels)
             observed[label] = drift_mod.compute_drift(summary, reference, aligner, distancer)
 
         null_store = checkpoint.CheckpointLog(null_dir / "null_summaries.checkpoint.jsonl")

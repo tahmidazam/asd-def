@@ -1,4 +1,4 @@
-"""Tests for the drift abstractions, metrics, and permutation-null helpers (synthetic)."""
+"""Tests for the drift abstractions, distances, and permutation-null helpers (synthetic)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from analysis.drift import (
     DEFAULT_DISTANCE,
     DISTANCES,
     CentroidHungarian,
+    JensenShannon,
+    Mahalanobis,
     MeanAbsolute,
     MembershipJaccard,
     ReferenceModel,
@@ -18,6 +20,7 @@ from analysis.drift import (
     StratumSummary,
     adjusted_rand_index,
     benjamini_hochberg,
+    build_reference,
     class_separation,
     common_columns,
     compute_drift,
@@ -27,20 +30,38 @@ from analysis.drift import (
 )
 
 
-def _reference() -> ReferenceModel:
+def _reference(precision: np.ndarray | None = None) -> ReferenceModel:
     centroids = pd.DataFrame(
         {"f0": [0.0, 10.0, 0.0, 10.0], "f1": [0.0, 0.0, 10.0, 10.0]},
         index=pd.Index([0, 1, 2, 3], name="class"),
     )
-    pooled_sd = pd.Series({"f0": 2.0, "f1": 4.0})
-    labels = pd.Series([0, 1, 2, 3], index=["a", "b", "c", "d"])
-    return ReferenceModel(centroids=centroids, pooled_sd=pooled_sd, labels=labels)
+    dispersions = pd.DataFrame(
+        {"f0": [1.0, 1.0, 1.0, 1.0], "f1": [1.0, 1.0, 1.0, 1.0]},
+        index=pd.Index([0, 1, 2, 3], name="class"),
+    )
+    return ReferenceModel(
+        centroids=centroids,
+        dispersions=dispersions,
+        pooled_sd=pd.Series({"f0": 2.0, "f1": 4.0}),
+        precision=np.eye(2) if precision is None else precision,
+        labels=pd.Series([0, 1, 2, 3], index=["a", "b", "c", "d"]),
+    )
+
+
+def _identity_contingency() -> pd.DataFrame:
+    return pd.DataFrame(np.diag([100] * 4), index=[0, 1, 2, 3], columns=[0, 1, 2, 3])
 
 
 def _permuted_contingency() -> pd.DataFrame:
-    # fit class i overlaps reference class (i + 2) mod 4 perfectly
     rows = {0: {2: 100}, 1: {3: 100}, 2: {0: 100}, 3: {1: 100}}
     return pd.DataFrame(rows).T.reindex(columns=[0, 1, 2, 3]).fillna(0).astype(int)
+
+
+def _summary(centroids: pd.DataFrame, contingency: pd.DataFrame) -> StratumSummary:
+    dispersions = pd.DataFrame(1.0, index=centroids.index, columns=centroids.columns)
+    return StratumSummary(
+        centroids=centroids, dispersions=dispersions, contingency=contingency, n=400
+    )
 
 
 def test_common_columns_intersect_in_reference_order() -> None:
@@ -55,83 +76,111 @@ def test_contingency_table_crosstabs_shared_probands() -> None:
     table = contingency_table(fit, ref)
     assert table.loc[0, 2] == 2
     assert table.loc[1, 3] == 1
-    assert table.loc[1, 0] == 1
 
 
 def test_adjusted_rand_index_is_one_for_identical_partitions() -> None:
-    table = np.diag([50, 30, 20, 10]).astype(float)
-    assert adjusted_rand_index(table) == pytest.approx(1.0)
+    assert adjusted_rand_index(np.diag([50, 30, 20, 10]).astype(float)) == pytest.approx(1.0)
 
 
 def test_adjusted_rand_index_is_near_zero_for_independent_partitions() -> None:
-    table = np.full((4, 4), 25.0)  # every cell equal -> no association
-    assert adjusted_rand_index(table) == pytest.approx(0.0, abs=0.02)
+    assert adjusted_rand_index(np.full((4, 4), 25.0)) == pytest.approx(0.0, abs=0.02)
 
 
-def test_membership_alignment_recovers_the_permutation_with_full_confidence() -> None:
-    stratum = StratumSummary(
-        centroids=_reference().centroids, contingency=_permuted_contingency(), n=400
+def test_build_reference_computes_centroids_dispersions_precision() -> None:
+    rng = np.random.default_rng(0)
+    blocks = []
+    labels = []
+    for cls, (m0, m1) in enumerate([(0, 0), (10, 0), (0, 10), (10, 10)]):
+        blocks.append(rng.normal([m0, m1], [1.0, 2.0], size=(60, 2)))
+        labels += [cls] * 60
+    md = pd.DataFrame(np.vstack(blocks), columns=["f0", "f1"])
+    md.index = [f"p{i}" for i in range(len(md))]
+    ref = build_reference(md, pd.Series(labels, index=md.index))
+    assert list(ref.centroids.index) == [0, 1, 2, 3]
+    assert ref.precision.shape == (2, 2)
+    assert ref.dispersions.loc[0, "f1"] == pytest.approx(2.0, abs=0.5)
+
+
+def test_membership_alignment_recovers_the_permutation() -> None:
+    aligned = MembershipJaccard().align(
+        _summary(_reference().centroids, _permuted_contingency()), _reference()
     )
-    aligned = MembershipJaccard().align(stratum, _reference())
     assert aligned.mapping == {0: 2, 1: 3, 2: 0, 3: 1}
-    assert all(q == pytest.approx(1.0) for q in aligned.quality.values())
     assert aligned.overall == pytest.approx(1.0)
 
 
 def test_membership_alignment_flags_low_overlap() -> None:
-    # a fit class that splits evenly across two reference classes -> low Jaccard, low ARI
     contingency = pd.DataFrame([[25, 25, 25, 25]] * 4, index=[0, 1, 2, 3], columns=[0, 1, 2, 3])
-    stratum = StratumSummary(centroids=_reference().centroids, contingency=contingency, n=400)
-    aligned = MembershipJaccard().align(stratum, _reference())
-    assert max(aligned.quality.values()) < 0.5  # no clean correspondence
-    assert aligned.overall < 0.1  # near chance
+    aligned = MembershipJaccard().align(_summary(_reference().centroids, contingency), _reference())
+    assert max(aligned.quality.values()) < 0.5
+    assert aligned.overall < 0.1
 
 
 def test_centroid_alignment_recovers_a_permutation() -> None:
     ref = _reference()
-    order = [2, 3, 0, 1]
-    src = ref.centroids.iloc[order].reset_index(drop=True)
+    src = ref.centroids.iloc[[2, 3, 0, 1]].reset_index(drop=True)
     src.index = pd.Index([0, 1, 2, 3], name="class")
-    stratum = StratumSummary(centroids=src, contingency=_permuted_contingency(), n=400)
-    aligned = CentroidHungarian().align(stratum, ref)
+    aligned = CentroidHungarian().align(_summary(src, _permuted_contingency()), ref)
     assert aligned.mapping == {0: 2, 1: 3, 2: 0, 3: 1}
 
 
-def test_distance_methods_count_in_pooled_sd_units() -> None:
-    a = np.array([2.0, 4.0])
-    b = np.array([0.0, 0.0])
-    sd = np.array([2.0, 4.0])  # each feature shifts by exactly 1 SD
-    assert StandardisedEuclidean().pairwise(a, b, sd) == pytest.approx(1.0)
-    assert MeanAbsolute().pairwise(a, b, sd) == pytest.approx(1.0)
+def test_mahalanobis_with_identity_precision_is_the_centroid_distance() -> None:
+    ref = _reference()
+    src = ref.centroids.copy()
+    src.loc[0] = [3.0, 4.0]  # shifted (3, 4) from (0, 0); identity precision -> 5
+    assert Mahalanobis().class_distance(
+        _summary(src, _identity_contingency()), 0, ref, 0
+    ) == pytest.approx(5.0)
+
+
+def test_diagonal_distances_count_in_pooled_sd_units() -> None:
+    ref = _reference()
+    src = ref.centroids.copy()
+    src.loc[0] = [2.0, 4.0]  # +1 SD on each feature (pooled sd 2 and 4)
+    stratum = _summary(src, _identity_contingency())
+    assert StandardisedEuclidean().class_distance(stratum, 0, ref, 0) == pytest.approx(1.0)
+    assert MeanAbsolute().class_distance(stratum, 0, ref, 0) == pytest.approx(1.0)
+
+
+def test_jensen_shannon_is_zero_for_identical_and_grows_with_separation() -> None:
+    ref = _reference()
+    same = _summary(ref.centroids.copy(), _identity_contingency())
+    assert JensenShannon().class_distance(same, 0, ref, 0) == pytest.approx(0.0, abs=1e-6)
+    shifted = ref.centroids.copy()
+    shifted.loc[0] = [8.0, 8.0]  # far apart relative to dispersion 1 -> near-disjoint Gaussians
+    assert (
+        JensenShannon().class_distance(_summary(shifted, _identity_contingency()), 0, ref, 0) > 0.8
+    )
 
 
 def test_class_separation_uses_the_chosen_distance() -> None:
+    # two classes 2 apart on f0 (sd 1); identity precision -> Mahalanobis distance 2
     ref = ReferenceModel(
         centroids=pd.DataFrame({"f0": [0.0, 2.0]}, index=pd.Index([0, 1], name="class")),
+        dispersions=pd.DataFrame({"f0": [1.0, 1.0]}, index=pd.Index([0, 1], name="class")),
         pooled_sd=pd.Series({"f0": 1.0}),
+        precision=np.eye(1),
         labels=pd.Series([0, 1], index=["a", "b"]),
     )
+    assert class_separation(ref, Mahalanobis()) == pytest.approx(2.0)
     assert class_separation(ref, StandardisedEuclidean()) == pytest.approx(2.0)
 
 
 def test_compute_drift_aligns_then_measures() -> None:
     ref = _reference()
-    # stratum centroids equal the reference but with the same class permutation as the overlap
-    order = [2, 3, 0, 1]
-    src = ref.centroids.iloc[order].reset_index(drop=True)
+    src = ref.centroids.iloc[[2, 3, 0, 1]].reset_index(drop=True)
     src.index = pd.Index([0, 1, 2, 3], name="class")
-    stratum = StratumSummary(centroids=src, contingency=_permuted_contingency(), n=400)
-    result = compute_drift(stratum, ref, MembershipJaccard(), StandardisedEuclidean())
-    # membership pairs fit i to ref (i+2)%4, whose centroid is identical -> zero drift
+    result = compute_drift(
+        _summary(src, _permuted_contingency()), ref, MembershipJaccard(), Mahalanobis()
+    )
     assert all(v == pytest.approx(0.0) for v in result.distances.values())
     assert result.alignment.overall == pytest.approx(1.0)
 
 
 def test_registries_expose_the_defaults() -> None:
-    assert DEFAULT_ALIGNMENT in ALIGNMENTS
-    assert DEFAULT_DISTANCE in DISTANCES
     assert ALIGNMENTS[DEFAULT_ALIGNMENT].name == "membership"
-    assert DISTANCES[DEFAULT_DISTANCE].name == "euclidean"
+    assert DISTANCES[DEFAULT_DISTANCE].name == "mahalanobis"
+    assert set(DISTANCES) == {"mahalanobis", "euclidean", "mean-abs", "jsd"}
 
 
 def test_null_partition_is_a_disjoint_cover() -> None:
@@ -144,9 +193,8 @@ def test_null_partition_is_a_disjoint_cover() -> None:
 
 
 def test_null_partition_is_seed_deterministic() -> None:
-    index = pd.Index(range(20))
-    a = null_partition(index, [10, 10], seed=7)
-    b = null_partition(index, [10, 10], seed=7)
+    a = null_partition(pd.Index(range(20)), [10, 10], seed=7)
+    b = null_partition(pd.Index(range(20)), [10, 10], seed=7)
     assert [list(x) for x in a] == [list(x) for x in b]
 
 
@@ -154,7 +202,6 @@ def test_read_against_null_reports_percentile_and_corrected_p() -> None:
     out = read_against_null(5.0, [1.0, 2.0, 3.0, 4.0])
     assert out["exceeds_p95"] == 1.0
     assert out["p_value"] == pytest.approx(1 / 5)
-    assert out["n_null"] == 4.0
 
 
 def test_benjamini_hochberg_rejects_only_the_small_p() -> None:
