@@ -60,6 +60,14 @@ DEFAULT_N_STEPS = 1
 DEFAULT_N_BOOTSTRAP = 500
 DEFAULT_BOOTSTRAP_SEED = 0
 
+# Permutations for the stratified drift permutation null (plan section 12a). 1000 is the
+# frozen confirmatory value, chosen for about three-figure p-value resolution and a stable
+# 95th-percentile threshold across the strata-by-class tests. It is a knob, not a constant: a
+# pilot or a debugging run passes a smaller value (down to 1) to exercise the instrumented
+# pipeline cheaply, while the confirmatory result reported in the manuscript uses this default.
+DEFAULT_N_PERMUTATIONS = 1000
+DEFAULT_STRATIFY_SEED = 0
+
 # Litman's per-fit class-ID to name mapping, recorded for reference only. StepMix assigns
 # class IDs arbitrarily on every fit, so this mapping does not transfer to our fits; we
 # recover the named classes by profile alignment (plan section 6a), not by this table.

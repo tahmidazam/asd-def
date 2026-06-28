@@ -906,10 +906,76 @@ def strata_describe(
         typer.echo(f"  {key}: {verdict}  flags={ctx.metrics['flags'][key]}")
 
 
-@app.command(rich_help_panel=_PLANNED)
-def strata() -> None:
-    """Assign each proband to an age-at-diagnosis and a diagnostic-era stratum."""
-    _todo("strata", 4)
+@app.command()
+def strata(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    min_bin_size: int = typer.Option(
+        1000, help="Floor every bin must clear; sets the MaxEqualBins resolution (plan 12a)."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Assign each proband to an age-at-diagnosis and a diagnostic-era stratum.
+
+    A phase-4 stage. It builds the two stratifying axes for the modelling cohort and assigns
+    every proband to a stratum on each axis with the frozen primary policy,
+    ``MaxEqualBins(min_bin_size)`` (plan section 12a): the finest equal-frequency split that
+    keeps every bin at or above the floor. The per-proband assignments and the realised bin
+    edges are cached for the ``stratify`` stage to consume.
+    """
+    import pandas as pd
+
+    from analysis import strata as strata_mod
+    from analysis import strata_data
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, _typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+    params = {"cohort": cohort_hash, "policy": policy.spec(), "axes": ["age_at_diagnosis", "era"]}
+    with run_context("strata", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"strata: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+
+        data = strata_data.build_strata_data(
+            root,
+            version,
+            matrix.features.index,
+            matrix.covariates["age_at_eval_years"],
+            matrix.covariates["sex"],
+        )
+        axis_series = {
+            "age_at_diagnosis": data.axes["age_at_diagnosis_years"],
+            "era": data.axes["diagnosis_year"],
+        }
+
+        assignments: dict[str, object] = {}
+        strata_spec: dict[str, object] = {}
+        metrics: dict[str, dict[str, object]] = {}
+        for axis, series in axis_series.items():
+            assignment = policy.assign(series)
+            assignments[axis] = assignment.codes
+            strata_spec[axis] = {
+                "labels": assignment.labels,
+                "edges": assignment.edges,
+                "counts": assignment.counts,
+                "n_missing": assignment.n_missing,
+                "spec": assignment.spec,
+            }
+            metrics[axis] = {"n_bins": len(assignment.labels), "counts": assignment.counts}
+
+        cache.save_frame(pd.DataFrame(assignments).reset_index(), ctx.path("assignments.parquet"))
+        cache.save_json(strata_spec, ctx.path("strata.json"))
+        cache.save_json(data.diagnostics, ctx.path("axis_distributions.json"))
+
+        ctx.metrics = metrics
+        ctx.log.info("strata bins: %s", {a: m["n_bins"] for a, m in metrics.items()})
+    typer.echo(f"strata {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    for axis, m in ctx.metrics.items():
+        typer.echo(f"  {axis}: {m['n_bins']} bins  {m['counts']}")
 
 
 @app.command(rich_help_panel=_PLANNED)
