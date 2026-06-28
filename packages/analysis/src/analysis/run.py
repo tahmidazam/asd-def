@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from analysis import cache
+from analysis import cache, profiling
 from analysis.paths import find_repo_root
 from analysis.paths import run_dir as _run_dir
 
@@ -166,6 +166,7 @@ def run_context(
         "started_at": started.isoformat(timespec="seconds"),
         "git_commit": cache.git_commit(root),
         "environment": cache.environment_versions(),
+        "hardware": profiling.capture_hardware(),
     }
     cache.write_manifest(rdir, manifest)
 

@@ -40,6 +40,9 @@ Runs and caching
 .. automodule:: analysis.progress
    :members:
 
+.. automodule:: analysis.profiling
+   :members:
+
 Cohort abstraction
 =========================================
 
