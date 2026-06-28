@@ -25,7 +25,9 @@ def test_help_lists_the_pipeline_stages():
 
 
 def test_unimplemented_stage_exits_non_zero():
-    result = runner.invoke(app, ["stratify"])
+    # `report` is the last stage still on the planned panel; invoking it must exit non-zero
+    # via the _todo stub. (Switch to another planned stage once report is implemented.)
+    result = runner.invoke(app, ["report"])
     assert result.exit_code == 1
 
 

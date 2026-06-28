@@ -978,10 +978,174 @@ def strata(
         typer.echo(f"  {axis}: {m['n_bins']} bins  {m['counts']}")
 
 
-@app.command(rich_help_panel=_PLANNED)
-def stratify() -> None:
-    """Re-estimate the model independently within each stratum of an axis."""
-    _todo("stratify", 4)
+@app.command()
+def stratify(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per stratum fit."),
+    seed: int = typer.Option(
+        config.DEFAULT_STRATIFY_SEED, help="Base seed; each stratum's seed is derived from it."
+    ),
+    limit: int = typer.Option(
+        0, help="Fit only the first N strata (0 = all), for a fast pilot or debugging."
+    ),
+    min_bin_size: int = typer.Option(1000, help="Strata floor; must match the strata stage."),
+    force: bool = _FORCE,
+) -> None:
+    """Re-estimate the GFMM independently within each stratum of an axis.
+
+    A phase-4 stage. For the chosen axis it assigns the modelling cohort to the frozen
+    ``MaxEqualBins(min_bin_size)`` strata, then fits the four-class covariate GFMM within each
+    stratum on the same features, typing, and hyperparameters as the reference. Each stratum's
+    fitted model, hard labels, and class-by-feature centroids are stored so the drift analysis
+    is a pure consumer that never refits. Every fit is measured (:mod:`analysis.profiling`) and
+    streamed to a resumable checkpoint, so an interrupt continues from the first unfitted
+    stratum. ``--limit`` fits only the first few strata, to debug the instrumented pipeline or
+    pilot it before the full run.
+    """
+    import pandas as pd
+
+    from analysis import checkpoint, model, profiling, strata_data
+    from analysis import strata as strata_mod
+    from analysis.cohort import CohortMatrix
+    from analysis.progress import task_bar
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    data = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+    assignment = policy.assign(data.axes[column])
+    order = assignment.labels
+
+    params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "policy": policy.spec(),
+        "n_components": config.DEFAULT_N_COMPONENTS,
+        "n_init": n_init,
+        "seed": seed,
+        "limit": limit,
+    }
+
+    def unit_from_dict(d: dict) -> profiling.UnitMetrics:
+        return profiling.UnitMetrics(
+            wall_s=d["wall_s"],
+            cpu_s=d["cpu_s"],
+            peak_rss_bytes=d["peak_rss_bytes"],
+            start_rss_bytes=d["start_rss_bytes"],
+            n_samples=d["n_samples"],
+            output_bytes=d.get("output_bytes"),
+        )
+
+    with run_context("stratify", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"stratify: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
+
+        todo = order if limit <= 0 else order[:limit]
+        log = checkpoint.CheckpointLog(ctx.path(f"{axis}.checkpoint.jsonl"))
+        records: list[dict] = list(log.load())
+        done = {r["stratum"] for r in records}
+
+        with task_bar(len(todo), f"stratify {axis}") as bar:
+            bar.update(sum(1 for label in todo if label in done))
+            for i, label in enumerate(order):
+                if label not in todo or label in done:
+                    continue
+                members = assignment.codes[assignment.codes == label].index
+                sub = CohortMatrix(
+                    matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+                )
+                with profiling.measure() as unit:
+                    fit = model.fit_gfmm(
+                        sub, typing, n_init=n_init, random_state=seed + i, progress_bar=0, verbose=0
+                    )
+                    centroids = model.class_centroids(fit.measurement_data, fit.labels)
+                    cache.save_model(fit.model, ctx.path(f"fit_{axis}_{label}.joblib"))
+                    cache.save_frame(
+                        fit.labels.reset_index(), ctx.path(f"labels_{axis}_{label}.parquet")
+                    )
+                    cache.save_frame(
+                        centroids.reset_index(), ctx.path(f"centroids_{axis}_{label}.parquet")
+                    )
+                    unit.output_bytes = sum(
+                        profiling.path_bytes(ctx.path(f"{kind}_{axis}_{label}.{ext}"))
+                        for kind, ext in (
+                            ("fit", "joblib"),
+                            ("labels", "parquet"),
+                            ("centroids", "parquet"),
+                        )
+                    )
+                metrics = unit.metrics
+                assert metrics is not None  # measure() always sets metrics on exit
+                record = {
+                    "stratum": label,
+                    "n": int(len(members)),
+                    "seed": seed + i,
+                    "fit": fit.metrics,
+                    "resources": metrics.to_dict(),
+                }
+                log.append(record)
+                records.append(record)
+                props = fit.metrics.get("class_proportions")
+                smallest = (
+                    min(props.values()) if isinstance(props, dict) and props else float("nan")
+                )
+                bar.set_postfix(
+                    {
+                        "stratum": label,
+                        "n": len(members),
+                        "wall": f"{metrics.wall_s:.0f}s",
+                        "rss": f"{metrics.peak_rss_bytes / 1024**2:.0f}M",
+                        "min_class": f"{smallest:.2f}",
+                    }
+                )
+                bar.update(1)
+
+        summary = pd.DataFrame(
+            [
+                {
+                    "stratum": r["stratum"],
+                    "n": r["n"],
+                    "avg_log_likelihood": r["fit"].get("avg_log_likelihood"),
+                    "bic": r["fit"].get("bic"),
+                    "smallest_class": min(
+                        r["fit"].get("class_proportions", {1: float("nan")}).values()
+                    ),
+                    "wall_s": r["resources"]["wall_s"],
+                    "peak_rss_bytes": r["resources"]["peak_rss_bytes"],
+                }
+                for r in records
+            ]
+        )
+        cache.save_frame(summary, ctx.path(f"summary_{axis}.parquet"))
+        units = [unit_from_dict(r["resources"]) for r in records]
+        res = profiling.summarise(units)
+        ctx.metrics = {"axis": axis, "n_strata_fitted": len(records), "resources": res}
+        peak_mib = max((u.peak_rss_bytes for u in units), default=0) / 1024**2
+        n_fitted = len(records)
+        checkpoint.clear_checkpoints(ctx.run_dir)
+    typer.echo(f"stratify {axis} {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  fitted {n_fitted} strata; median {res.get('wall_s_median')} s/fit, "
+        f"peak RSS {peak_mib:.0f} MiB"
+    )
 
 
 @app.command(rich_help_panel=_PLANNED)
