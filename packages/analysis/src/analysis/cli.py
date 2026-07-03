@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -20,6 +21,9 @@ from analysis.cohort.schema import load_feature_list
 from analysis.features import Typing
 from analysis.paths import find_repo_root
 from analysis.run import run_context
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 app = typer.Typer(
     name="analysis",
@@ -426,6 +430,7 @@ def select(
     as_of: str | None = _AS_OF,
     sample_n: int | None = _SAMPLE_N,
     sample_seed: int = _SAMPLE_SEED,
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     force: bool = _FORCE,
 ) -> None:
     """Grid over the number of components and report the information criteria."""
@@ -463,6 +468,7 @@ def select(
             base_seed=seed,
             cv=cv,
             checkpoint_dir=ctx.run_dir,
+            workers=workers,
         )
         cache.save_frame(result.per_iteration, ctx.path("per_iteration.parquet"))
         cache.save_frame(result.summary, ctx.path("summary.parquet"))
@@ -500,6 +506,7 @@ def stability(
     as_of: str | None = _AS_OF,
     sample_n: int | None = _SAMPLE_N,
     sample_seed: int = _SAMPLE_SEED,
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     force: bool = _FORCE,
 ) -> None:
     """Summarise multi-initialisation or subsampling stability of the reference fit."""
@@ -565,6 +572,7 @@ def stability(
                 n_components=n_components,
                 base_seed=seed,
                 checkpoint_dir=ctx.run_dir,
+                workers=workers,
             )
         else:
             ctx.log.info("subsampling stability: %d reps at frac=%.2f", n_reps, frac)
@@ -580,6 +588,7 @@ def stability(
                 n_components=n_components,
                 base_seed=seed,
                 checkpoint_dir=ctx.run_dir,
+                workers=workers,
             )
         cache.save_frame(summary.fits, ctx.path("fits.parquet"))
         cache.save_frame(summary.comparisons, ctx.path("comparisons.parquet"))
@@ -612,6 +621,7 @@ def nmin(
     as_of: str | None = _AS_OF,
     sample_n: int | None = _SAMPLE_N,
     sample_seed: int = _SAMPLE_SEED,
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     force: bool = _FORCE,
 ) -> None:
     """Find the minimum viable stratum size by refitting at descending sample sizes."""
@@ -669,6 +679,7 @@ def nmin(
             n_components=n_components,
             base_seed=seed,
             checkpoint_dir=ctx.run_dir,
+            workers=workers,
         )
         cache.save_frame(result.per_fit, ctx.path("per_fit.parquet"))
         cache.save_frame(result.summary, ctx.path("summary.parquet"))
@@ -978,6 +989,52 @@ def strata(
         typer.echo(f"  {axis}: {m['n_bins']} bins  {m['counts']}")
 
 
+def _fit_and_save_stratum(
+    run_dir: Path,
+    axis: str,
+    label: str,
+    features: pd.DataFrame,
+    covariates: pd.DataFrame,
+    dataset: str,
+    version: str,
+    typing: Typing,
+    n_init: int,
+    random_state: int,
+) -> dict:
+    """Fit one stratum's GFMM, save its artefacts, and return the checkpoint record.
+
+    A top-level function so it pickles for a process pool (mirrors
+    :func:`analysis.drift.summarise_pseudo_stratum`). Runs inside a worker process, so its
+    own :func:`analysis.profiling.measure` call reads that process's CPU and memory, giving
+    a true per-fit reading even when every stratum fits at once.
+    """
+    from analysis import profiling
+    from analysis.cohort import CohortMatrix
+
+    sub = CohortMatrix(features, covariates, dataset, version)
+    with profiling.measure() as unit:
+        fit = model.fit_gfmm(
+            sub, typing, n_init=n_init, random_state=random_state, progress_bar=0, verbose=0
+        )
+        centroids = model.class_centroids(fit.measurement_data, fit.labels)
+        cache.save_model(fit.model, run_dir / f"fit_{axis}_{label}.joblib")
+        cache.save_frame(fit.labels.reset_index(), run_dir / f"labels_{axis}_{label}.parquet")
+        cache.save_frame(centroids.reset_index(), run_dir / f"centroids_{axis}_{label}.parquet")
+        unit.output_bytes = sum(
+            profiling.path_bytes(run_dir / f"{kind}_{axis}_{label}.{ext}")
+            for kind, ext in (("fit", "joblib"), ("labels", "parquet"), ("centroids", "parquet"))
+        )
+    metrics = unit.metrics
+    assert metrics is not None  # measure() always sets metrics on exit
+    return {
+        "stratum": label,
+        "n": int(len(features)),
+        "seed": random_state,
+        "fit": fit.metrics,
+        "resources": metrics.to_dict(),
+    }
+
+
 @app.command()
 def stratify(
     axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
@@ -991,6 +1048,7 @@ def stratify(
         0, help="Fit only the first N strata (0 = all), for a fast pilot or debugging."
     ),
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match the strata stage."),
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     force: bool = _FORCE,
 ) -> None:
     """Re-estimate the GFMM independently within each stratum of an axis.
@@ -999,16 +1057,23 @@ def stratify(
     ``MaxEqualBins(min_bin_size)`` strata, then fits the four-class covariate GFMM within each
     stratum on the same features, typing, and hyperparameters as the reference. Each stratum's
     fitted model, hard labels, and class-by-feature centroids are stored so the drift analysis
-    is a pure consumer that never refits. Every fit is measured (:mod:`analysis.profiling`) and
-    streamed to a resumable checkpoint, so an interrupt continues from the first unfitted
-    stratum. ``--limit`` fits only the first few strata, to debug the instrumented pipeline or
-    pilot it before the full run.
+    is a pure consumer that never refits. The strata are independent fits, so they run
+    concurrently over a :class:`~concurrent.futures.ProcessPoolExecutor` (measured: a StepMix
+    fit is single-core, so throughput comes from running many at once, not from one fit using
+    many cores), each pinned to a single BLAS thread
+    (:func:`analysis.profiling.single_threaded_blas`) so concurrent workers do not
+    oversubscribe the machine. Every fit is measured (:mod:`analysis.profiling`) and streamed
+    to a resumable checkpoint, so an interrupt continues from the first unfitted stratum.
+    ``--limit`` fits only the first few strata, to debug the instrumented pipeline or pilot it
+    before the full run.
     """
+    import os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
     import pandas as pd
 
-    from analysis import checkpoint, model, profiling, strata_data
+    from analysis import checkpoint, profiling, strata_data
     from analysis import strata as strata_mod
-    from analysis.cohort import CohortMatrix
     from analysis.progress import task_bar
 
     if axis not in ("age_at_diagnosis", "era"):
@@ -1063,56 +1128,49 @@ def stratify(
         records: list[dict] = list(log.load())
         done = {r["stratum"] for r in records}
 
-        with task_bar(len(todo), f"stratify {axis}") as bar:
+        n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+        pending = [
+            (i, label) for i, label in enumerate(order) if label in todo and label not in done
+        ]
+
+        with (
+            task_bar(len(todo), f"stratify {axis}") as bar,
+            profiling.single_threaded_blas(),
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
             bar.update(sum(1 for label in todo if label in done))
-            for i, label in enumerate(order):
-                if label not in todo or label in done:
-                    continue
+            futures = {}
+            for i, label in pending:
                 members = assignment.codes[assignment.codes == label].index
-                sub = CohortMatrix(
-                    matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+                future = pool.submit(
+                    _fit_and_save_stratum,
+                    ctx.run_dir,
+                    axis,
+                    label,
+                    matrix.features.loc[members],
+                    matrix.covariates.loc[members],
+                    dataset,
+                    version,
+                    typing,
+                    n_init,
+                    seed + i,
                 )
-                with profiling.measure() as unit:
-                    fit = model.fit_gfmm(
-                        sub, typing, n_init=n_init, random_state=seed + i, progress_bar=0, verbose=0
-                    )
-                    centroids = model.class_centroids(fit.measurement_data, fit.labels)
-                    cache.save_model(fit.model, ctx.path(f"fit_{axis}_{label}.joblib"))
-                    cache.save_frame(
-                        fit.labels.reset_index(), ctx.path(f"labels_{axis}_{label}.parquet")
-                    )
-                    cache.save_frame(
-                        centroids.reset_index(), ctx.path(f"centroids_{axis}_{label}.parquet")
-                    )
-                    unit.output_bytes = sum(
-                        profiling.path_bytes(ctx.path(f"{kind}_{axis}_{label}.{ext}"))
-                        for kind, ext in (
-                            ("fit", "joblib"),
-                            ("labels", "parquet"),
-                            ("centroids", "parquet"),
-                        )
-                    )
-                metrics = unit.metrics
-                assert metrics is not None  # measure() always sets metrics on exit
-                record = {
-                    "stratum": label,
-                    "n": int(len(members)),
-                    "seed": seed + i,
-                    "fit": fit.metrics,
-                    "resources": metrics.to_dict(),
-                }
+                futures[future] = label
+            for future in as_completed(futures):
+                record = future.result()
                 log.append(record)
                 records.append(record)
-                props = fit.metrics.get("class_proportions")
+                resources = record["resources"]
+                props = record["fit"].get("class_proportions")
                 smallest = (
                     min(props.values()) if isinstance(props, dict) and props else float("nan")
                 )
                 bar.set_postfix(
                     {
-                        "stratum": label,
-                        "n": len(members),
-                        "wall": f"{metrics.wall_s:.0f}s",
-                        "rss": f"{metrics.peak_rss_bytes / 1024**2:.0f}M",
+                        "stratum": record["stratum"],
+                        "n": record["n"],
+                        "wall": f"{resources['wall_s']:.0f}s",
+                        "rss": f"{resources['peak_rss_bytes'] / 1024**2:.0f}M",
                         "min_class": f"{smallest:.2f}",
                     }
                 )
@@ -1170,13 +1228,21 @@ def _run_drift_null(
     The heavy, method-independent half of the drift stage: it refits within size-shuffled
     pseudo-strata and stores the centroids and reference contingency (not a drift value), so
     the alignment and distance can be chosen afterwards without re-fitting. Keyed only by the
-    fitting parameters, concurrent across the single-core fits, and resumable through the same
-    append-only store it writes. Returns the run directory holding ``null_summaries``.
+    fitting parameters, concurrent across the single-core fits (each pinned to a single BLAS
+    thread, :func:`analysis.profiling.single_threaded_blas`, so concurrent workers do not
+    oversubscribe the machine), and resumable through the same append-only store it writes.
+
+    Work is dispatched from one flat, permutation-major queue kept at ``n_workers`` futures in
+    flight, rather than one :func:`~concurrent.futures.as_completed` barrier per permutation: on
+    a machine with heterogeneous cores (a laptop's efficiency cores run a fit markedly slower
+    than its performance cores), a per-permutation barrier leaves the fast workers idle every
+    round, waiting on whichever fit landed on a slow core. Returns the run directory holding
+    ``null_summaries``.
     """
     import os
-    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 
-    from analysis import checkpoint
+    from analysis import checkpoint, profiling
     from analysis import drift as drift_mod
     from analysis.progress import task_bar
 
@@ -1188,33 +1254,65 @@ def _run_drift_null(
             checkpoint.clear_checkpoints(ctx.run_dir)
         store = checkpoint.CheckpointLog(ctx.path("null_summaries.checkpoint.jsonl"))
         done = {(r["perm"], r["s_idx"]) for r in store.load()}
+        queue = iter(
+            (perm, s)
+            for perm in range(n_permutations)
+            for s in range(n_labels)
+            if (perm, s) not in done
+        )
+        # Memoised per permutation so its several strata share one shuffle. Never evicted, so
+        # a full run caches all n_permutations entries, but each is a handful of index arrays
+        # over the cohort (about 90 KiB; under 100 MiB even at the frozen N_perm=1000), well
+        # under what the concurrent worker processes themselves hold.
+        chunks_cache: dict[int, list] = {}
+
+        def chunks_for(perm: int) -> list:
+            if perm not in chunks_cache:
+                chunks_cache[perm] = drift_mod.null_partition(assigned, sizes, seed=perm)
+            return chunks_cache[perm]
+
         with (
             task_bar(n_permutations * n_labels, "drift null") as bar,
+            profiling.single_threaded_blas(),
             ProcessPoolExecutor(max_workers=n_workers) as pool,
         ):
             bar.update(len(done))
-            for perm in range(n_permutations):
-                pending = [s for s in range(n_labels) if (perm, s) not in done]
-                if not pending:
-                    continue
-                chunks = drift_mod.null_partition(assigned, sizes, seed=perm)
-                futures = {
-                    pool.submit(
-                        drift_mod.summarise_pseudo_stratum,
-                        features.loc[chunks[s]],
-                        covariates.loc[chunks[s]],
-                        typing,
-                        reference_labels,
-                        n_init,
-                        seed + perm * n_labels + s,
-                    ): s
-                    for s in pending
-                }
-                for fut in as_completed(futures):
-                    s = futures[fut]
-                    store.append(drift_mod.serialise_summary(fut.result(), perm, s))
+
+            def submit_next() -> tuple[Future, tuple[int, int]] | None:
+                perm_s = next(queue, None)
+                if perm_s is None:
+                    return None
+                perm, s = perm_s
+                chunk = chunks_for(perm)[s]
+                future = pool.submit(
+                    drift_mod.summarise_pseudo_stratum,
+                    features.loc[chunk],
+                    covariates.loc[chunk],
+                    typing,
+                    reference_labels,
+                    n_init,
+                    seed + perm * n_labels + s,
+                )
+                return future, perm_s
+
+            in_flight: dict[Future, tuple[int, int]] = {}
+            for _ in range(n_workers):
+                submitted = submit_next()
+                if submitted is None:
+                    break
+                future, key = submitted
+                in_flight[future] = key
+            while in_flight:
+                finished, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for future in finished:
+                    perm, s = in_flight.pop(future)
+                    store.append(drift_mod.serialise_summary(future.result(), perm, s))
                     bar.update(1)
                     bar.set_postfix({"perm": perm})
+                    submitted = submit_next()
+                    if submitted is not None:
+                        next_future, key = submitted
+                        in_flight[next_future] = key
         ctx.metrics = {"n_permutations": n_permutations, "n_units": n_permutations * n_labels}
     return ctx.run_dir
 

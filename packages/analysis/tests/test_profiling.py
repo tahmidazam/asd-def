@@ -7,6 +7,7 @@ figures.
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -16,6 +17,7 @@ from analysis.profiling import (
     capture_hardware,
     measure,
     path_bytes,
+    single_threaded_blas,
     summarise,
 )
 
@@ -29,6 +31,52 @@ def test_capture_hardware_reports_plausible_fields() -> None:
     assert isinstance(hw["blas"], list)
     assert isinstance(hw["thread_env"], dict)
     assert hw["system"] in {"Darwin", "Linux", "Windows"}
+
+
+_THREAD_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+
+
+def test_single_threaded_blas_sets_every_thread_env_var() -> None:
+    with single_threaded_blas():
+        for var in _THREAD_ENV_VARS:
+            assert os.environ[var] == "1"
+
+
+def test_single_threaded_blas_restores_previous_values() -> None:
+    previous = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}
+    os.environ["OMP_NUM_THREADS"] = "4"
+    os.environ.pop("MKL_NUM_THREADS", None)
+    try:
+        with single_threaded_blas():
+            assert os.environ["OMP_NUM_THREADS"] == "1"
+            assert os.environ["MKL_NUM_THREADS"] == "1"
+        assert os.environ["OMP_NUM_THREADS"] == "4"
+        assert "MKL_NUM_THREADS" not in os.environ
+    finally:
+        for var, value in previous.items():
+            if value is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = value
+
+
+def test_single_threaded_blas_restores_on_exception() -> None:
+    previous = os.environ.get("OPENBLAS_NUM_THREADS")
+    os.environ.pop("OPENBLAS_NUM_THREADS", None)
+    try:
+        with pytest.raises(ValueError, match="boom"), single_threaded_blas():
+            assert os.environ["OPENBLAS_NUM_THREADS"] == "1"
+            raise ValueError("boom")
+        assert "OPENBLAS_NUM_THREADS" not in os.environ
+    finally:
+        if previous is not None:
+            os.environ["OPENBLAS_NUM_THREADS"] = previous
 
 
 def test_measure_times_a_sleep_without_spending_cpu() -> None:

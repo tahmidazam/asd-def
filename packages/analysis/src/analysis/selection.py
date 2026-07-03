@@ -24,7 +24,9 @@ table and leaves the choice to the methods write-up.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,7 +37,7 @@ from scipy.stats import chi2
 from sklearn.model_selection import GridSearchCV
 from stepmix.stepmix import StepMix
 
-from analysis import config
+from analysis import config, profiling
 from analysis.checkpoint import SUFFIX, CheckpointLog
 from analysis.cohort import CohortMatrix
 from analysis.features import Typing
@@ -260,6 +262,46 @@ def lmr_lrt_proxy(val_log_likelihood: dict[int, float]) -> dict[int, float]:
     return pvalues
 
 
+def _run_iteration(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    k_list: list[int],
+    *,
+    iteration: int,
+    seed: int,
+    n_init: int,
+    cv: int,
+) -> list[dict[str, float]]:
+    """Run one seeded grid iteration: the cross-validation pass, then a fit per K.
+
+    A top-level function so it pickles for a process pool. Different iterations share no
+    state, so this is the unit :func:`run_selection` parallelises and checkpoints.
+    """
+    val_ll = validation_log_likelihood(
+        measurement, covariates, descriptor, k_list, seed=seed, n_init=n_init, cv=cv
+    )
+    lmr = lmr_lrt_proxy(val_ll)
+    rows: list[dict[str, float]] = []
+    for k in k_list:
+        try:
+            model = _fit_model(
+                measurement, covariates, descriptor, n_components=k, n_init=n_init, seed=seed
+            )
+            criteria = per_fit_criteria(model, measurement, covariates)
+        except LinAlgError:
+            # The structural M-step did not converge (a near-singular covariate design, most
+            # often at higher K); record the fit as missing and carry on, as the
+            # cross-validation pass already does through its nan error score.
+            criteria = dict.fromkeys(PER_FIT_CRITERIA, float("nan"))
+        row: dict[str, float] = {"iteration": iteration, "n_components": k}
+        row.update(criteria)
+        row["val_log_likelihood"] = val_ll[k]
+        row["lmr_lrt_p"] = lmr.get(k, float("nan"))
+        rows.append(row)
+    return rows
+
+
 def run_selection(
     matrix: CohortMatrix,
     typing: Typing,
@@ -270,14 +312,21 @@ def run_selection(
     base_seed: int = 0,
     cv: int = 3,
     checkpoint_dir: Path | None = None,
+    workers: int = 0,
 ) -> SelectionResult:
     """Run the component-count grid over several seeds and summarise the criteria.
 
-    Each seeded iteration is one resumable unit: when ``checkpoint_dir`` is given, an
-    iteration's criterion rows are appended to a checkpoint as it completes, and a re-run over
-    the same directory continues from the first iteration that is missing. Because iteration
-    ``i`` always uses seed ``base_seed + i``, a resumed run reproduces what an uninterrupted
-    run would have computed.
+    Iterations are independent (each is its own cross-validation pass plus a fit per K), so
+    they run concurrently over a :class:`~concurrent.futures.ProcessPoolExecutor`, each pinned
+    to a single BLAS thread (:func:`analysis.profiling.single_threaded_blas`) so concurrent
+    workers do not oversubscribe the machine. Each seeded iteration is one resumable unit: when
+    ``checkpoint_dir`` is given, an iteration's criterion rows are appended to a checkpoint as
+    it completes, and a re-run over the same directory recomputes only the iterations missing
+    from it (tracked by iteration index, not by checkpoint length, since concurrent iterations
+    do not finish in submission order). Because iteration ``i`` always uses seed
+    ``base_seed + i``, a resumed run reproduces what an uninterrupted run would have computed;
+    the per-iteration rows are reassembled in iteration order regardless of completion order,
+    so a resumed run's table matches an uninterrupted one exactly.
 
     A single-initialisation fit can fail to converge when the structural covariate M-step hits
     a near-singular design, most often at higher class counts. Such a fit has its criteria
@@ -305,6 +354,10 @@ def run_selection(
         Directory for the resumable checkpoint. When ``None`` the run is held in memory and
         nothing is written, so an interrupt loses the work. The directory must be specific to
         these parameters (the caller passes the stage's content-addressed run directory).
+    workers : int, default 0
+        Concurrent worker processes. ``0`` uses the logical core count minus one. ``1`` runs
+        in-process instead of through a pool, which a test that monkeypatches a fitting
+        dependency relies on (a spawned worker process would not see the patch).
 
     Returns
     -------
@@ -316,47 +369,65 @@ def run_selection(
 
     log = CheckpointLog(checkpoint_dir / f"select{SUFFIX}") if checkpoint_dir else None
     done = log.load() if log else []
-    records: list[dict[str, float]] = [row for iteration_rows in done for row in iteration_rows]
+    by_iteration: dict[int, list[dict[str, float]]] = {
+        rows[0]["iteration"]: rows for rows in done if rows
+    }
 
     # One unit per (iteration, K) fit plus one unit per iteration for the CV pass.
     units_per_iteration = len(k_list) + 1
     total = n_iterations * units_per_iteration
-    with task_bar(total, "select", initial=len(done) * units_per_iteration) as bar:
-        for iteration in range(len(done), n_iterations):
-            seed = base_seed + iteration
-            val_ll = validation_log_likelihood(
-                measurement, covariates, descriptor, k_list, seed=seed, n_init=n_init, cv=cv
-            )
-            bar.update(1)
-            lmr = lmr_lrt_proxy(val_ll)
-            iteration_rows: list[dict[str, float]] = []
-            for k in k_list:
-                try:
-                    model = _fit_model(
+    pending = [i for i in range(n_iterations) if i not in by_iteration]
+    n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    with task_bar(total, "select", initial=len(by_iteration) * units_per_iteration) as bar:
+
+        def handle(iteration: int, iteration_rows: list[dict[str, float]]) -> None:
+            if log:
+                log.append(iteration_rows)
+            by_iteration[iteration] = iteration_rows
+            bar.set_postfix(iteration=iteration, bic=f"{iteration_rows[-1]['bic']:.0f}")
+            bar.update(units_per_iteration)
+
+        if n_workers <= 1:
+            # In-process: no pool overhead for a single worker, and a monkeypatched
+            # dependency (as the non-convergence-guard tests use) still takes effect, which a
+            # spawned process would not see (it re-imports the module fresh).
+            for iteration in pending:
+                handle(
+                    iteration,
+                    _run_iteration(
                         measurement,
                         covariates,
                         descriptor,
-                        n_components=k,
+                        k_list,
+                        iteration=iteration,
+                        seed=base_seed + iteration,
                         n_init=n_init,
-                        seed=seed,
-                    )
-                    criteria = per_fit_criteria(model, measurement, covariates)
-                except LinAlgError:
-                    # The structural M-step did not converge (a near-singular covariate
-                    # design, most often at higher K); record the fit as missing and carry on,
-                    # as the cross-validation pass already does through its nan error score.
-                    criteria = dict.fromkeys(PER_FIT_CRITERIA, float("nan"))
-                row: dict[str, float] = {"iteration": iteration, "n_components": k}
-                row.update(criteria)
-                row["val_log_likelihood"] = val_ll[k]
-                row["lmr_lrt_p"] = lmr.get(k, float("nan"))
-                iteration_rows.append(row)
-                bar.set_postfix(k=k, bic=f"{row['bic']:.0f}")
-                bar.update(1)
-            if log:
-                log.append(iteration_rows)
-            records.extend(iteration_rows)
+                        cv=cv,
+                    ),
+                )
+        else:
+            with (
+                profiling.single_threaded_blas(),
+                ProcessPoolExecutor(max_workers=n_workers) as pool,
+            ):
+                futures = {
+                    pool.submit(
+                        _run_iteration,
+                        measurement,
+                        covariates,
+                        descriptor,
+                        k_list,
+                        iteration=iteration,
+                        seed=base_seed + iteration,
+                        n_init=n_init,
+                        cv=cv,
+                    ): iteration
+                    for iteration in pending
+                }
+                for future in as_completed(futures):
+                    handle(futures[future], future.result())
 
+    records = [row for iteration in range(n_iterations) for row in by_iteration[iteration]]
     per_iteration = pd.DataFrame.from_records(records)
     criteria = [*PER_FIT_CRITERIA, "val_log_likelihood", "lmr_lrt_p"]
     grouped = per_iteration.groupby("n_components")[criteria]

@@ -33,9 +33,12 @@ falls out of the aggregate means.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -44,7 +47,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import adjusted_rand_score
 from stepmix.stepmix import StepMix
 
-from analysis import config
+from analysis import config, profiling
 from analysis.align import greedy_overlap_align
 from analysis.checkpoint import SUFFIX, CheckpointLog
 from analysis.cohort import CohortMatrix
@@ -58,6 +61,11 @@ from analysis.enrich import (
 from analysis.features import REVERSE_CODED_SCQ, Typing
 from analysis.model import prepare_inputs
 from analysis.progress import task_bar
+
+
+def _n_workers(workers: int) -> int:
+    """Return the worker-process count: ``workers`` if positive, else logical cores minus one."""
+    return workers or max(1, (os.cpu_count() or 2) - 1)
 
 
 @dataclass
@@ -415,6 +423,73 @@ def _failed_comparison_row(seed: int) -> dict[str, object]:
     return row
 
 
+def _run_multi_init_fit(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    *,
+    n_components: int,
+    seed: int,
+) -> tuple[dict[str, object], pd.Series | None]:
+    """Fit one single-initialisation stability fit and return its record and labels.
+
+    A top-level function so it pickles for a process pool. Labels are returned (not just the
+    scalar record) so the caller can still skip refitting a seed reused in the comparison
+    phase, matching the in-memory cache a serial run builds for free.
+    """
+    model = _try_fit(
+        measurement, covariates, descriptor, n_components=n_components, n_init=1, seed=seed
+    )
+    if model is None:
+        return {"seed": seed, "avg_log_likelihood": float("nan"), "converged": False}, None
+    avg_ll = float(model.score(measurement, covariates))
+    labels = _labels(model, measurement)
+    record: dict[str, object] = {
+        "seed": seed,
+        "avg_log_likelihood": avg_ll,
+        "converged": bool(model.converged_),
+    }
+    return record, labels
+
+
+def _run_comparison(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    reference_labels: pd.Series,
+    reference_enrichment: pd.DataFrame,
+    category_map: dict[str, str],
+    *,
+    n_components: int,
+    seed: int,
+    avg_ll: float,
+    labels: pd.Series | None,
+) -> dict[str, object]:
+    """Compare one fit's labels to the reference, refitting first if not already known.
+
+    A top-level function so it pickles for a process pool. ``labels`` is the labelling from
+    the fitting phase when this seed was computed in the same run; when ``None`` (a seed
+    restored from a prior run's checkpoint), it is refit here on demand.
+    """
+    if labels is None:
+        labels = _labels(
+            _fit(
+                measurement, covariates, descriptor, n_components=n_components, n_init=1, seed=seed
+            ),
+            measurement,
+        )
+    comparison = compare_to_reference(
+        measurement,
+        labels,
+        reference_labels,
+        reference_enrichment,
+        category_map,
+        n_components=n_components,
+    )
+    row = _comparison_row(seed, avg_ll, comparison)
+    return {"row": row, "overlap": _overlap_payload(comparison)}
+
+
 def run_multi_init_stability(
     matrix: CohortMatrix,
     typing: Typing,
@@ -427,16 +502,23 @@ def run_multi_init_stability(
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
     checkpoint_dir: Path | None = None,
+    workers: int = 0,
 ) -> StabilitySummary:
     """Run many single-init fits, rank by log-likelihood, and compare the best to the reference.
 
-    The run has two resumable phases when ``checkpoint_dir`` is given. Each fit appends its
-    seed and log-likelihood to a checkpoint as it completes, and each top-``top_k`` comparison
-    appends its result to a second checkpoint; a re-run over the same directory continues from
-    the first missing fit and the first missing comparison. The per-fit labels are not stored:
-    a comparison whose fit was restored from a prior run refits that seed on demand (the same
-    seed and single initialisation reproduce it), which keeps the checkpoint to scalars while
-    still resuming exactly.
+    Both phases parallelise over independent single-init fits, each pinned to a single BLAS
+    thread (:func:`analysis.profiling.single_threaded_blas`) so concurrent workers do not
+    oversubscribe the machine. The run has two resumable phases when ``checkpoint_dir`` is
+    given. Each fit appends its seed and log-likelihood to a checkpoint as it completes, and
+    each top-``top_k`` comparison appends its result to a second checkpoint; a re-run over the
+    same directory recomputes only the fits and comparisons missing from them (tracked by seed,
+    not by checkpoint length, since concurrent units do not finish in submission order). The
+    per-fit labels are not stored: a comparison whose fit was restored from a prior run refits
+    that seed on demand (the same seed and single initialisation reproduce it), which keeps the
+    checkpoint to scalars while still resuming exactly. Both phases reassemble their rows in a
+    deterministic order regardless of completion order (fits by seed before the final rank,
+    comparisons in ``best_seeds`` order), so a resumed run's tables match an uninterrupted run's
+    exactly.
 
     A single-initialisation fit that fails to converge (see ``_try_fit``) is kept in the
     ranked table with a ``nan`` log-likelihood and dropped before the top-``top_k`` selection,
@@ -466,6 +548,10 @@ def run_multi_init_stability(
     checkpoint_dir : Path, optional
         Directory for the resumable checkpoints. When ``None`` the run is held in memory and
         an interrupt loses the work. The directory must be specific to these parameters.
+    workers : int, default 0
+        Concurrent worker processes per phase. ``0`` uses the logical core count minus one.
+        ``1`` runs in-process instead of through a pool, which a test that monkeypatches a
+        fitting dependency relies on (a spawned worker process would not see the patch).
 
     Returns
     -------
@@ -474,40 +560,65 @@ def run_multi_init_stability(
         the aggregate statistics.
     """
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
+    n_workers = _n_workers(workers)
 
     fit_log = CheckpointLog(checkpoint_dir / f"fits{SUFFIX}") if checkpoint_dir else None
     done_fits = fit_log.load() if fit_log else []
-    fit_records: list[dict[str, object]] = list(done_fits)
+    fits_by_seed: dict[int, dict[str, object]] = {int(r["seed"]): r for r in done_fits}
     # Labels are kept only for fits computed in this run; a fit restored from the checkpoint
     # is refit on demand in the comparison phase, so the checkpoint holds scalars, not vectors.
     labels_by_seed: dict[int, pd.Series] = {}
     best_ll = float("-inf")
-    with task_bar(n_fits, "stability:multi-init", initial=len(done_fits)) as bar:
-        for i in range(len(done_fits), n_fits):
-            seed = base_seed + i
-            model = _try_fit(
-                measurement, covariates, descriptor, n_components=n_components, n_init=1, seed=seed
-            )
-            if model is None:
-                avg_ll = float("nan")
-                converged = False
-            else:
-                avg_ll = float(model.score(measurement, covariates))
-                best_ll = max(best_ll, avg_ll)
-                labels_by_seed[seed] = _labels(model, measurement)
-                converged = bool(model.converged_)
-            record: dict[str, object] = {
-                "seed": seed,
-                "avg_log_likelihood": avg_ll,
-                "converged": converged,
-            }
+    pending_fits = [i for i in range(n_fits) if base_seed + i not in fits_by_seed]
+    with task_bar(n_fits, "stability:multi-init", initial=len(fits_by_seed)) as bar:
+
+        def handle_fit(record: dict[str, object], labels: pd.Series | None) -> None:
+            nonlocal best_ll
+            seed = cast(int, record["seed"])
+            if labels is not None:
+                best_ll = max(best_ll, cast(float, record["avg_log_likelihood"]))
+                labels_by_seed[seed] = labels
             if fit_log:
                 fit_log.append(record)
-            fit_records.append(record)
+            fits_by_seed[seed] = record
             if best_ll != float("-inf"):
                 bar.set_postfix(best_ll=f"{best_ll:.1f}")
             bar.update(1)
 
+        if n_workers <= 1:
+            # In-process: no pool overhead for a single worker, and a monkeypatched
+            # dependency (as the non-convergence-guard test uses) still takes effect, which a
+            # spawned process would not see (it re-imports the module fresh).
+            for i in pending_fits:
+                handle_fit(
+                    *_run_multi_init_fit(
+                        measurement,
+                        covariates,
+                        descriptor,
+                        n_components=n_components,
+                        seed=base_seed + i,
+                    )
+                )
+        else:
+            with (
+                profiling.single_threaded_blas(),
+                ProcessPoolExecutor(max_workers=n_workers) as pool,
+            ):
+                futures = {
+                    pool.submit(
+                        _run_multi_init_fit,
+                        measurement,
+                        covariates,
+                        descriptor,
+                        n_components=n_components,
+                        seed=base_seed + i,
+                    )
+                    for i in pending_fits
+                }
+                for future in as_completed(futures):
+                    handle_fit(*future.result())
+
+    fit_records = [fits_by_seed[base_seed + i] for i in range(n_fits)]
     fits = pd.DataFrame.from_records(fit_records).sort_values(
         "avg_log_likelihood", ascending=False, ignore_index=True
     )
@@ -520,51 +631,110 @@ def run_multi_init_stability(
 
     cmp_log = CheckpointLog(checkpoint_dir / f"compare{SUFFIX}") if checkpoint_dir else None
     done_cmps = cmp_log.load() if cmp_log else []
-    done_seeds = {int(entry["row"]["seed"]) for entry in done_cmps}
-    rows: list[dict[str, object]] = [entry["row"] for entry in done_cmps]
-    overlaps: list[pd.DataFrame] = [
-        _overlap_from_payload(entry["overlap"], n_components)
-        for entry in done_cmps
-        if entry["overlap"] is not None
-    ]
-    remaining = [seed for seed in best_seeds if seed not in done_seeds]
+    cmp_by_seed: dict[int, dict[str, object]] = {int(e["row"]["seed"]): e for e in done_cmps}
+    remaining = [seed for seed in best_seeds if seed not in cmp_by_seed]
     with task_bar(len(best_seeds), "stability:compare", initial=len(done_cmps)) as bar:
-        for seed in remaining:
-            avg_ll = float(fits.loc[fits["seed"] == seed, "avg_log_likelihood"].iloc[0])
-            labels = labels_by_seed.get(seed)
-            if labels is None:
-                labels = _labels(
-                    _fit(
+
+        def handle_comparison(seed: int, entry: dict[str, object]) -> None:
+            if cmp_log:
+                cmp_log.append(entry)
+            cmp_by_seed[seed] = entry
+            bar.update(1)
+
+        if n_workers <= 1:
+            for seed in remaining:
+                avg_ll = float(fits.loc[fits["seed"] == seed, "avg_log_likelihood"].iloc[0])
+                handle_comparison(
+                    seed,
+                    _run_comparison(
                         measurement,
                         covariates,
                         descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
                         n_components=n_components,
-                        n_init=1,
                         seed=seed,
+                        avg_ll=avg_ll,
+                        labels=labels_by_seed.get(seed),
                     ),
-                    measurement,
                 )
-            comparison = compare_to_reference(
-                measurement,
-                labels,
-                reference_labels,
-                reference_enrichment,
-                category_map,
-                n_components=n_components,
-            )
-            row = _comparison_row(seed, avg_ll, comparison)
-            if cmp_log:
-                cmp_log.append({"row": row, "overlap": _overlap_payload(comparison)})
-            rows.append(row)
-            if not comparison.degenerate:
-                overlaps.append(comparison.overlap)
-            bar.update(1)
+        else:
+            with (
+                profiling.single_threaded_blas(),
+                ProcessPoolExecutor(max_workers=n_workers) as pool,
+            ):
+                futures = {
+                    pool.submit(
+                        _run_comparison,
+                        measurement,
+                        covariates,
+                        descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
+                        n_components=n_components,
+                        seed=seed,
+                        avg_ll=float(fits.loc[fits["seed"] == seed, "avg_log_likelihood"].iloc[0]),
+                        labels=labels_by_seed.get(seed),
+                    ): seed
+                    for seed in remaining
+                }
+                for future in as_completed(futures):
+                    handle_comparison(futures[future], future.result())
+
+    rows: list[dict[str, object]] = [cast(dict, cmp_by_seed[seed]["row"]) for seed in best_seeds]
+    overlaps: list[pd.DataFrame] = [
+        _overlap_from_payload(cast(list, cmp_by_seed[seed]["overlap"]), n_components)
+        for seed in best_seeds
+        if cmp_by_seed[seed]["overlap"] is not None
+    ]
 
     comparisons = pd.DataFrame.from_records(rows)
     aggregate, overlap_mean = _aggregate(comparisons, overlaps)
     aggregate["n_fits"] = int(n_fits)
     aggregate["top_k"] = int(top_k)
     return StabilitySummary(fits, comparisons, overlap_mean, aggregate)
+
+
+def _run_subsample_fit(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    reference_labels: pd.Series,
+    reference_enrichment: pd.DataFrame,
+    category_map: dict[str, str],
+    *,
+    n_components: int,
+    n_init: int,
+    seed: int,
+) -> tuple[dict[str, object], dict[str, object], list[list[float]] | None]:
+    """Fit one subsample and compare it to the reference.
+
+    A top-level function so it pickles for a process pool. ``measurement`` and ``covariates``
+    are already sliced to the subsample. Returns the fit record, the comparison row, and the
+    serialised overlap payload (``None`` when the fit failed to converge).
+    """
+    model = _try_fit(
+        measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+    )
+    fit_record: dict[str, object]
+    if model is None:
+        fit_record = {"seed": seed, "avg_log_likelihood": float("nan"), "converged": False}
+        return fit_record, _failed_comparison_row(seed), None
+    labels = _labels(model, measurement)
+    avg_ll = float(model.score(measurement, covariates))
+    comparison = compare_to_reference(
+        measurement,
+        labels,
+        reference_labels,
+        reference_enrichment,
+        category_map,
+        n_components=n_components,
+    )
+    fit_record = {"seed": seed, "avg_log_likelihood": avg_ll, "converged": bool(model.converged_)}
+    row = _comparison_row(seed, avg_ll, comparison)
+    return fit_record, row, _overlap_payload(comparison)
 
 
 def run_subsampling_stability(
@@ -580,8 +750,18 @@ def run_subsampling_stability(
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
     checkpoint_dir: Path | None = None,
+    workers: int = 0,
 ) -> StabilitySummary:
     """Refit on random subsamples and compare each back to the reference.
+
+    Replicates are independent, so they run concurrently over a
+    :class:`~concurrent.futures.ProcessPoolExecutor`, each pinned to a single BLAS thread
+    (:func:`analysis.profiling.single_threaded_blas`) so concurrent workers do not
+    oversubscribe the machine. Each replicate is one resumable unit: a re-run over the same
+    ``checkpoint_dir`` recomputes only the replicates missing from it (tracked by replicate
+    index, not by checkpoint length, since concurrent replicates do not finish in submission
+    order), and the results are reassembled in replicate order regardless of completion order,
+    so a resumed run's tables match an uninterrupted run's exactly.
 
     Parameters
     ----------
@@ -609,6 +789,9 @@ def run_subsampling_stability(
     checkpoint_dir : Path, optional
         Directory for the resumable checkpoint. When ``None`` the run is held in memory and an
         interrupt loses the work. The directory must be specific to these parameters.
+    workers : int, default 0
+        Concurrent worker processes. ``0`` uses the logical core count minus one. ``1`` runs
+        in-process instead of through a pool.
 
     Returns
     -------
@@ -616,60 +799,81 @@ def run_subsampling_stability(
         The per-replicate fits, comparisons, mean overlap, and aggregate statistics.
     """
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
+    n_workers = _n_workers(workers)
 
     log = CheckpointLog(checkpoint_dir / f"subsample{SUFFIX}") if checkpoint_dir else None
     done = log.load() if log else []
-    fit_records: list[dict[str, object]] = [entry["fit"] for entry in done]
-    rows: list[dict[str, object]] = [entry["row"] for entry in done]
-    overlaps: list[pd.DataFrame] = [
-        _overlap_from_payload(entry["overlap"], n_components)
-        for entry in done
-        if entry["overlap"] is not None
-    ]
-    with task_bar(n_reps, "stability:subsample", initial=len(done)) as bar:
-        for i in range(len(done), n_reps):
-            seed = base_seed + i
-            index = measurement.sample(frac=frac, random_state=seed).index
-            model = _try_fit(
-                measurement.loc[index],
-                covariates.loc[index],
-                descriptor,
-                n_components=n_components,
-                n_init=n_init,
-                seed=seed,
-            )
-            overlap_payload: list[list[float]] | None
-            if model is None:
-                avg_ll = float("nan")
-                converged = False
-                row = _failed_comparison_row(seed)
-                overlap_payload = None
-            else:
-                labels = _labels(model, measurement.loc[index])
-                avg_ll = float(model.score(measurement.loc[index], covariates.loc[index]))
-                converged = bool(model.converged_)
-                comparison = compare_to_reference(
-                    measurement.loc[index],
-                    labels,
-                    reference_labels,
-                    reference_enrichment,
-                    category_map,
-                    n_components=n_components,
-                )
-                row = _comparison_row(seed, avg_ll, comparison)
-                overlap_payload = _overlap_payload(comparison)
-                if not comparison.degenerate:
-                    overlaps.append(comparison.overlap)
-            fit_record: dict[str, object] = {
-                "seed": seed,
-                "avg_log_likelihood": avg_ll,
-                "converged": converged,
-            }
+    entries_by_index: dict[int, dict[str, object]] = {
+        cast(int, cast(dict, e["fit"])["seed"]) - base_seed: e for e in done
+    }
+    pending = [i for i in range(n_reps) if i not in entries_by_index]
+
+    with task_bar(n_reps, "stability:subsample", initial=len(entries_by_index)) as bar:
+
+        def handle(
+            i: int,
+            fit_record: dict[str, object],
+            row: dict[str, object],
+            overlap_payload: list[list[float]] | None,
+        ) -> None:
+            entry: dict[str, object] = {"fit": fit_record, "row": row, "overlap": overlap_payload}
             if log:
-                log.append({"fit": fit_record, "row": row, "overlap": overlap_payload})
-            fit_records.append(fit_record)
-            rows.append(row)
+                log.append(entry)
+            entries_by_index[i] = entry
             bar.update(1)
+
+        if n_workers <= 1:
+            # In-process: no pool overhead for a single worker, and preserves the ability to
+            # monkeypatch a fitting dependency in a test (a spawned process would not see it).
+            for i in pending:
+                seed = base_seed + i
+                index = measurement.sample(frac=frac, random_state=seed).index
+                handle(
+                    i,
+                    *_run_subsample_fit(
+                        measurement.loc[index],
+                        covariates.loc[index],
+                        descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
+                        n_components=n_components,
+                        n_init=n_init,
+                        seed=seed,
+                    ),
+                )
+        else:
+            with (
+                profiling.single_threaded_blas(),
+                ProcessPoolExecutor(max_workers=n_workers) as pool,
+            ):
+                futures = {}
+                for i in pending:
+                    seed = base_seed + i
+                    index = measurement.sample(frac=frac, random_state=seed).index
+                    future = pool.submit(
+                        _run_subsample_fit,
+                        measurement.loc[index],
+                        covariates.loc[index],
+                        descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
+                        n_components=n_components,
+                        n_init=n_init,
+                        seed=seed,
+                    )
+                    futures[future] = i
+                for future in as_completed(futures):
+                    handle(futures[future], *future.result())
+
+    fit_records = [cast(dict, entries_by_index[i]["fit"]) for i in range(n_reps)]
+    rows = [cast(dict, entries_by_index[i]["row"]) for i in range(n_reps)]
+    overlaps: list[pd.DataFrame] = [
+        _overlap_from_payload(cast(list, entries_by_index[i]["overlap"]), n_components)
+        for i in range(n_reps)
+        if entries_by_index[i]["overlap"] is not None
+    ]
 
     fits = pd.DataFrame.from_records(fit_records)
     comparisons = pd.DataFrame.from_records(rows)
@@ -746,6 +950,62 @@ def estimate_floor(
     return floor, floor_ci
 
 
+def _run_nmin_fit(
+    measurement: pd.DataFrame,
+    covariates: pd.DataFrame,
+    descriptor: dict,
+    reference_labels: pd.Series,
+    reference_enrichment: pd.DataFrame,
+    category_map: dict[str, str],
+    *,
+    n_components: int,
+    n_init: int,
+    seed: int,
+    size: int,
+    rep: int,
+) -> dict[str, object]:
+    """Fit one (size, replicate) subsample and score its recovery against the reference.
+
+    A top-level function so it pickles for a process pool. ``measurement`` and ``covariates``
+    are already sliced to the subsample.
+    """
+    model = _try_fit(
+        measurement, covariates, descriptor, n_components=n_components, n_init=n_init, seed=seed
+    )
+    if model is None:
+        return {
+            "size": size,
+            "replicate": rep,
+            "overall_correlation": None,
+            "smallest_class_proportion": float("nan"),
+            "degenerate": True,
+            "relative_entropy": float("nan"),
+            "alcpp": float("nan"),
+            "converged": False,
+        }
+    labels = _labels(model, measurement)
+    comparison = compare_to_reference(
+        measurement,
+        labels,
+        reference_labels,
+        reference_enrichment,
+        category_map,
+        n_components=n_components,
+    )
+    relative_entropy = float(model.relative_entropy(measurement, covariates))
+    alcpp = float(model.predict_proba(measurement).max(axis=1).mean())
+    return {
+        "size": size,
+        "replicate": rep,
+        "overall_correlation": comparison.overall_correlation,
+        "smallest_class_proportion": comparison.smallest_class_proportion,
+        "degenerate": comparison.degenerate,
+        "relative_entropy": relative_entropy,
+        "alcpp": alcpp,
+        "converged": bool(model.converged_),
+    }
+
+
 def run_nmin_sweep(
     matrix: CohortMatrix,
     typing: Typing,
@@ -760,6 +1020,7 @@ def run_nmin_sweep(
     n_components: int = config.DEFAULT_N_COMPONENTS,
     base_seed: int = 0,
     checkpoint_dir: Path | None = None,
+    workers: int = 0,
 ) -> NminResult:
     """Refit at descending sample sizes to fix the minimum viable stratum size.
 
@@ -768,6 +1029,15 @@ def run_nmin_sweep(
     the average latent-class posterior probability, and the profile correlation to the
     full-sample reference. The minimum viable size is the smallest swept size whose mean
     profile correlation holds at or above ``benchmark`` (plan section 7b).
+
+    Every ``(size, replicate)`` cell is an independent fit, so the sweep runs concurrently over
+    a :class:`~concurrent.futures.ProcessPoolExecutor`, each worker pinned to a single BLAS
+    thread (:func:`analysis.profiling.single_threaded_blas`) so concurrent workers do not
+    oversubscribe the machine. Each cell is one resumable unit: a re-run over the same
+    ``checkpoint_dir`` recomputes only the cells missing from it (tracked by ``(size,
+    replicate)``, not by checkpoint length, since concurrent cells do not finish in submission
+    order), and the results are reassembled in the sweep's own grid order regardless of
+    completion order, so a resumed run's tables match an uninterrupted run's exactly.
 
     Parameters
     ----------
@@ -797,6 +1067,10 @@ def run_nmin_sweep(
     checkpoint_dir : Path, optional
         Directory for the resumable checkpoint. When ``None`` the run is held in memory and an
         interrupt loses the work. The directory must be specific to these parameters.
+    workers : int, default 0
+        Concurrent worker processes. ``0`` uses the logical core count minus one. ``1`` runs
+        in-process instead of through a pool, which a test that monkeypatches a fitting
+        dependency relies on (a spawned worker process would not see the patch).
 
     Returns
     -------
@@ -807,67 +1081,85 @@ def run_nmin_sweep(
     measurement, descriptor, covariates = prepare_inputs(matrix, typing)
     total_rows = len(measurement)
     sizes = [int(s) for s in sizes if int(s) <= total_rows]
+    n_workers = _n_workers(workers)
 
     log = CheckpointLog(checkpoint_dir / f"nmin{SUFFIX}") if checkpoint_dir else None
-    records: list[dict[str, object]] = list(log.load()) if log else []
-    # The (size, replicate) grid in a fixed order, so a resumed run skips the leading
-    # records already on disk and continues with the same per-unit seeds.
+    done = list(log.load()) if log else []
+    records_by_pair: dict[tuple[int, int], dict[str, object]] = {
+        (cast(int, r["size"]), cast(int, r["replicate"])): r for r in done
+    }
+    # The (size, replicate) grid in a fixed order, so a resumed run's table matches an
+    # uninterrupted run's regardless of which cells happened to already be on disk.
     units = [
         (size_index, size, rep) for size_index, size in enumerate(sizes) for rep in range(n_reps)
     ]
-    with task_bar(len(units), "nmin", initial=len(records)) as bar:
-        for size_index, size, rep in units[len(records) :]:
-            seed = base_seed + size_index * 1000 + rep
-            index = measurement.sample(n=size, random_state=seed).index
-            model = _try_fit(
-                measurement.loc[index],
-                covariates.loc[index],
-                descriptor,
-                n_components=n_components,
-                n_init=n_init,
-                seed=seed,
-            )
-            if model is None:
-                overall_correlation: float | None = None
-                smallest = float("nan")
-                degenerate = True
-                relative_entropy = float("nan")
-                alcpp = float("nan")
-                converged = False
-            else:
-                labels = _labels(model, measurement.loc[index])
-                comparison = compare_to_reference(
-                    measurement.loc[index],
-                    labels,
-                    reference_labels,
-                    reference_enrichment,
-                    category_map,
-                    n_components=n_components,
-                )
-                overall_correlation = comparison.overall_correlation
-                smallest = comparison.smallest_class_proportion
-                degenerate = comparison.degenerate
-                relative_entropy = float(
-                    model.relative_entropy(measurement.loc[index], covariates.loc[index])
-                )
-                alcpp = float(model.predict_proba(measurement.loc[index]).max(axis=1).mean())
-                converged = bool(model.converged_)
-            record: dict[str, object] = {
-                "size": size,
-                "replicate": rep,
-                "overall_correlation": overall_correlation,
-                "smallest_class_proportion": smallest,
-                "degenerate": degenerate,
-                "relative_entropy": relative_entropy,
-                "alcpp": alcpp,
-                "converged": converged,
-            }
+    pending = [
+        (size_index, size, rep)
+        for size_index, size, rep in units
+        if (size, rep) not in records_by_pair
+    ]
+
+    with task_bar(len(units), "nmin", initial=len(records_by_pair)) as bar:
+
+        def handle(size: int, rep: int, record: dict[str, object]) -> None:
             if log:
                 log.append(record)
-            records.append(record)
+            records_by_pair[size, rep] = record
             bar.set_postfix(size=size)
             bar.update(1)
 
+        if n_workers <= 1:
+            # In-process: no pool overhead for a single worker, and preserves the ability to
+            # monkeypatch a fitting dependency in a test (a spawned process would not see it).
+            for size_index, size, rep in pending:
+                seed = base_seed + size_index * 1000 + rep
+                index = measurement.sample(n=size, random_state=seed).index
+                handle(
+                    size,
+                    rep,
+                    _run_nmin_fit(
+                        measurement.loc[index],
+                        covariates.loc[index],
+                        descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
+                        n_components=n_components,
+                        n_init=n_init,
+                        seed=seed,
+                        size=size,
+                        rep=rep,
+                    ),
+                )
+        else:
+            with (
+                profiling.single_threaded_blas(),
+                ProcessPoolExecutor(max_workers=n_workers) as pool,
+            ):
+                futures = {}
+                for size_index, size, rep in pending:
+                    seed = base_seed + size_index * 1000 + rep
+                    index = measurement.sample(n=size, random_state=seed).index
+                    future = pool.submit(
+                        _run_nmin_fit,
+                        measurement.loc[index],
+                        covariates.loc[index],
+                        descriptor,
+                        reference_labels,
+                        reference_enrichment,
+                        category_map,
+                        n_components=n_components,
+                        n_init=n_init,
+                        seed=seed,
+                        size=size,
+                        rep=rep,
+                    )
+                    futures[future] = (size, rep)
+                for future in as_completed(futures):
+                    size, rep = futures[future]
+                    handle(size, rep, future.result())
+
+    records = [records_by_pair[size, rep] for _, size, rep in units]
     per_fit = pd.DataFrame.from_records(records)
     summary = (
         per_fit.groupby("size")[

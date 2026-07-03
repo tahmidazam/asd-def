@@ -454,8 +454,10 @@ def test_run_selection_records_nan_for_nonconvergent_fit(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(selection, "_fit_model", flaky)
+    # workers=1 runs in-process: a pool worker is a separate process that would not see the
+    # monkeypatch (it re-imports the module fresh).
     result = selection.run_selection(
-        matrix, typing, k_values=[1, 2], n_iterations=1, n_init=1, cv=3
+        matrix, typing, k_values=[1, 2], n_iterations=1, n_init=1, cv=3, workers=1
     )
     by_k = result.per_iteration.set_index("n_components")
     assert np.isnan(by_k.loc[2, "bic"])  # the failed direct fit is recorded as missing
@@ -475,6 +477,8 @@ def test_run_nmin_sweep_records_nan_for_nonconvergent_fit(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(stability, "_fit", flaky)
+    # workers=1 runs in-process: a pool worker is a separate process that would not see the
+    # monkeypatch (it re-imports the module fresh).
     result = stability.run_nmin_sweep(
         matrix,
         typing,
@@ -485,6 +489,7 @@ def test_run_nmin_sweep_records_nan_for_nonconvergent_fit(monkeypatch) -> None:
         n_reps=1,
         benchmark=0.5,
         n_init=1,
+        workers=1,
     )
     by_size = result.per_fit.set_index("size")
     assert bool(by_size.loc[120, "degenerate"]) and np.isnan(by_size.loc[120, "relative_entropy"])
@@ -505,8 +510,10 @@ def test_run_multi_init_stability_drops_nonconvergent_fit(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(stability, "_fit", flaky)
+    # workers=1 runs in-process: a pool worker is a separate process that would not see the
+    # monkeypatch (it re-imports the module fresh).
     summary = stability.run_multi_init_stability(
-        matrix, typing, ref_labels, ref_enrichment, _CATEGORY_MAP, n_fits=4, top_k=3
+        matrix, typing, ref_labels, ref_enrichment, _CATEGORY_MAP, n_fits=4, top_k=3, workers=1
     )
     failed = summary.fits.loc[summary.fits["seed"] == failed_seed, "avg_log_likelihood"]
     assert failed.isna().all()  # kept in the ranked table as nan

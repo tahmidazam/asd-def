@@ -58,6 +58,38 @@ _THREAD_ENV_VARS = (
 )
 
 
+@contextmanager
+def single_threaded_blas() -> Iterator[None]:
+    """Force every BLAS and OpenMP thread pool to one thread for the enclosed block.
+
+    A lone fit is already single-core (:func:`measure` shows ``cpu_utilisation`` about one),
+    but scikit-learn bundles its own OpenMP runtime (``libomp``) sized to every logical core
+    by default. Running several fits at once through a
+    :class:`~concurrent.futures.ProcessPoolExecutor` gives each worker its own copy of that
+    pool, so N concurrent workers compete for N times the machine's threads the moment any of
+    them calls a parallelised scikit-learn routine. A spawned worker inherits the parent's
+    environment, and each numerical library reads its thread count once, the first time it is
+    used, so setting these variables before the pool starts keeps every worker to the one
+    core it was given. Not needed around a solitary fit, so it is applied only around a
+    concurrent pool, not a whole CLI invocation.
+
+    Yields
+    ------
+    None
+    """
+    previous = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}
+    try:
+        for var in _THREAD_ENV_VARS:
+            os.environ[var] = "1"
+        yield
+    finally:
+        for var, value in previous.items():
+            if value is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = value
+
+
 def _blas_info() -> list[dict[str, object]]:
     """Return the loaded BLAS or OpenMP thread pools, or an empty list if unavailable.
 
