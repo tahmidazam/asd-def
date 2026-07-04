@@ -221,3 +221,43 @@ def load_nmin(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     manifest = cache.read_manifest(run_directory) or {}
     metrics = manifest.get("metrics", {})
     return per_fit, summary, metrics
+
+
+def load_sweep(run_directory: Path) -> tuple[pd.DataFrame, dict]:
+    """Load a `sweep` run's decision table and its manifest.
+
+    Parameters
+    ----------
+    run_directory : pathlib.Path
+        The `sweep` run directory.
+
+    Returns
+    -------
+    tuple
+        The decision table (``decision_<axis>.parquet``) and the run manifest.
+    """
+    decisions = sorted(run_directory.glob("decision_*.parquet"))
+    if not decisions:
+        raise FileNotFoundError(f"no decision table in {run_directory}")
+    return cache.load_frame(decisions[0]), cache.read_manifest(run_directory) or {}
+
+
+def class_names(root: Path, axis: str) -> dict[int, str]:
+    """Return the reference-class id to name map for an axis, from its `trajectory` run.
+
+    The `sweep` decision table carries only class ids, so the names come from the latest
+    `trajectory` run for the axis, whose directional table pairs each id with its name. An empty
+    map is returned when no such run exists, and the figure falls back to the numeric ids.
+    """
+    try:
+        directory = resolve_run(root, "trajectory", axis=axis)
+    except FileNotFoundError:
+        return {}
+    directionals = sorted(directory.glob("directional_*.parquet"))
+    if not directionals:
+        return {}
+    frame = cache.load_frame(directionals[0])
+    return {
+        int(ref_class): str(class_name)
+        for ref_class, class_name in zip(frame["ref_class"], frame["class_name"], strict=True)
+    }

@@ -23,6 +23,7 @@ from figures.reproduction import reproduction_figure
 from figures.roughness import roughness_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
+from figures.sweep import sweep_trajectory_figure
 from figures.trajectory import trajectory_figure
 
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
@@ -167,6 +168,22 @@ def trajectory(
     embedding, meta = data.load_trajectory(run_directory)
     figure = trajectory_figure(embedding, meta)
     _write(root, "trajectory", run_directory, figure, name or f"trajectory_{axis}", fmt)
+
+
+@app.command()
+def sweep(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot each class's drift as a curve along the axis, from a `sweep` run's decision table."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "sweep", run, axis=axis)
+    decision, manifest = data.load_sweep(run_directory)
+    meta = {**manifest.get("metrics", {}), "axis": axis}
+    figure = sweep_trajectory_figure(decision, data.class_names(root, axis), meta)
+    _write(root, "sweep", run_directory, figure, name or f"sweep_trajectory_{axis}", fmt)
 
 
 @app.command()
