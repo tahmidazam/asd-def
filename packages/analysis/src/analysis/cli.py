@@ -1868,6 +1868,15 @@ def attribute(
     measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
     reference = drift_mod.build_reference(measurement_data, ref_labels)
 
+    align_dir = run_dir(
+        root, "align", cache.short_hash(cache.compute_hash(_align_params(root, ref_fit_hash)))
+    )
+    name_of = (
+        {int(k): v for k, v in cache.load_json(align_dir / "alignment.json")["mapping"].items()}
+        if _completed(align_dir)
+        else {}
+    )
+
     aligner = drift_mod.ALIGNMENTS[alignment]
     decomposer = attr.DECOMPOSITIONS[decomposition]
     contraster = attr.CONTRASTS[contrast]
@@ -1961,7 +1970,7 @@ def attribute(
                             "contribution": float(total),
                         }
                     )
-                moved = attr.movers(movement)
+                moved = attr.movers(movement, kind="either")
                 result = contraster.contrast(moved, stratum_md.loc[moved.index])
                 for record in result.importances.to_dict("records"):
                     mover_rows.append({"stratum": label, "ref_class": movement.ref_class, **record})
@@ -1969,14 +1978,18 @@ def attribute(
                 top_mover = (
                     result.importances.iloc[0]["feature"] if len(result.importances) else None
                 )
-                total = result.n_movers + result.n_stayers
+                counts = attr.membership_counts(movement)
+                churned = counts["n_leavers"] + counts["n_joiners"]
+                union = churned + counts["n_stayers"]
                 summary_rows.append(
                     {
                         "stratum": label,
                         "ref_class": movement.ref_class,
-                        "n_movers": result.n_movers,
-                        "n_stayers": result.n_stayers,
-                        "mover_fraction": result.n_movers / total if total else float("nan"),
+                        "class_name": name_of.get(movement.ref_class, str(movement.ref_class)),
+                        "n_stayers": counts["n_stayers"],
+                        "n_leavers": counts["n_leavers"],
+                        "n_joiners": counts["n_joiners"],
+                        "churn": churned / union if union else float("nan"),
                         "jaccard": float(aligned.quality.get(movement.ref_class, float("nan"))),
                         "ari": float(aligned.overall),
                         "top_shift_feature": str(top_shift) if top_shift is not None else "",
@@ -2002,10 +2015,8 @@ def attribute(
             "feature_space": feature_space,
             "n_strata": len(labels),
             "n_classes": int(summary_frame["ref_class"].nunique()) if len(summary_frame) else 0,
-            "mean_mover_fraction": (
-                float(summary_frame["mover_fraction"].mean())
-                if len(summary_frame)
-                else float("nan")
+            "mean_churn": (
+                float(summary_frame["churn"].mean()) if len(summary_frame) else float("nan")
             ),
         }
     typer.echo(
@@ -2013,7 +2024,7 @@ def attribute(
     )
     typer.echo(
         f"  {ctx.metrics['n_strata']} strata x {ctx.metrics['n_classes']} classes; "
-        f"mean mover fraction {ctx.metrics['mean_mover_fraction']:.2f}"
+        f"mean churn {ctx.metrics['mean_churn']:.2f}"
     )
 
 

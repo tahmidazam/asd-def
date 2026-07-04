@@ -199,26 +199,82 @@ def category_totals(contributions: pd.Series, category_map: Mapping[str, object]
     return totals.sort_values(ascending=False)
 
 
-def movers(movement: Movement) -> pd.Series:
-    """Mark which reference-class-k probands left the class in the second fit.
+def _membership(movement: Movement) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Return the reference-member, stratum-member, and stayer masks over the shared index.
 
-    Restricts to the probands the reference assigns to ``ref_class``, maps each proband's
-    second-fit class into reference space through the alignment, and marks a proband a mover
-    when its mapped second-fit class is not ``ref_class`` (it left the class). The complement
-    are stayers. Contrasting the two says what marks the probands a class shed.
-
-    Returns
-    -------
-    pandas.Series
-        Boolean ``moved``, indexed by the reference-class-k probands.
+    A proband is a reference member of the class when the reference assigns it there, a stratum
+    member when its second-fit class maps to the class through the alignment, and a stayer when
+    both hold. From these three masks the leavers (reference member, not stratum member) and the
+    joiners (stratum member, not reference member) follow.
     """
     comp = movement.comparison
     idx = comp.shared_index
     ref = comp.ref_labels.loc[idx]
-    members = idx[(ref == movement.ref_class).to_numpy()]
     mapping = comp.alignment.mapping
-    mapped = comp.fit_labels.loc[members].map(lambda c: mapping.get(int(c), -1))
-    return (mapped != movement.ref_class).rename("moved")
+    mapped = comp.fit_labels.loc[idx].map(lambda c: mapping.get(int(c), -1))
+    is_ref = ref == movement.ref_class
+    is_fit = mapped == movement.ref_class
+    return is_ref, is_fit, is_ref & is_fit
+
+
+def membership_counts(movement: Movement) -> dict[str, int]:
+    """Count the stayers, leavers, and joiners for one class between the two fits.
+
+    Returns
+    -------
+    dict
+        ``n_stayers`` (in the class under both fits), ``n_leavers`` (a reference member the
+        second fit dropped), and ``n_joiners`` (a second-fit member the reference did not
+        assign to the class). Leavers plus joiners over their union is the class churn, one
+        minus the Jaccard overlap the alignment reports.
+    """
+    is_ref, is_fit, stayer = _membership(movement)
+    return {
+        "n_stayers": int(stayer.sum()),
+        "n_leavers": int((is_ref & ~is_fit).sum()),
+        "n_joiners": int((is_fit & ~is_ref).sum()),
+    }
+
+
+def movers(movement: Movement, kind: str = "either") -> pd.Series:
+    """Mark the probands that changed class membership between the two fits.
+
+    A class can move in two ways: it can shed members (leavers, reference members the second
+    fit drops) and it can absorb members (joiners, second-fit members the reference did not
+    assign there). A class that keeps every member but pulls in new ones still drifts, so a
+    leaver-only view misses it; ``kind="either"`` (the default) captures both.
+
+    Parameters
+    ----------
+    movement : Movement
+        The aligned class pair to score.
+    kind : str, default "either"
+        ``"either"`` marks leavers and joiners against the stayers over the union of the two
+        memberships (the class churn). ``"leavers"`` restricts to the reference members and
+        marks those the second fit dropped. ``"joiners"`` restricts to the second-fit members
+        and marks those the reference did not assign to the class.
+
+    Returns
+    -------
+    pandas.Series
+        Boolean ``moved`` over the relevant probands: the complement are the stayers the
+        contrast is run against.
+    """
+    idx = movement.comparison.shared_index
+    is_ref, is_fit, stayer = _membership(movement)
+    if kind == "leavers":
+        subset = is_ref
+        moved = is_ref & ~is_fit
+    elif kind == "joiners":
+        subset = is_fit
+        moved = is_fit & ~is_ref
+    elif kind == "either":
+        subset = is_ref | is_fit
+        moved = ~stayer
+    else:
+        raise ValueError(f"kind must be 'either', 'leavers', or 'joiners', not {kind!r}")
+    members = idx[subset.to_numpy()]
+    return moved.loc[members].rename("moved")
 
 
 @dataclass

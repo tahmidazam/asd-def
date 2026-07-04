@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from figures import data, paths, style
+from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.nmin import nmin_figure
 from figures.publish import FigureSpec, publish_figure
 from figures.replication import replication_figure
@@ -416,3 +417,72 @@ def test_resolve_run_axis_filter(tmp_path: Path) -> None:
     manifest("cccc", "age_at_diagnosis", "2026-03-01T00:00:00+00:00")
     assert data.resolve_run(tmp_path, "trajectory", axis="age_at_diagnosis").name == "cccc"
     assert data.resolve_run(tmp_path, "trajectory", axis="era").name == "bbbb"
+
+
+def _attribution_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Synthetic attribute-stage tables: two classes, three strata, three categories."""
+    strata = ["Q1", "Q2", "Q10"]
+    names = {0: "Broadly affected", 1: "Social/behavioral"}
+    cats = ["developmental", "anxiety/mood", "attention"]
+    srows, crows, mrows = [], [], []
+    rng = np.random.default_rng(0)
+    for cls in (0, 1):
+        for s in strata:
+            srows.append(
+                {
+                    "stratum": s,
+                    "ref_class": cls,
+                    "class_name": names[cls],
+                    "n_stayers": 100,
+                    "n_leavers": 10 * (cls + 1),
+                    "n_joiners": 5,
+                    "churn": 0.2 + 0.1 * cls,
+                    "jaccard": 0.4 if s == "Q1" else 0.7,
+                    "ari": 0.5,
+                    "top_shift_feature": "f0",
+                    "top_shift_category": cats[cls],
+                    "top_mover_feature": "f0",
+                }
+            )
+            for cat in cats:
+                crows.append(
+                    {
+                        "stratum": s,
+                        "ref_class": cls,
+                        "category": cat,
+                        "contribution": rng.uniform(0, 1),
+                    }
+                )
+            for f in range(4):
+                mrows.append(
+                    {
+                        "stratum": s,
+                        "ref_class": cls,
+                        "feature": f"f{f}",
+                        "effect": rng.uniform(-1, 1),
+                        "magnitude": rng.uniform(0, 1),
+                        "p_value": 0.01,
+                        "fdr_significant": f < 2,
+                    }
+                )
+    return pd.DataFrame(srows), pd.DataFrame(crows), pd.DataFrame(mrows)
+
+
+def test_attribution_figure_structure() -> None:
+    summary, category, movers = _attribution_tables()
+    fig = attribution_figure(summary, category, {"axis": "age_at_diagnosis"})
+    assert isinstance(fig, Figure)
+    assert len(fig.axes) >= 2  # two panels plus the colourbar
+
+
+def test_mover_contrast_figure_structure() -> None:
+    summary, category, movers = _attribution_tables()
+    fig = mover_contrast_figure(summary, movers, {"axis": "era"})
+    assert isinstance(fig, Figure)
+
+
+def test_mover_contrast_figure_handles_empty_class() -> None:
+    summary, category, movers = _attribution_tables()
+    movers = movers[movers["ref_class"] == 0]  # class 1 has no mover rows
+    fig = mover_contrast_figure(summary, movers, {"axis": "age_at_diagnosis"})
+    assert isinstance(fig, Figure)

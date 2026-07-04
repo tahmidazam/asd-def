@@ -58,6 +58,12 @@ FIGURES: tuple[FigureSpec, ...] = (
     FigureSpec("trajectory-age", "trajectory", "trajectory_age_at_diagnosis", "age_at_diagnosis"),
     FigureSpec("trajectory-era", "trajectory", "trajectory_era", "era"),
     FigureSpec("roughness", "trajectory", "roughness", "age_at_diagnosis"),
+    FigureSpec("attribution-age", "attribute", "attribution_age_at_diagnosis", "age_at_diagnosis"),
+    FigureSpec("attribution-era", "attribute", "attribution_era", "era"),
+    FigureSpec(
+        "movers-age", "attribute", "attribution_movers_age_at_diagnosis", "age_at_diagnosis"
+    ),
+    FigureSpec("movers-era", "attribute", "attribution_movers_era", "era"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}

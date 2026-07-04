@@ -15,6 +15,7 @@ from analysis.paths import find_repo_root
 from matplotlib.figure import Figure
 
 from figures import data, paths, style
+from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.nmin import nmin_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
 from figures.replication import replication_figure
@@ -166,6 +167,36 @@ def trajectory(
     embedding, meta = data.load_trajectory(run_directory)
     figure = trajectory_figure(embedding, meta)
     _write(root, "trajectory", run_directory, figure, name or f"trajectory_{axis}", fmt)
+
+
+@app.command()
+def attribute(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot each class's membership churn across the strata and what carries each shift."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "attribute", run, axis=axis)
+    summary, category, _movers, meta = data.load_attribution(run_directory)
+    figure = attribution_figure(summary, category, meta)
+    _write(root, "attribute", run_directory, figure, name or f"attribution_{axis}", fmt)
+
+
+@app.command()
+def attribute_contrast(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot, per class, the features marking the probands that changed class at its peak churn."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "attribute", run, axis=axis)
+    summary, _category, movers, meta = data.load_attribution(run_directory)
+    figure = mover_contrast_figure(summary, movers, meta)
+    _write(root, "attribute", run_directory, figure, name or f"attribution_movers_{axis}", fmt)
 
 
 @app.command()

@@ -41,10 +41,13 @@ features. Every feature is kept in the category totals, blanks and unlisted feat
 ## Who moved: movers against stayers
 
 The second reading is at the level of the probands. A stratum is a subset of the pooled cohort, so
-every proband in it carries both labellings: the reference class and the stratum-fit class. For a
-tracked class, each of its reference members either keeps the class in the stratum fit (a stayer)
-or lands elsewhere (a mover). Contrasting the two groups says what marks the probands the class
-shed.
+every proband in it carries both labellings: the reference class and the stratum-fit class. A class
+can move in two ways, and both count. It can shed members (leavers, reference members the stratum
+fit drops) and it can absorb members (joiners, stratum-fit members the reference did not assign
+there). A class that keeps every member but pulls in new ones has still drifted, so a leaver-only
+view understates it; the churn (leavers and joiners against the stayers, one minus the Jaccard
+overlap) is the honest count. Contrasting the churned probands with the stable core says what marks
+the probands whose membership changed.
 
 The contrast is a swappable method over a feature frame, so the same movers and stayers can be read
 by more than one model:
@@ -68,10 +71,34 @@ explained by cognitive level is read differently from one that is not.
 ## The outputs
 
 The stage writes four tables per axis: the per-feature decomposition (contribution, signed shift,
-and category for every feature and class), the per-category totals, the mover-versus-stayer
-contrast (the ranked feature attributions), and a per-class headline (the mover count and fraction,
-the alignment overlap, and the leading feature on each of the two readings). The headline is the
+and category for every feature and class), the per-category totals, the churn contrast (the ranked
+feature attributions), and a per-class headline (the stayer, leaver, and joiner counts, the churn
+and the alignment overlap, and the leading feature on each of the two readings). The headline is the
 "what and who moved" table; the other three carry the detail behind it.
+
+The `figures` package draws two figures from these tables. The first sets each class's churn across
+the strata beside the categories that carry its shift.
+
+```{figure} /_figures/attribution_age_at_diagnosis.png
+:alt: Membership churn of the four classes across the age-at-diagnosis strata and the category composition of each class shift.
+:width: 100%
+
+Each class's membership churn across the age-at-diagnosis strata (panel A), with a box on the
+reorganised cells, beside the category composition of each class's centroid shift (panel B).
+```
+
+The reorganised cells (a box in the left panel, where the Jaccard overlap is below one half) are
+where the membership scattered rather than the centre shifting. The second figure takes each class
+at the stratum where it churns most and shows the features that most separate the probands that
+changed class from the stable core.
+
+```{figure} /_figures/attribution_movers_age_at_diagnosis.png
+:alt: Per-class bar charts of the features that most distinguish the probands that changed class from the stayers at each class peak-churn stratum.
+:width: 100%
+
+For each class, at its peak-churn stratum, the features that most separate the probands that
+changed class from the stayers, as a signed standardised mean difference.
+```
 
 The decomposition and the contrast are descriptive readouts of an already-measured drift, not a new
 test, so they sit outside the pre-registered confirmatory freeze. They interpret a movement; they
@@ -88,3 +115,12 @@ uv run analysis attribute --axis age_at_diagnosis --decomposition mahalanobis --
 `centroid`. The choices enter the run hash, so each caches as its own run. The stage reads the
 cached reference fit and stratum fits and never re-fits, so trying another decomposition or
 contrast is a matter of seconds.
+
+The two figures above are built from the run and published into the documentation with:
+
+```
+uv run figures attribute --axis age_at_diagnosis
+uv run figures attribute-contrast --axis age_at_diagnosis
+uv run figures publish attribution-age
+uv run figures publish movers-age
+```

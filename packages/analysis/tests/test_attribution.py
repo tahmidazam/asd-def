@@ -139,9 +139,20 @@ def test_movers_flags_probands_that_left_the_class() -> None:
         alignment=alignment,
     )
     movement = attr.Movement(comparison, ref_class=0, fit_class=10)
-    moved = attr.movers(movement)
-    assert moved.index.tolist() == ["p0", "p1", "p2"]
-    assert moved.tolist() == [False, True, False]
+
+    leavers = attr.movers(movement, kind="leavers")
+    assert leavers.index.tolist() == ["p0", "p1", "p2"]
+    assert leavers.tolist() == [False, True, False]
+
+    joiners = attr.movers(movement, kind="joiners")
+    assert joiners.index.tolist() == ["p0", "p2", "p4"]
+    assert joiners.tolist() == [False, False, True]
+
+    either = attr.movers(movement, kind="either")  # the default: churn against the stable core
+    assert either.index.tolist() == ["p0", "p1", "p2", "p4"]
+    assert either.tolist() == [False, True, False, True]
+
+    assert attr.membership_counts(movement) == {"n_stayers": 2, "n_leavers": 1, "n_joiners": 1}
 
 
 def test_comparison_movements_one_per_reference_class() -> None:

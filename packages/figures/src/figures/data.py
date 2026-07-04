@@ -189,6 +189,24 @@ def load_roughness(run_directory: Path) -> tuple[str, pd.DataFrame, pd.DataFrame
     return str(axis), roughness, directional
 
 
+def load_attribution(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Load an ``attribute`` run's summary, category, and mover tables and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(summary, category, movers, meta)``: the per-class ``summary_<axis>`` headline, the
+        per-category ``category_<axis>`` contributions, the per-feature ``movers_<axis>``
+        contrast, and the manifest metrics (``axis``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    summary = cache.load_frame(run_directory / f"summary_{axis}.parquet")
+    category = cache.load_frame(run_directory / f"category_{axis}.parquet")
+    movers = cache.load_frame(run_directory / f"movers_{axis}.parquet")
+    return summary, category, movers, manifest.get("metrics", {})
+
+
 def load_nmin(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Load an ``nmin`` run's per-fit metrics, per-size summary, and floor metrics.
 
