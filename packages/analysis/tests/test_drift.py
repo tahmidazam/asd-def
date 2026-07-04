@@ -222,6 +222,21 @@ def test_pseudo_stratum_returns_none_on_degenerate_fit(monkeypatch: pytest.Monke
     assert out is None
 
 
+def test_is_degenerate_fit_flags_non_finite_loglik() -> None:
+    from typing import Any, cast
+
+    from analysis.drift import is_degenerate_fit
+    from analysis.model import FitResult
+
+    md = pd.DataFrame({"f0": [0.0, 1.0]}, index=["a", "b"])
+    labels = pd.Series([0, 1], index=["a", "b"])
+    model = cast(Any, None)
+    finite = FitResult(model, labels, md, {"avg_log_likelihood": -3.2})
+    diverged = FitResult(model, labels, md, {"avg_log_likelihood": float("nan")})
+    assert is_degenerate_fit(finite) is False
+    assert is_degenerate_fit(diverged) is True
+
+
 def test_benjamini_hochberg_rejects_only_the_small_p() -> None:
     reject = benjamini_hochberg(np.array([0.001, 0.2, 0.3, 0.4]), q=0.05)
     assert list(reject) == [True, False, False, False]

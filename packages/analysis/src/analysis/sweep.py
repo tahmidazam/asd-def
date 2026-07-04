@@ -119,6 +119,8 @@ def summarise_local_worker(
         )
     except drift_mod.DEGENERATE_FIT_ERRORS:
         return None
+    if drift_mod.is_degenerate_fit(fit):
+        return None
     return summarise(fit.measurement_data, fit.labels, reference_labels, weights=weights)
 
 

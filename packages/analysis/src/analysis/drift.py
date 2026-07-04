@@ -48,7 +48,7 @@ from sklearn.covariance import LedoitWolf
 
 from analysis.cohort import CohortMatrix
 from analysis.features import Typing
-from analysis.model import fit_gfmm
+from analysis.model import FitResult, fit_gfmm
 
 _VARIANCE_FLOOR = 1e-6
 
@@ -57,6 +57,18 @@ _VARIANCE_FLOOR = 1e-6
 # The pre-registration drops such refits from the null rather than letting one kill an
 # hours-long run (plan section 12a); the workers catch these and return ``None``.
 DEGENERATE_FIT_ERRORS = (np.linalg.LinAlgError, FloatingPointError)
+
+
+def is_degenerate_fit(fit: FitResult) -> bool:
+    """Return whether a fit diverged to non-finite parameters without raising.
+
+    Under fractional (kernel) weights the covariate GLM can blow up: it emits overflow and
+    invalid-value warnings and leaves a non-finite log-likelihood rather than raising an
+    exception the workers could catch. Such a fit's labels are meaningless, so it is treated
+    as degenerate and dropped, the same as a fit that raised.
+    """
+    loglik = fit.metrics.get("avg_log_likelihood")
+    return not isinstance(loglik, (int, float)) or not np.isfinite(loglik)
 
 
 @dataclass
@@ -602,6 +614,8 @@ def summarise_pseudo_stratum(
     try:
         fit = fit_gfmm(matrix, typing, n_init=n_init, random_state=seed, progress_bar=0, verbose=0)
     except DEGENERATE_FIT_ERRORS:
+        return None
+    if is_degenerate_fit(fit):
         return None
     return summarise(fit.measurement_data, fit.labels, reference_labels)
 

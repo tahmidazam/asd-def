@@ -1549,10 +1549,12 @@ def sweep(
     dataset: str = _DATASET,
     version: str = _VERSION,
     scheme: list[str] = typer.Option(  # noqa: B006 (typer reads the default list)
-        ["hardbins:max-equal:1000", "kernel:2.0:40"],
+        ["hardbins:max-equal:1000"],
         "--scheme",
         help="Localisation scheme, repeatable. 'hardbins:max-equal:<floor>', "
-        "'hardbins:quantile:<q>', or 'kernel:<bandwidth>:<n_points>'.",
+        "'hardbins:quantile:<q>', or 'kernel:<bandwidth>:<n_points>'. The kernel arm is heavy "
+        "(each focal fit spans the cohort under a wide bandwidth) and its bandwidth needs "
+        "choosing, so it is opt-in: add e.g. '--scheme kernel:1.0:12'.",
     ),
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per local fit."),
     n_permutations: int = typer.Option(
