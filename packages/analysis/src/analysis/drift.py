@@ -52,6 +52,12 @@ from analysis.model import fit_gfmm
 
 _VARIANCE_FLOOR = 1e-6
 
+# Numerical failures a single refit can raise on a degenerate (permuted) pseudo-stratum: the
+# covariate GLM goes singular, so its pseudo-inverse overflows and the SVD does not converge.
+# The pre-registration drops such refits from the null rather than letting one kill an
+# hours-long run (plan section 12a); the workers catch these and return ``None``.
+DEGENERATE_FIT_ERRORS = (np.linalg.LinAlgError, FloatingPointError)
+
 
 @dataclass
 class ReferenceModel:
@@ -169,10 +175,23 @@ def common_columns(source: pd.DataFrame, reference: pd.DataFrame) -> list[str]:
     return [c for c in reference.columns if c in source_set]
 
 
-def contingency_table(fit_labels: pd.Series, reference_labels: pd.Series) -> pd.DataFrame:
-    """Cross-tabulate a fit's labels against the reference labels over the shared probands."""
+def contingency_table(
+    fit_labels: pd.Series, reference_labels: pd.Series, weights: pd.Series | None = None
+) -> pd.DataFrame:
+    """Cross-tabulate a fit's labels against the reference labels over the shared probands.
+
+    With ``weights`` each proband contributes its weight to its cell rather than a count of
+    one, so a kernel fit's contingency is the weighted overlap. Unweighted (the default) gives
+    the plain counts the hard-bin analysis uses.
+    """
     idx = fit_labels.index.intersection(reference_labels.index)
-    table = pd.crosstab(fit_labels.loc[idx], reference_labels.loc[idx])
+    if weights is None:
+        table = pd.crosstab(fit_labels.loc[idx], reference_labels.loc[idx])
+    else:
+        w = weights.reindex(idx).fillna(0.0)
+        table = pd.crosstab(
+            fit_labels.loc[idx], reference_labels.loc[idx], values=w, aggfunc="sum"
+        ).fillna(0.0)
     table.index = table.index.astype(int)
     table.columns = table.columns.astype(int)
     return table
@@ -499,22 +518,67 @@ def null_partition(index: pd.Index, sizes: list[int], seed: int) -> list[pd.Inde
     return chunks
 
 
-def summarise(measurement_data: pd.DataFrame, labels: pd.Series, reference_labels: pd.Series):
+def _weighted_class_stats(
+    measurement_data: pd.DataFrame, labels: pd.Series, weights: np.ndarray
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per-class weighted feature means and standard deviations.
+
+    Each proband contributes its weight to its class's mean and dispersion, so a kernel fit's
+    centroids are the local weighted means. With unit weights this equals the plain per-class
+    mean and (population) standard deviation.
+    """
+    matrix = measurement_data.to_numpy(dtype=float)
+    class_ids = np.unique(labels.to_numpy())
+    means: list[np.ndarray] = []
+    stds: list[np.ndarray] = []
+    for class_id in class_ids:
+        member = labels.to_numpy() == class_id
+        w = weights[member]
+        rows = matrix[member]
+        total = w.sum()
+        mean = (w[:, None] * rows).sum(axis=0) / total
+        var = (w[:, None] * (rows - mean) ** 2).sum(axis=0) / total
+        means.append(mean)
+        stds.append(np.sqrt(np.maximum(var, 0.0)))
+    index = pd.Index(np.asarray(class_ids, dtype=int), name="class")
+    columns = measurement_data.columns
+    return (
+        pd.DataFrame(means, index=index, columns=columns),
+        pd.DataFrame(stds, index=index, columns=columns),
+    )
+
+
+def summarise(
+    measurement_data: pd.DataFrame,
+    labels: pd.Series,
+    reference_labels: pd.Series,
+    weights: pd.Series | None = None,
+):
     """Build a :class:`StratumSummary` from a fit's measurement data and labels.
 
     Computes per-class means and standard deviations and the contingency against the reference
     labels, the method-independent statistics every distance and alignment is derived from.
+    With ``weights`` (a kernel fit) the centroids, dispersions, and contingency are weighted;
+    without them (a hard-bin fit) they are the plain per-class statistics.
     """
-    grouped = measurement_data.groupby(labels.to_numpy())
-    centroids = grouped.mean()
-    dispersions = grouped.std().fillna(0.0)
-    centroids.index = pd.Index(np.asarray(centroids.index, dtype=int), name="class")
-    dispersions.index = centroids.index
+    if weights is None:
+        grouped = measurement_data.groupby(labels.to_numpy())
+        centroids = grouped.mean()
+        dispersions = grouped.std().fillna(0.0)
+        centroids.index = pd.Index(np.asarray(centroids.index, dtype=int), name="class")
+        dispersions.index = centroids.index
+        n = int(len(labels))
+    else:
+        w = weights.reindex(measurement_data.index).fillna(0.0)
+        centroids, dispersions = _weighted_class_stats(
+            measurement_data, labels, w.to_numpy(dtype=float)
+        )
+        n = int(round(float(w.sum())))
     return StratumSummary(
         centroids=centroids,
         dispersions=dispersions,
-        contingency=contingency_table(labels, reference_labels),
-        n=int(len(labels)),
+        contingency=contingency_table(labels, reference_labels, weights),
+        n=n,
     )
 
 
@@ -525,15 +589,20 @@ def summarise_pseudo_stratum(
     reference_labels: pd.Series,
     n_init: int,
     seed: int,
-) -> StratumSummary:
+) -> StratumSummary | None:
     """Fit the GFMM on one subset and return its method-independent summary.
 
     A top-level function so it pickles for a process pool. Stores the centroids, dispersions,
     and reference contingency, not a drift value, so the alignment and distance can be chosen
-    (and changed) afterwards without re-fitting.
+    (and changed) afterwards without re-fitting. Returns ``None`` if the fit is degenerate (a
+    singular covariate GLM), so the caller drops that pseudo-stratum from the null rather than
+    letting one bad refit abort the whole run.
     """
     matrix = CohortMatrix(features, covariates, "spark", "pseudo")
-    fit = fit_gfmm(matrix, typing, n_init=n_init, random_state=seed, progress_bar=0, verbose=0)
+    try:
+        fit = fit_gfmm(matrix, typing, n_init=n_init, random_state=seed, progress_bar=0, verbose=0)
+    except DEGENERATE_FIT_ERRORS:
+        return None
     return summarise(fit.measurement_data, fit.labels, reference_labels)
 
 
@@ -554,7 +623,7 @@ def serialise_summary(summary: StratumSummary, perm: int, s_idx: int) -> dict:
         "dispersions": summary.dispersions.to_numpy().tolist(),
         "cont_rows": [int(i) for i in summary.contingency.index],
         "cont_cols": [int(c) for c in summary.contingency.columns],
-        "contingency": summary.contingency.to_numpy().astype(int).tolist(),
+        "contingency": summary.contingency.to_numpy(dtype=float).tolist(),
     }
 
 

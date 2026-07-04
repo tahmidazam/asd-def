@@ -28,6 +28,7 @@ from analysis.drift import (
     null_partition,
     read_against_null,
 )
+from analysis.features import Typing
 
 
 def _reference(precision: np.ndarray | None = None) -> ReferenceModel:
@@ -202,6 +203,23 @@ def test_read_against_null_reports_percentile_and_corrected_p() -> None:
     out = read_against_null(5.0, [1.0, 2.0, 3.0, 4.0])
     assert out["exceeds_p95"] == 1.0
     assert out["p_value"] == pytest.approx(1 / 5)
+
+
+def test_pseudo_stratum_returns_none_on_degenerate_fit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A singular covariate GLM raises LinAlgError mid-null; the worker drops that pseudo-stratum
+    # instead of letting the exception abort the whole permutation run.
+    import analysis.drift as drift_mod
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise np.linalg.LinAlgError("SVD did not converge")
+
+    monkeypatch.setattr(drift_mod, "fit_gfmm", boom)
+    features = pd.DataFrame({"f0": [0.0, 1.0], "f1": [1.0, 0.0]}, index=["a", "b"])
+    covariates = pd.DataFrame({"sex": [0, 1], "age_at_eval_years": [5, 9]}, index=["a", "b"])
+    typing = Typing(continuous=["f0", "f1"], binary=[], categorical=[])
+    ref_labels = pd.Series([0, 1], index=["a", "b"])
+    out = drift_mod.summarise_pseudo_stratum(features, covariates, typing, ref_labels, 1, 0)
+    assert out is None
 
 
 def test_benjamini_hochberg_rejects_only_the_small_p() -> None:

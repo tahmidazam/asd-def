@@ -93,6 +93,7 @@ def fit_gfmm(
     n_init: int = config.DEFAULT_N_INIT,
     n_steps: int = config.DEFAULT_N_STEPS,
     random_state: int | None = None,
+    sample_weight: np.ndarray | pd.Series | None = None,
     progress_bar: int = 1,
     verbose: int = 1,
 ) -> FitResult:
@@ -112,6 +113,13 @@ def fit_gfmm(
         StepMix estimation steps (one-step joint estimation by default).
     random_state : int or None, optional
         Seed for reproducible restarts.
+    sample_weight : numpy.ndarray or pandas.Series or None, optional
+        Per-proband weight on the fit, in the row order of the matrix. StepMix's expectation
+        maximisation weights each proband's log-likelihood and its class responsibilities by
+        this value, so a weight of zero excludes a proband and a weight of one includes it in
+        full. This is what a :class:`~analysis.localise.LocalisationScheme` supplies: an
+        indicator weight reproduces a hard-bin subset fit, a kernel weight gives a local
+        (LSEM) fit. ``None`` leaves every proband at weight one, the pooled fit.
     progress_bar : int, optional
         StepMix progress-bar verbosity for the restart loop.
     verbose : int, optional
@@ -124,6 +132,7 @@ def fit_gfmm(
         statistics.
     """
     measurement_data, descriptor, covariates = prepare_inputs(matrix, typing)
+    weights = None if sample_weight is None else np.asarray(sample_weight, dtype=float)
     model = StepMix(
         n_components=n_components,
         measurement=descriptor,
@@ -134,7 +143,7 @@ def fit_gfmm(
         progress_bar=progress_bar,
         verbose=verbose,
     )
-    model.fit(measurement_data, covariates)
+    model.fit(measurement_data, covariates, sample_weight=weights)
     labels = pd.Series(model.predict(measurement_data), index=measurement_data.index, name="class")
     metrics = selection_metrics(model, measurement_data, covariates, labels)
     return FitResult(model=model, labels=labels, measurement_data=measurement_data, metrics=metrics)

@@ -1307,7 +1307,13 @@ def _run_drift_null(
                 finished, _ = wait(in_flight, return_when=FIRST_COMPLETED)
                 for future in finished:
                     perm, s = in_flight.pop(future)
-                    store.append(drift_mod.serialise_summary(future.result(), perm, s))
+                    result = future.result()
+                    if result is None:
+                        # A degenerate refit (singular covariate GLM); recorded so the perm is
+                        # marked done and resumable, dropped from the null at read time.
+                        store.append({"perm": int(perm), "s_idx": int(s), "degenerate": True})
+                    else:
+                        store.append(drift_mod.serialise_summary(result, perm, s))
                     bar.update(1)
                     bar.set_postfix({"perm": perm})
                     submitted = submit_next()
@@ -1480,8 +1486,12 @@ def drift(
             observed[label] = drift_mod.compute_drift(summary, reference, aligner, distancer)
 
         null_store = checkpoint.CheckpointLog(null_dir / "null_summaries.checkpoint.jsonl")
+        null_records = null_store.load()
+        n_null_degenerate = sum(1 for rec in null_records if rec.get("degenerate"))
         null_drift: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
-        for rec in null_store.load():
+        for rec in null_records:
+            if rec.get("degenerate"):
+                continue
             result = drift_mod.compute_drift(
                 drift_mod.deserialise_summary(rec), reference, aligner, distancer
             )
@@ -1523,6 +1533,7 @@ def drift(
             "n_tests": len(decision),
             "n_drift": n_drift,
             "n_reorganised": n_reorg,
+            "n_null_degenerate": n_null_degenerate,
         }
     typer.echo(f"drift {axis} ({alignment}/{distance}): run {cache.short_hash(ctx.run_hash)}")
     typer.echo(
@@ -1530,6 +1541,264 @@ def drift(
         f"N={n_permutations} null (BH q=0.05); {ctx.metrics['n_reorganised']} reorganised "
         f"(low overlap); separation {separation:.3f}"
     )
+
+
+@app.command()
+def sweep(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    scheme: list[str] = typer.Option(  # noqa: B006 (typer reads the default list)
+        ["hardbins:max-equal:1000", "kernel:2.0:40"],
+        "--scheme",
+        help="Localisation scheme, repeatable. 'hardbins:max-equal:<floor>', "
+        "'hardbins:quantile:<q>', or 'kernel:<bandwidth>:<n_points>'.",
+    ),
+    n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per local fit."),
+    n_permutations: int = typer.Option(
+        config.DEFAULT_N_PERMUTATIONS,
+        "--n-permutations",
+        help="Permutations for the shared axis-permutation null (1 to smoke, 100 pilot, 1000 "
+        "confirmatory).",
+    ),
+    alignment: str = typer.Option("membership", help="Alignment: membership or centroid."),
+    distance: str = typer.Option(
+        "mahalanobis", help="Distance: mahalanobis, euclidean, mean-abs, or jsd."
+    ),
+    seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
+    workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
+    force: bool = _FORCE,
+) -> None:
+    """Run every localisation scheme end to end and read them against one shared null.
+
+    The phase-4 conductor. For each ``--scheme`` (hard bins, the frozen primary, and the kernel
+    LSEM trajectory, by default) it fits the observed sweep and the axis-permutation null, aligns
+    each local fit to the pooled reference, measures its drift with the chosen ``--distance``, and
+    reads it against the null, writing one combined decision table with a ``scheme`` and
+    ``position`` column so the arms plot as trajectories side by side. Nothing here is frozen in
+    code: the primary scheme is a choice of which row of the table to privilege, so the pipeline
+    stays flexible while the whole battery is computed on every run. This is the heavy stage: the
+    null is ``n_permutations`` full sweeps, so the confirmatory both-scheme run is a cluster job;
+    pass ``--n-permutations 1`` to smoke the chain or ``100`` for an overnight pilot.
+    """
+    import os
+    from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+
+    import pandas as pd
+
+    from analysis import checkpoint, model, profiling, strata_data
+    from analysis import drift as drift_mod
+    from analysis import sweep as sweep_mod
+    from analysis.localise import DEFAULT_WEIGHT_FLOOR, LocalFit, permute_axis
+    from analysis.paths import run_dir
+    from analysis.progress import task_bar
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+    if alignment not in drift_mod.ALIGNMENTS:
+        raise typer.BadParameter(f"alignment must be one of {sorted(drift_mod.ALIGNMENTS)}")
+    if distance not in drift_mod.DISTANCES:
+        raise typer.BadParameter(f"distance must be one of {sorted(drift_mod.DISTANCES)}")
+    try:
+        schemes = [(spec, sweep_mod.parse_scheme(spec)) for spec in scheme]
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = cache.compute_hash(
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+    )
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    if not (ref_dir / "labels.parquet").is_file():
+        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    aligner = drift_mod.ALIGNMENTS[alignment]
+    distancer = drift_mod.DISTANCES[distance]
+
+    data = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    axis_values = data.axes[column].reindex(matrix.features.index).dropna()
+
+    n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "ref_fit": ref_fit_hash,
+        "schemes": [s.spec() for _, s in schemes],
+        "n_init": n_init,
+        "n_permutations": n_permutations,
+        "seed": seed,
+    }
+
+    # The local fits, keyed by (scheme, perm, offset) where perm = -1 is the observed sweep. Each
+    # (scheme, perm) shares one axis (the observed axis, or a per-perm shuffle), memoised so its
+    # several local fits reuse the same weights.
+    def locales_for(scheme_index: int, perm: int) -> list[LocalFit]:
+        _, sch = schemes[scheme_index]
+        values = axis_values if perm < 0 else permute_axis(axis_values, seed=perm)
+        return sch.locales(values)
+
+    locale_cache: dict[tuple[int, int], list[LocalFit]] = {}
+
+    def locales_cached(scheme_index: int, perm: int) -> list[LocalFit]:
+        key = (scheme_index, perm)
+        if key not in locale_cache:
+            locale_cache[key] = locales_for(scheme_index, perm)
+        return locale_cache[key]
+
+    def n_locales(scheme_index: int) -> int:
+        return len(locales_cached(scheme_index, -1))
+
+    with run_context("sweep", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"sweep: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        if force:
+            checkpoint.clear_checkpoints(ctx.run_dir)
+
+        store = checkpoint.CheckpointLog(ctx.path("summaries.checkpoint.jsonl"))
+        done = {(r["scheme_idx"], r["perm"], r["s_idx"]) for r in store.load()}
+        perms = [-1, *range(n_permutations)]
+        queue = iter(
+            (k, perm, offset)
+            for k in range(len(schemes))
+            for perm in perms
+            for offset in range(n_locales(k))
+            if (k, perm, offset) not in done
+        )
+        total = sum(len(perms) * n_locales(k) for k in range(len(schemes)))
+
+        with (
+            task_bar(total, f"sweep {axis}") as bar,
+            profiling.single_threaded_blas(),
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
+            bar.update(len(done))
+
+            def submit_next() -> tuple[Future, tuple[int, int, int], LocalFit] | None:
+                task = next(queue, None)
+                if task is None:
+                    return None
+                k, perm, offset = task
+                locale = locales_cached(k, perm)[offset]
+                weights = locale.weights.reindex(matrix.features.index).fillna(0.0)
+                keep = weights.to_numpy() > DEFAULT_WEIGHT_FLOOR
+                retained = weights[keep]
+                sub_weights = None if bool((retained == 1.0).all()) else retained
+                future = pool.submit(
+                    sweep_mod.summarise_local_worker,
+                    matrix.features.loc[keep],
+                    matrix.covariates.loc[keep],
+                    typing,
+                    dataset,
+                    version,
+                    sub_weights,
+                    ref_labels,
+                    n_init,
+                    seed + (perm + 1) * 100000 + k * 1000 + offset,
+                )
+                return future, task, locale
+
+            in_flight: dict[Future, tuple[tuple[int, int, int], LocalFit]] = {}
+            for _ in range(n_workers):
+                submitted = submit_next()
+                if submitted is None:
+                    break
+                future, key, locale = submitted
+                in_flight[future] = (key, locale)
+            while in_flight:
+                finished, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for future in finished:
+                    (k, perm, offset), locale = in_flight.pop(future)
+                    result = future.result()
+                    meta = {
+                        "scheme_idx": int(k),
+                        "label": locale.label,
+                        "position": locale.position,
+                    }
+                    if result is None:
+                        # A degenerate local refit; recorded (resumable) and dropped at read time.
+                        record = {
+                            "perm": int(perm),
+                            "s_idx": int(offset),
+                            "degenerate": True,
+                            **meta,
+                        }
+                    else:
+                        record = drift_mod.serialise_summary(result, perm, offset)
+                        record.update(meta)
+                    store.append(record)
+                    bar.update(1)
+                    bar.set_postfix({"scheme": k, "perm": perm})
+                    submitted = submit_next()
+                    if submitted is not None:
+                        next_future, key, next_locale = submitted
+                        in_flight[next_future] = (key, next_locale)
+
+        # Cheap half: rebuild summaries from the store and read each scheme against the null.
+        records = store.load()
+        n_degenerate = sum(1 for r in records if r.get("degenerate"))
+        decisions: list[pd.DataFrame] = []
+        summary_metrics: dict[str, dict] = {}
+        for k, (spec, _sch) in enumerate(schemes):
+            scheme_records = [
+                r for r in records if r["scheme_idx"] == k and not r.get("degenerate")
+            ]
+            observed = [
+                sweep_mod.LocaleSummary(
+                    r["label"], float(r["position"]), drift_mod.deserialise_summary(r)
+                )
+                for r in sorted(
+                    (r for r in scheme_records if r["perm"] == -1), key=lambda r: r["s_idx"]
+                )
+            ]
+            null = [
+                (int(r["s_idx"]), drift_mod.deserialise_summary(r))
+                for r in scheme_records
+                if r["perm"] >= 0
+            ]
+            decision = sweep_mod.sweep_decision(spec, observed, null, reference, aligner, distancer)
+            decisions.append(decision)
+            n_drift = int((decision["fdr_significant"] & ~decision["reorganised"]).sum())
+            summary_metrics[spec] = {
+                "n_locales": len(observed),
+                "n_tests": int(len(decision)),
+                "n_drift": n_drift,
+                "n_reorganised": int(decision["reorganised"].sum()),
+            }
+        combined = pd.concat(decisions, ignore_index=True)
+        cache.save_frame(combined, ctx.path(f"decision_{axis}.parquet"))
+        ctx.metrics = {
+            "axis": axis,
+            "alignment": alignment,
+            "distance": distance,
+            "n_permutations": n_permutations,
+            "class_separation": drift_mod.class_separation(reference, distancer),
+            "n_degenerate": n_degenerate,
+            "schemes": summary_metrics,
+        }
+    typer.echo(f"sweep {axis} ({alignment}/{distance}): run {cache.short_hash(ctx.run_hash)}")
+    for spec, m in summary_metrics.items():
+        typer.echo(
+            f"  {spec}: {m['n_drift']}/{m['n_tests']} classes drift beyond the "
+            f"N={n_permutations} null; {m['n_reorganised']} reorganised"
+        )
 
 
 def _embedding_row(
