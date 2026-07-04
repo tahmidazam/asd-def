@@ -1803,6 +1803,95 @@ def sweep(
         )
 
 
+@app.command()
+def bandwidth(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_points: int = typer.Option(20, help="Focal grid size the bandwidth is chosen for."),
+    targets: str = typer.Option(
+        "500,1000,2000,4000", help="Comma-separated target effective sample sizes."
+    ),
+    reduce: str = typer.Option(
+        "min", help="Hold the target at the 'min' focal point (every fit clears it) or 'median'."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Choose a kernel bandwidth by the effective sample size of its focal fits.
+
+    A kernel focal fit is worth the sum of its weights in whole probands, its effective sample
+    size, which sets its power the way a bin's count sets a hard-bin fit's. This stage inverts
+    that: for each target effective size it reports the bandwidth whose focal fits reach it, so a
+    kernel window can be set to carry the same power as a hard bin at the recovery floor. With
+    ``--reduce min`` (the default) every focal fit clears the target, the same guarantee the
+    hard-bin floor gives every bin; ``--reduce median`` fixes the typical focal point instead and
+    lets the edges thin. The bandwidth is in the axis units (years for age at diagnosis, years for
+    the diagnosis year). No model is fitted, so the stage is fast; the reported bandwidths feed a
+    kernel sweep, for example ``--scheme kernel:<bandwidth>:<n_points>``.
+    """
+    import pandas as pd
+
+    from analysis import localise, strata_data
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+    if reduce not in ("min", "median"):
+        raise typer.BadParameter("reduce must be 'min' or 'median'")
+    try:
+        target_list = [float(t) for t in targets.split(",")]
+    except ValueError as exc:
+        raise typer.BadParameter(f"targets must be comma-separated numbers: {exc}") from exc
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, _typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+    data = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    axis_values = data.axes[column].reindex(matrix.features.index).dropna()
+    focal = localise.focal_grid(axis_values, n_points, (0.025, 0.975))
+
+    params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "n_points": n_points,
+        "targets": target_list,
+        "reduce": reduce,
+    }
+    with run_context("bandwidth", params, root=root, force=force) as ctx:
+        rows: list[dict] = []
+        for target in target_list:
+            h = localise.bandwidth_for_effective_n(axis_values, focal, target, reduce=reduce)
+            eff = localise.effective_sample_sizes(axis_values, focal, h)
+            rows.append(
+                {
+                    "target_n": target,
+                    "bandwidth": round(h, 4),
+                    "eff_min": round(float(eff.min()), 1),
+                    "eff_median": round(float(pd.Series(eff).median()), 1),
+                    "eff_max": round(float(eff.max()), 1),
+                }
+            )
+        table = pd.DataFrame(rows)
+        cache.save_frame(table, ctx.path(f"bandwidth_{axis}.parquet"))
+        ctx.metrics = {"axis": axis, "n_points": n_points, "reduce": reduce, "rows": rows}
+    typer.echo(
+        f"bandwidth {axis} (reduce={reduce}, {n_points} focal points): "
+        f"run {cache.short_hash(ctx.run_hash)}"
+    )
+    for row in rows:
+        typer.echo(
+            f"  effective N {int(row['target_n']):>5} -> bandwidth {row['bandwidth']:.3f}  "
+            f"(focal N min {row['eff_min']:.0f} / median {row['eff_median']:.0f} / "
+            f"max {row['eff_max']:.0f})"
+        )
+
+
 def _embedding_row(
     kind: str,
     ref_class: int,

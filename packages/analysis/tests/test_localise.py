@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from analysis.cohort import CohortMatrix
 from analysis.drift import summarise
 from analysis.features import Typing
@@ -17,6 +18,8 @@ from analysis.localise import (
     HardBins,
     KernelWindows,
     LocalisationScheme,
+    bandwidth_for_effective_n,
+    effective_sample_sizes,
     fit_locale,
     focal_grid,
     gaussian_weights,
@@ -145,6 +148,23 @@ def test_kernel_windows_one_locale_per_focal_point() -> None:
         w = fit.weights.to_numpy()
         assert np.all((w >= 0.0) & (w <= 1.0))
         assert fit.weights.index.equals(axis.index)
+
+
+def test_effective_sample_sizes_sum_the_weights() -> None:
+    values = pd.Series(np.zeros(100))  # all probands at the focal point
+    assert effective_sample_sizes(values, [0.0], 1.0)[0] == pytest.approx(100.0)
+
+
+def test_bandwidth_for_effective_n_meets_the_target_and_is_monotone() -> None:
+    rng = np.random.default_rng(0)
+    values = pd.Series(rng.uniform(0, 16, 5000))
+    focal = focal_grid(values, 10, (0.025, 0.975))
+    h500 = bandwidth_for_effective_n(values, focal, 500, reduce="min")
+    h1000 = bandwidth_for_effective_n(values, focal, 1000, reduce="min")
+    # "min" fixes the thinnest focal point at the target, so every focal fit clears it.
+    assert effective_sample_sizes(values, focal, h500).min() >= 500 * 0.98
+    # A larger target needs a wider bandwidth.
+    assert h1000 > h500
 
 
 def test_permute_axis_preserves_multiset_and_is_seeded() -> None:

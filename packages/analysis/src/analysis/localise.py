@@ -207,6 +207,74 @@ class KernelWindows:
         }
 
 
+def effective_sample_sizes(
+    values: pd.Series, focal_points: list[float], bandwidth: float
+) -> np.ndarray:
+    r"""Return the effective sample size of a kernel fit at each focal point.
+
+    The effective sample size at a focal point $a_0$ is the sum of the Gaussian weights,
+    $\sum_i \exp(-(a_i - a_0)^2 / 2h^2)$, the count of whole probands the weighted fit is worth
+    there. It is what sets a local fit's power, so it is the natural quantity to fix a bandwidth
+    against. Missing values contribute nothing.
+    """
+    finite = values.dropna().to_numpy(dtype=float)
+    return np.array(
+        [float(np.exp(-0.5 * ((finite - focal) / bandwidth) ** 2).sum()) for focal in focal_points]
+    )
+
+
+def bandwidth_for_effective_n(
+    values: pd.Series,
+    focal_points: list[float],
+    target_n: float,
+    *,
+    reduce: str = "min",
+    tol: float = 1e-3,
+    max_iter: int = 60,
+) -> float:
+    """Return the smallest bandwidth whose focal fits reach a target effective sample size.
+
+    The effective sample size at a focal point rises with the bandwidth, so a target on it maps
+    to a bandwidth by bisection. ``reduce`` sets which focal point the target must hold at:
+    ``"min"`` fixes the thinnest focal point at the target, so every focal fit clears it (the
+    same guarantee the hard-bin floor gives every bin); ``"median"`` fixes the typical focal
+    point, which lets the edges fall below the target. The bandwidth is in the axis units.
+
+    Parameters
+    ----------
+    values : pandas.Series
+        The axis variable (age at diagnosis in years, or diagnosis year).
+    focal_points : list of float
+        The focal grid the bandwidth is chosen for, as :func:`focal_grid` builds it.
+    target_n : float
+        The effective sample size each focal fit should reach (for example the recovery floor).
+    reduce : str, optional
+        ``"min"`` (default) or ``"median"``: which focal point the target is held at.
+    tol, max_iter : float and int, optional
+        Bisection tolerance (in bandwidth units) and iteration cap.
+
+    Returns
+    -------
+    float
+        The smallest bandwidth meeting the target.
+    """
+    reducer = {"min": np.min, "median": np.median}[reduce]
+    finite = values.dropna()
+    span = float(finite.max() - finite.min()) or 1.0
+    lo, hi = 1e-6, span
+    while reducer(effective_sample_sizes(finite, focal_points, hi)) < target_n and hi < 1e6:
+        hi *= 2.0
+    for _ in range(max_iter):
+        mid = 0.5 * (lo + hi)
+        if reducer(effective_sample_sizes(finite, focal_points, mid)) >= target_n:
+            hi = mid
+        else:
+            lo = mid
+        if hi - lo < tol:
+            break
+    return hi
+
+
 def permute_axis(values: pd.Series, seed: int) -> pd.Series:
     """Return the axis values shuffled across probands, the permutation null.
 
