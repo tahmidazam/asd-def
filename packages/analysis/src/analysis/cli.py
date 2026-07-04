@@ -1387,7 +1387,7 @@ def drift(
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     ref_fit_hash = cache.compute_hash(
-        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
     )
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
     if not (ref_dir / "labels.parquet").is_file():
@@ -1615,7 +1615,7 @@ def sweep(
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     ref_fit_hash = cache.compute_hash(
-        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
     )
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
     if not (ref_dir / "labels.parquet").is_file():
@@ -1892,7 +1892,7 @@ def trajectory(
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     ref_fit_hash = cache.compute_hash(
-        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
     )
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
     if not _completed(ref_dir):
@@ -2130,7 +2130,7 @@ def attribute(
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     ref_fit_hash = cache.compute_hash(
-        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
     )
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
     if not (ref_dir / "labels.parquet").is_file():
