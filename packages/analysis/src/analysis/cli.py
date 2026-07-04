@@ -9,6 +9,7 @@ its stage is implemented.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1528,6 +1529,471 @@ def drift(
         f"  {ctx.metrics['n_drift']}/{ctx.metrics['n_tests']} classes drift beyond the "
         f"N={n_permutations} null (BH q=0.05); {ctx.metrics['n_reorganised']} reorganised "
         f"(low overlap); separation {separation:.3f}"
+    )
+
+
+def _embedding_row(
+    kind: str,
+    ref_class: int,
+    class_name: str,
+    stratum: str,
+    order: int,
+    ld: Sequence[float],
+    jaccard: float,
+    *,
+    reorganised: bool,
+) -> dict[str, object]:
+    """Return one row of the embedding table, padding the discriminant coordinates to three."""
+    coords = [float(x) for x in ld]
+    coords += [float("nan")] * (3 - len(coords))
+    return {
+        "kind": kind,
+        "ref_class": int(ref_class),
+        "class_name": class_name,
+        "stratum": stratum,
+        "order": int(order),
+        "ld1": coords[0],
+        "ld2": coords[1],
+        "ld3": coords[2],
+        "jaccard": float(jaccard),
+        "reorganised": bool(reorganised),
+    }
+
+
+@app.command()
+def trajectory(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_init: int = typer.Option(
+        config.DEFAULT_N_INIT, help="StepMix restarts of the reference fit."
+    ),
+    n_shuffle: int = typer.Option(
+        config.DEFAULT_TRAJECTORY_SHUFFLES,
+        "--n-shuffle",
+        help="Ordering-shuffle permutations for the directional test.",
+    ),
+    seed: int = typer.Option(config.DEFAULT_TRAJECTORY_SEED, help="Base seed."),
+    min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
+    force: bool = _FORCE,
+) -> None:
+    """Embed the classes and measure how each one's centroid moves across the strata.
+
+    A phase-4 presentation stage that consumes the stratified fits (``analysis stratify``) and
+    writes only aggregate, class-level outputs. It aligns each stratum's classes to the named
+    reference by membership (reusing :mod:`analysis.drift`), fits a linear-discriminant
+    embedding of the four pooled classes, projects the reference anchors and the aligned
+    stratum centroids into it, and quantifies each class's trajectory: a directional test (net
+    young-to-old displacement against an ordering-shuffle null) and a roughness measure (step
+    size against the sampling-noise expectation). The directional test is a pilot on the
+    observed centroids; the confirmatory test is the continuous-trend regression against the
+    refit permutation null (plan section 12a). Nothing per-proband is written, so the outputs
+    may be promoted to the manuscript and the docs.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from analysis import drift as drift_mod
+    from analysis import model, strata_data, trajectory
+    from analysis import strata as strata_mod
+    from analysis.cohort import CohortMatrix
+    from analysis.paths import run_dir
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = cache.compute_hash(
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+    )
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    if not _completed(ref_dir):
+        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+
+    align_hash = cache.compute_hash(_align_params(root, ref_fit_hash))
+    align_dir = run_dir(root, "align", cache.short_hash(align_hash))
+    if not _completed(align_dir):
+        raise typer.BadParameter(f"no reference alignment at {align_dir}; run `analysis align`")
+    name_of = {
+        int(k): v for k, v in cache.load_json(align_dir / "alignment.json")["mapping"].items()
+    }
+
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    columns = list(reference.centroids.columns)
+
+    strata = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+    assignment = policy.assign(strata.axes[column])
+    labels = list(assignment.labels)
+
+    stratify_params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "policy": policy.spec(),
+        "n_components": config.DEFAULT_N_COMPONENTS,
+        "n_init": n_init,
+        "seed": seed,
+        "limit": 0,
+    }
+    stratify_dir = run_dir(root, "stratify", cache.short_hash(cache.compute_hash(stratify_params)))
+
+    params = {
+        "cohort": cohort_hash,
+        "ref_fit": ref_fit_hash,
+        "align": align_hash,
+        "stratify": cache.compute_hash(stratify_params),
+        "axis": axis,
+        "embedding": "lda",
+        "n_shuffle": n_shuffle,
+        "seed": seed,
+    }
+    with run_context("trajectory", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"trajectory: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+
+        embedding = trajectory.fit_embedding(measurement_data, ref_labels)
+        n_classes = int(reference.centroids.shape[0])
+
+        # Per stratum, align the fit's classes to the reference and pull the aligned centroid,
+        # size, and Jaccard for each reference class.
+        aligned: dict[int, list[pd.Series]] = {c: [] for c in range(n_classes)}
+        sizes: dict[int, list[int]] = {c: [] for c in range(n_classes)}
+        jaccard: dict[int, list[float]] = {c: [] for c in range(n_classes)}
+        for label in labels:
+            lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
+            if not lpath.is_file():
+                raise typer.BadParameter(
+                    f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
+                )
+            members = assignment.codes[assignment.codes == label].index
+            sub = CohortMatrix(
+                matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+            )
+            stratum_md = model.prepare_inputs(sub, typing)[0]
+            stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
+            summary = drift_mod.summarise(stratum_md, stratum_labels, ref_labels)
+            alignment = drift_mod.ALIGNMENTS["membership"].align(summary, reference)
+            inverse = {ref: fit for fit, ref in alignment.mapping.items()}
+            if len(inverse) != n_classes:
+                raise typer.BadParameter(
+                    f"stratum {label} did not recover {n_classes} classes; cannot build a "
+                    "trajectory for it"
+                )
+            for c in range(n_classes):
+                fit_class = inverse[c]
+                aligned[c].append(summary.centroids.loc[fit_class])
+                sizes[c].append(int(summary.contingency.loc[fit_class].sum()))
+                jaccard[c].append(float(alignment.quality.get(c, float("nan"))))
+
+        pooled_sd = embedding.sd
+        embed_rows: list[dict] = []
+        directional_rows: list[dict] = []
+        roughness_rows: list[dict] = []
+        anchor_ld = trajectory.project(embedding, reference.centroids.reindex(range(n_classes)))
+        for c in range(n_classes):
+            embed_rows.append(
+                _embedding_row(
+                    "anchor",
+                    c,
+                    name_of.get(c, str(c)),
+                    "",
+                    -1,
+                    anchor_ld[c].tolist(),
+                    float("nan"),
+                    reorganised=False,
+                )
+            )
+            raw = np.vstack(
+                [aligned[c][s].loc[columns].to_numpy(dtype=float) for s in range(len(labels))]
+            )
+            standardised = (raw - embedding.mean) / pooled_sd
+            stratum_ld = embedding.transformer.transform(standardised)
+            within = reference.dispersions.loc[c, columns].to_numpy(dtype=float) / pooled_sd
+            direction = trajectory.directional_test(
+                standardised, seed=seed + c, n_shuffle=n_shuffle
+            )
+            rough = trajectory.roughness_metrics(
+                standardised, np.asarray(sizes[c], dtype=float), within
+            )
+            for s, label in enumerate(labels):
+                embed_rows.append(
+                    _embedding_row(
+                        "stratum",
+                        c,
+                        name_of.get(c, str(c)),
+                        label,
+                        s,
+                        stratum_ld[s].tolist(),
+                        jaccard[c][s],
+                        reorganised=jaccard[c][s] < 0.5,
+                    )
+                )
+            directional_rows.append(
+                {"ref_class": c, "class_name": name_of.get(c, str(c)), **direction}
+            )
+            roughness_rows.append({"ref_class": c, "class_name": name_of.get(c, str(c)), **rough})
+
+        cache.save_frame(pd.DataFrame(embed_rows), ctx.path(f"embedding_{axis}.parquet"))
+        cache.save_frame(pd.DataFrame(directional_rows), ctx.path(f"directional_{axis}.parquet"))
+        cache.save_frame(pd.DataFrame(roughness_rows), ctx.path(f"roughness_{axis}.parquet"))
+        n_directional = sum(1 for row in directional_rows if row["significant"])
+        ctx.metrics = {
+            "axis": axis,
+            "n_strata": len(labels),
+            "strata": labels,
+            "n_shuffle": n_shuffle,
+            "lda_explained_variance": [float(v) for v in embedding.explained_variance_ratio],
+            "n_directional": n_directional,
+        }
+    typer.echo(f"trajectory {axis} (lda): run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  {ctx.metrics['n_directional']}/{n_classes} classes move with the axis "
+        f"(ordering-shuffle p<0.05, pilot); {len(labels)} strata"
+    )
+
+
+@app.command()
+def attribute(
+    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_init: int = typer.Option(
+        config.DEFAULT_N_INIT, help="Stratify restarts; must match the stratify run."
+    ),
+    alignment: str = typer.Option(
+        "membership", help="Alignment: membership (default) or centroid."
+    ),
+    decomposition: str = typer.Option(
+        "mahalanobis",
+        help="Centroid-shift split: mahalanobis (default) or standardised.",
+    ),
+    contrast: str = typer.Option(
+        "univariate", help="Mover/stayer contrast: univariate (default) or logistic."
+    ),
+    feature_space: str = typer.Option(
+        "clustering",
+        help="Features the contrast runs over. Only 'clustering' is built; the held-out SPARK "
+        "and genetic frames are added later.",
+    ),
+    seed: int = typer.Option(
+        config.DEFAULT_STRATIFY_SEED, help="Base seed; match the stratify run."
+    ),
+    min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
+    force: bool = _FORCE,
+) -> None:
+    """Attribute each stratum class's movement to features and to the probands that moved.
+
+    A phase-4 interpretation stage and a pure consumer of the reference fit and the stratify
+    fits (no re-fitting). For every stratum it aligns the fit to the reference, splits each
+    aligned class's centroid shift into per-feature contributions (:mod:`analysis.attribution`),
+    and contrasts the probands that left the class against those that stayed. It writes the
+    per-feature decomposition, the per-category totals, the mover-versus-stayer contrast, and a
+    per-class headline table, so a movement reads as which features and which people carry it.
+    The decomposition and contrast are descriptive readouts of an already-measured drift, so
+    they sit outside the section-12a confirmatory freeze.
+    """
+    import pandas as pd
+
+    from analysis import attribution as attr
+    from analysis import drift as drift_mod
+    from analysis import model, strata_data
+    from analysis import strata as strata_mod
+    from analysis.cohort import CohortMatrix
+    from analysis.paths import run_dir
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+    if alignment not in drift_mod.ALIGNMENTS:
+        raise typer.BadParameter(f"alignment must be one of {sorted(drift_mod.ALIGNMENTS)}")
+    if decomposition not in attr.DECOMPOSITIONS:
+        raise typer.BadParameter(f"decomposition must be one of {sorted(attr.DECOMPOSITIONS)}")
+    if contrast not in attr.CONTRASTS:
+        raise typer.BadParameter(f"contrast must be one of {sorted(attr.CONTRASTS)}")
+    if feature_space != "clustering":
+        raise typer.BadParameter("feature_space 'clustering' is the only space built yet")
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = cache.compute_hash(
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+    )
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    if not (ref_dir / "labels.parquet").is_file():
+        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+
+    aligner = drift_mod.ALIGNMENTS[alignment]
+    decomposer = attr.DECOMPOSITIONS[decomposition]
+    contraster = attr.CONTRASTS[contrast]
+    category_map = features.load_category_map(config.author_category_map(root))
+
+    data = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+    assignment = policy.assign(data.axes[column])
+    labels = assignment.labels
+
+    stratify_params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "policy": policy.spec(),
+        "n_components": config.DEFAULT_N_COMPONENTS,
+        "n_init": n_init,
+        "seed": seed,
+        "limit": 0,
+    }
+    stratify_hash = cache.compute_hash(stratify_params)
+    stratify_dir = run_dir(root, "stratify", cache.short_hash(stratify_hash))
+
+    params = {
+        "stratify": stratify_hash,
+        "ref_fit": ref_fit_hash,
+        "axis": axis,
+        "alignment": alignment,
+        "decomposition": decomposition,
+        "contrast": contrast,
+        "feature_space": feature_space,
+    }
+    with run_context("attribute", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"attribute: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+
+        decomp_rows: list[dict] = []
+        category_rows: list[dict] = []
+        mover_rows: list[dict] = []
+        summary_rows: list[dict] = []
+
+        for label in labels:
+            lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
+            if not lpath.is_file():
+                raise typer.BadParameter(
+                    f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
+                )
+            members = assignment.codes[assignment.codes == label].index
+            sub = CohortMatrix(
+                matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+            )
+            stratum_md = model.prepare_inputs(sub, typing)[0]
+            stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
+            summary = drift_mod.summarise(stratum_md, stratum_labels, ref_labels)
+            aligned = aligner.align(summary, reference)
+            comparison = attr.Comparison(
+                reference=reference,
+                stratum=summary,
+                ref_labels=ref_labels.loc[stratum_md.index],
+                fit_labels=stratum_labels,
+                alignment=aligned,
+            )
+            for movement in comparison.movements():
+                contributions = decomposer.contributions(movement)
+                shift = attr.signed_shift(movement)
+                for feature, value in contributions.items():
+                    decomp_rows.append(
+                        {
+                            "stratum": label,
+                            "ref_class": movement.ref_class,
+                            "feature": str(feature),
+                            "contribution": float(value),
+                            "signed_shift": float(shift.get(feature, float("nan"))),
+                            "category": attr.category_of(feature, category_map),
+                        }
+                    )
+                for category, total in attr.category_totals(contributions, category_map).items():
+                    category_rows.append(
+                        {
+                            "stratum": label,
+                            "ref_class": movement.ref_class,
+                            "category": str(category),
+                            "contribution": float(total),
+                        }
+                    )
+                moved = attr.movers(movement)
+                result = contraster.contrast(moved, stratum_md.loc[moved.index])
+                for record in result.importances.to_dict("records"):
+                    mover_rows.append({"stratum": label, "ref_class": movement.ref_class, **record})
+                top_shift = contributions.abs().idxmax() if len(contributions) else None
+                top_mover = (
+                    result.importances.iloc[0]["feature"] if len(result.importances) else None
+                )
+                total = result.n_movers + result.n_stayers
+                summary_rows.append(
+                    {
+                        "stratum": label,
+                        "ref_class": movement.ref_class,
+                        "n_movers": result.n_movers,
+                        "n_stayers": result.n_stayers,
+                        "mover_fraction": result.n_movers / total if total else float("nan"),
+                        "jaccard": float(aligned.quality.get(movement.ref_class, float("nan"))),
+                        "ari": float(aligned.overall),
+                        "top_shift_feature": str(top_shift) if top_shift is not None else "",
+                        "top_shift_category": (
+                            attr.category_of(top_shift, category_map)
+                            if top_shift is not None
+                            else ""
+                        ),
+                        "top_mover_feature": str(top_mover) if top_mover is not None else "",
+                    }
+                )
+
+        cache.save_frame(pd.DataFrame(decomp_rows), ctx.path(f"decomposition_{axis}.parquet"))
+        cache.save_frame(pd.DataFrame(category_rows), ctx.path(f"category_{axis}.parquet"))
+        cache.save_frame(pd.DataFrame(mover_rows), ctx.path(f"movers_{axis}.parquet"))
+        summary_frame = pd.DataFrame(summary_rows)
+        cache.save_frame(summary_frame, ctx.path(f"summary_{axis}.parquet"))
+        ctx.metrics = {
+            "axis": axis,
+            "alignment": alignment,
+            "decomposition": decomposition,
+            "contrast": contrast,
+            "feature_space": feature_space,
+            "n_strata": len(labels),
+            "n_classes": int(summary_frame["ref_class"].nunique()) if len(summary_frame) else 0,
+            "mean_mover_fraction": (
+                float(summary_frame["mover_fraction"].mean())
+                if len(summary_frame)
+                else float("nan")
+            ),
+        }
+    typer.echo(
+        f"attribute {axis} ({decomposition}/{contrast}): run {cache.short_hash(ctx.run_hash)}"
+    )
+    typer.echo(
+        f"  {ctx.metrics['n_strata']} strata x {ctx.metrics['n_classes']} classes; "
+        f"mean mover fraction {ctx.metrics['mean_mover_fraction']:.2f}"
     )
 
 

@@ -108,3 +108,9 @@ Stratified analysis
 
 .. automodule:: analysis.drift
    :members:
+
+.. automodule:: analysis.attribution
+   :members:
+
+.. automodule:: analysis.trajectory
+   :members:

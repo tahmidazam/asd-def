@@ -68,6 +68,13 @@ DEFAULT_BOOTSTRAP_SEED = 0
 DEFAULT_N_PERMUTATIONS = 1000
 DEFAULT_STRATIFY_SEED = 0
 
+# Ordering-shuffle permutations for the trajectory stage's directional test (plan section 7).
+# The statistic is a class's net young-to-old displacement; the null shuffles the stratum
+# order. This is a cheap resampling of stored centroids, not a refit, so a high count is
+# affordable; 20000 gives a stable 95th-percentile threshold and three-figure p-values.
+DEFAULT_TRAJECTORY_SHUFFLES = 20000
+DEFAULT_TRAJECTORY_SEED = 0
+
 # Litman's per-fit class-ID to name mapping, recorded for reference only. StepMix assigns
 # class IDs arbitrarily on every fit, so this mapping does not transfer to our fits; we
 # recover the named classes by profile alignment (plan section 6a), not by this table.

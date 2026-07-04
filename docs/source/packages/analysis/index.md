@@ -43,7 +43,9 @@ either cohort. Each stage and where its result is reported:
 ## Technical guides
 
 How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
-the SSC milestone parsing, and choosing the stratification bins.
+the SSC milestone parsing, choosing the stratification bins, the two halves of the drift read
+(aligning a stratum to the reference and measuring how far each class moved), and attributing a
+movement to the features and probands that carry it.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -94,6 +96,30 @@ roster and completion gates, and what the cut recovers.
 
 The binning policies, the acceptance requirements a partition must meet, and the
 `strata-describe` check that fixes the bins the stratified analysis runs on.
+:::
+
+:::{grid-item-card} Aligning stratum classes to the reference
+:link: guides/aligning-stratum-classes
+:link-type: doc
+
+Matching a stratum fit's arbitrarily numbered classes to the reference classes: the membership
+and centroid methods, and how they separate a class that moved from one that reorganised.
+:::
+
+:::{grid-item-card} Measuring how far a class drifts
+:link: guides/measuring-class-drift
+:link-type: doc
+
+The swappable distances between an aligned class and the reference (Mahalanobis, Euclidean,
+mean-absolute, Jensen-Shannon), and the between-class separation they are read against.
+:::
+
+:::{grid-item-card} Attributing a class's movement
+:link: guides/attributing-class-movement
+:link-type: doc
+
+Opening up a drift into the features that carry it (the centroid-shift decomposition) and the
+probands that changed class (the mover-versus-stayer contrast).
 :::
 
 ::::
@@ -150,6 +176,9 @@ guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
 guides/subsetting-to-the-v9-freeze
 guides/choosing-the-stratification-bins
+guides/aligning-stratum-classes
+guides/measuring-class-drift
+guides/attributing-class-movement
 :::
 
 :::{toctree}

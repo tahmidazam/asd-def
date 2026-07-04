@@ -133,6 +133,7 @@ intersphinx_mapping = {
 nitpick_ignore = [
     ("py:class", "tqdm.tqdm"),
     ("py:class", "StepMix"),
+    ("py:class", "sklearn.discriminant_analysis.LinearDiscriminantAnalysis"),
     # Forward-reference artefacts of ``from __future__ import annotations`` in dscat's
     # signatures: a type alias (``Version``) renders as the internal ``TypeAliasForwardRef``,
     # and a class nested in a stringised return annotation (``FeatureRow``) renders quoted.
