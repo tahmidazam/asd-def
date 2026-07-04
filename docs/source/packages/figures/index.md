@@ -28,9 +28,9 @@ trajectories across the strata.
   floor with its bootstrap interval, beside the smallest class proportion.
 - `figures trajectory --axis <age_at_diagnosis|era>` plots each class's path through the strata
   of an `analysis trajectory` run, one panel per class, in the pooled four-class discriminant
-  space: the pooled reference class as a ring, the stratum centroids coloured from the first
-  stratum to the last, and an arrow for the net displacement, with a red ring where membership
-  reorganised.
+  space: the class's members as nested grey Gaussian coverage contours (50 to 95 per cent, the
+  tighter ones more opaque), the stratum centroids coloured from the first stratum to the last,
+  and an arrow for the net displacement, with a red ring where membership reorganised.
 - `figures roughness` plots the trajectory roughness across both axes from the two
   `analysis trajectory` runs: the mean step between adjacent strata against the sampling-noise
   expectation, and each class's net young-to-old displacement against the ordering-shuffle null.
@@ -42,7 +42,9 @@ sidecar that records the source run and the package version.
 ## Class trajectories across the strata
 
 Each class's centroid, projected into the pooled four-class discriminant space, and how it
-moves across the age-at-diagnosis and diagnostic-era strata. The projection is linear, so
+moves across the age-at-diagnosis and diagnostic-era strata. Each class's members are drawn as
+nested grey Gaussian coverage contours from 50 to 95 per cent, so the shading shows where they
+concentrate without plotting any individual proband. The projection is linear, so
 positions and distances are honest, but it is an illustration: the movement claim rests on the
 full-dimensional roughness and directional statistics below, not on the picture. The null here
 is the pilot ordering-shuffle on the observed centroids; the confirmatory test is the

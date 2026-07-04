@@ -1,7 +1,7 @@
 {
   "figure": "roughness",
   "source_stage": "trajectory",
-  "source_run": "0fb46f628cc66f6f",
-  "source_git_commit": "fbe7d25-dirty",
+  "source_run": "db8195dbcf229d41",
+  "source_git_commit": "67d7f38-dirty",
   "figures_version": "0.6.0"
 }

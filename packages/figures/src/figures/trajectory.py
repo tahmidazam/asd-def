@@ -2,12 +2,15 @@
 
 Built from a ``trajectory`` run, the figure shows, in one panel per class, where the class
 sits in the pooled four-class discriminant space and how its centroid moves across the strata
-of the axis (age at diagnosis or diagnostic era). The pooled reference class is a hollow ring;
-the stratum centroids are coloured from the first stratum to the last, with a red ring where
-membership reorganised (Jaccard below 0.5); an arrow marks the net displacement from the first
-third of the strata to the last. The projection is a linear discriminant embedding, so
-positions and distances are honest, but it is an illustration: the drift claim rests on the
-full-dimensional statistics of the drift and roughness stages, not on this picture.
+of the axis (age at diagnosis or diagnostic era). The focal class's members are drawn as nested
+grey Gaussian coverage contours from 50 to 95 per cent, the tighter ones more opaque, so the
+shading shows where its probands concentrate without plotting any individual; the other three
+classes are marked by their centroid alone. The stratum centroids are coloured from the first
+stratum to the last, with a red ring where membership reorganised (Jaccard below 0.5); an arrow
+marks the net displacement from the first third of the strata to the last. The projection is a
+linear discriminant embedding, so positions and distances are honest, but it is an
+illustration: the drift claim rests on the full-dimensional statistics of the drift and
+roughness stages, not on this picture.
 """
 
 from __future__ import annotations
@@ -18,11 +21,48 @@ import pandas as pd
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
-from matplotlib.patches import FancyArrowPatch
+from matplotlib.patches import Ellipse, FancyArrowPatch
 
 from figures import style
 
 _LETTERS = ("A", "B", "C", "D")
+# Coverage levels drawn as nested grey contours of the class's member density, from 50 to 95
+# per cent. Each is a Gaussian coverage ellipse; the tighter (inner) contour is drawn more
+# opaque, so the shading falls off outward the way a density does.
+_COVERAGE_LEVELS = (0.50, 0.68, 0.80, 0.95)
+# Mahalanobis radius of the widest (95 per cent) contour, for the axis-limit padding.
+_COVERAGE_K = 2.4477
+
+
+def _coverage_radius(coverage: float) -> float:
+    """Return the Mahalanobis radius of a coverage level under a bivariate normal."""
+    return float(np.sqrt(-2.0 * np.log(1.0 - coverage)))
+
+
+def _coverage_alpha(coverage: float) -> float:
+    """Return the contour opacity, higher for the tighter (inner) levels."""
+    lo, hi = _COVERAGE_LEVELS[0], _COVERAGE_LEVELS[-1]
+    return float(0.55 - (coverage - lo) / (hi - lo) * (0.55 - 0.12))
+
+
+def _coverage_ellipse(
+    mean: np.ndarray, cov: np.ndarray, k: float, colour: str, **kwargs: object
+) -> Ellipse:
+    """Return a Gaussian coverage ellipse of a class from its LD covariance, at radius ``k``."""
+    values, vectors = np.linalg.eigh(cov)
+    order = values.argsort()[::-1]
+    values, vectors = values[order], vectors[:, order]
+    angle = float(np.degrees(np.arctan2(vectors[1, 0], vectors[0, 0])))
+    width, height = 2.0 * k * np.sqrt(np.maximum(values, 0.0))
+    return Ellipse(
+        tuple(mean),
+        float(width),
+        float(height),
+        angle=angle,
+        facecolor="none",
+        edgecolor=colour,
+        **kwargs,
+    )
 
 
 def trajectory_figure(embedding: pd.DataFrame, meta: dict) -> Figure:
@@ -54,14 +94,29 @@ def trajectory_figure(embedding: pd.DataFrame, meta: dict) -> Figure:
 
     anchors = embedding[embedding["kind"] == "anchor"].set_index("ref_class")
     strata = embedding[embedding["kind"] == "stratum"]
+    has_cov = {"cov11", "cov12", "cov22"} <= set(embedding.columns)
+
+    def _cov(cls: int) -> np.ndarray:
+        row = anchors.loc[cls]
+        return np.array([[row["cov11"], row["cov12"]], [row["cov12"], row["cov22"]]], dtype=float)
+
     classes = sorted(anchors.index)
     names = {int(c): str(anchors.loc[c, "class_name"]) for c in classes}
     colours = {int(c): style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
     n_strata = int(meta.get("n_strata", strata["order"].max() + 1))
 
     both = embedding[["ld1", "ld2"]].to_numpy(dtype=float)
-    xlim = (both[:, 0].min() - 0.6, both[:, 0].max() + 0.6)
-    ylim = (both[:, 1].min() - 0.7, both[:, 1].max() + 0.9)
+    xlo, xhi = both[:, 0].min(), both[:, 0].max()
+    ylo, yhi = both[:, 1].min(), both[:, 1].max()
+    if has_cov:
+        for cls in classes:
+            centre = anchors.loc[cls, ["ld1", "ld2"]].to_numpy(dtype=float)
+            rx = _COVERAGE_K * float(np.sqrt(max(anchors.loc[cls, "cov11"], 0.0)))
+            ry = _COVERAGE_K * float(np.sqrt(max(anchors.loc[cls, "cov22"], 0.0)))
+            xlo, xhi = min(xlo, centre[0] - rx), max(xhi, centre[0] + rx)
+            ylo, yhi = min(ylo, centre[1] - ry), max(yhi, centre[1] + ry)
+    xlim = (xlo - 0.4, xhi + 0.4)
+    ylim = (ylo - 0.4, yhi + 0.5)
     cmap = plt.get_cmap("viridis")
     norm = Normalize(0, max(n_strata - 1, 1))
     nice = "age at diagnosis" if meta.get("axis") == "age_at_diagnosis" else "diagnostic era"
@@ -78,7 +133,7 @@ def trajectory_figure(embedding: pd.DataFrame, meta: dict) -> Figure:
                 if other == focal:
                     continue
                 point = anchors.loc[other, ["ld1", "ld2"]].to_numpy(dtype=float)
-                ax.scatter(*point, s=110, facecolor="none", edgecolor="#b0b0b0", lw=1.0, zorder=2)
+                ax.scatter(*point, s=10, color="#9a9a9a", zorder=1.5)
                 ax.annotate(
                     names[int(other)].split()[0],
                     point,
@@ -118,7 +173,19 @@ def trajectory_figure(embedding: pd.DataFrame, meta: dict) -> Figure:
                 )
             )
             anchor = anchors.loc[focal, ["ld1", "ld2"]].to_numpy(dtype=float)
-            ax.scatter(*anchor, s=560, facecolor="none", edgecolor=colour, lw=2.6, zorder=1.2)
+            if has_cov:
+                for coverage in _COVERAGE_LEVELS:
+                    ax.add_patch(
+                        _coverage_ellipse(
+                            anchor,
+                            _cov(focal),
+                            _coverage_radius(coverage),
+                            "#6f6f6f",
+                            lw=1.0,
+                            zorder=1.1,
+                            alpha=_coverage_alpha(coverage),
+                        )
+                    )
             ax.scatter(*anchor, s=22, color=colour, edgecolor="black", lw=0.5, zorder=1.4)
             style.panel_title(ax, letter, names[focal])
             ax.set_xlim(xlim)

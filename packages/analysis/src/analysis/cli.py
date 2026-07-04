@@ -1542,10 +1542,17 @@ def _embedding_row(
     jaccard: float,
     *,
     reorganised: bool,
+    cov: Sequence[float] = (float("nan"), float("nan"), float("nan")),
 ) -> dict[str, object]:
-    """Return one row of the embedding table, padding the discriminant coordinates to three."""
+    """Return one row of the embedding table.
+
+    Pads the discriminant coordinates to three, and carries the class members' covariance in
+    the first two discriminant axes (``cov11``, ``cov12``, ``cov22``) on the anchor rows, so the
+    figure can draw each class's coverage ellipse; the stratum rows leave it missing.
+    """
     coords = [float(x) for x in ld]
     coords += [float("nan")] * (3 - len(coords))
+    covariance = [float(x) for x in cov]
     return {
         "kind": kind,
         "ref_class": int(ref_class),
@@ -1557,6 +1564,9 @@ def _embedding_row(
         "ld3": coords[2],
         "jaccard": float(jaccard),
         "reorganised": bool(reorganised),
+        "cov11": covariance[0],
+        "cov12": covariance[1],
+        "cov22": covariance[2],
     }
 
 
@@ -1659,7 +1669,7 @@ def trajectory(
         "align": align_hash,
         "stratify": cache.compute_hash(stratify_params),
         "axis": axis,
-        "embedding": "lda",
+        "embedding": "lda+ellipse",
         "n_shuffle": n_shuffle,
         "seed": seed,
     }
@@ -1708,7 +1718,16 @@ def trajectory(
         directional_rows: list[dict] = []
         roughness_rows: list[dict] = []
         anchor_ld = trajectory.project(embedding, reference.centroids.reindex(range(n_classes)))
+        # Each pooled class's member covariance in the first two discriminant axes, the shape
+        # the coverage ellipse is drawn from. Only the 2x2 covariance leaves the stage, never a
+        # per-proband coordinate.
+        ref_by_index = ref_labels.reindex(measurement_data.index).to_numpy()
+        z_all = (
+            measurement_data.loc[:, columns].to_numpy(dtype=float) - embedding.mean
+        ) / pooled_sd
+        member_ld = embedding.transformer.transform(z_all)[:, :2]
         for c in range(n_classes):
+            covariance = np.cov(member_ld[ref_by_index == c], rowvar=False)
             embed_rows.append(
                 _embedding_row(
                     "anchor",
@@ -1719,6 +1738,7 @@ def trajectory(
                     anchor_ld[c].tolist(),
                     float("nan"),
                     reorganised=False,
+                    cov=(covariance[0, 0], covariance[0, 1], covariance[1, 1]),
                 )
             )
             raw = np.vstack(
