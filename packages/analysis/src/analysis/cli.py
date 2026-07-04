@@ -1945,6 +1945,12 @@ def trajectory(
     ),
     seed: int = typer.Option(config.DEFAULT_TRAJECTORY_SEED, help="Base seed."),
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
+    from_sweep: str | None = typer.Option(
+        None,
+        "--from-sweep",
+        help="Build the trajectory from a sweep run's focal centroids (its short hash) instead "
+        "of the hard-bin strata, so a kernel sweep gets the same discriminant-space figure.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Embed the classes and measure how each one's centroid moves across the strata.
@@ -1960,11 +1966,13 @@ def trajectory(
     refit permutation null (plan section 12a). Nothing per-proband is written, so the outputs
     may be promoted to the manuscript and the docs.
     """
+    from collections import defaultdict
+
     import numpy as np
     import pandas as pd
 
+    from analysis import checkpoint, model, strata_data, trajectory
     from analysis import drift as drift_mod
-    from analysis import model, strata_data, trajectory
     from analysis import strata as strata_mod
     from analysis.cohort import CohortMatrix
     from analysis.paths import run_dir
@@ -2000,39 +2008,73 @@ def trajectory(
     reference = drift_mod.build_reference(measurement_data, ref_labels)
     columns = list(reference.centroids.columns)
 
-    strata = strata_data.build_strata_data(
-        root,
-        version,
-        matrix.features.index,
-        matrix.covariates["age_at_eval_years"],
-        matrix.covariates["sex"],
-    )
-    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
-    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
-    assignment = policy.assign(strata.axes[column])
-    labels = list(assignment.labels)
+    if from_sweep is not None:
+        # Build the trajectory from a sweep run's observed focal centroids, so a kernel (LSEM)
+        # sweep gets the same discriminant-space picture as the hard-bin strata.
+        sweep_dir = run_dir(root, "sweep", from_sweep)
+        if not _completed(sweep_dir):
+            raise typer.BadParameter(f"no completed sweep run at {sweep_dir}; run `analysis sweep`")
+        observed = [
+            record
+            for record in checkpoint.CheckpointLog(sweep_dir / "summaries.checkpoint.jsonl").load()
+            if record.get("perm") == -1 and not record.get("degenerate")
+        ]
+        if not observed:
+            raise typer.BadParameter(f"sweep run {from_sweep} has no observed focal fits")
+        # A sweep may hold several schemes; take the one with the most focal points (the kernel
+        # grid), ordered along the axis.
+        by_scheme: dict[int, list] = defaultdict(list)
+        for record in observed:
+            by_scheme[int(record.get("scheme_idx", 0))].append(record)
+        focal_records = max(by_scheme.values(), key=len)
+        focal_records.sort(key=lambda record: float(record["position"]))
+        labels = [str(record["label"]) for record in focal_records]
+        params = {
+            "cohort": cohort_hash,
+            "ref_fit": ref_fit_hash,
+            "align": align_hash,
+            "sweep": from_sweep,
+            "axis": axis,
+            "embedding": "lda+ellipse",
+            "n_shuffle": n_shuffle,
+            "seed": seed,
+        }
+    else:
+        focal_records = None
+        strata = strata_data.build_strata_data(
+            root,
+            version,
+            matrix.features.index,
+            matrix.covariates["age_at_eval_years"],
+            matrix.covariates["sex"],
+        )
+        column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
+        policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+        assignment = policy.assign(strata.axes[column])
+        labels = list(assignment.labels)
 
-    stratify_params = {
-        "cohort": cohort_hash,
-        "axis": axis,
-        "policy": policy.spec(),
-        "n_components": config.DEFAULT_N_COMPONENTS,
-        "n_init": n_init,
-        "seed": seed,
-        "limit": 0,
-    }
-    stratify_dir = run_dir(root, "stratify", cache.short_hash(cache.compute_hash(stratify_params)))
-
-    params = {
-        "cohort": cohort_hash,
-        "ref_fit": ref_fit_hash,
-        "align": align_hash,
-        "stratify": cache.compute_hash(stratify_params),
-        "axis": axis,
-        "embedding": "lda+ellipse",
-        "n_shuffle": n_shuffle,
-        "seed": seed,
-    }
+        stratify_params = {
+            "cohort": cohort_hash,
+            "axis": axis,
+            "policy": policy.spec(),
+            "n_components": config.DEFAULT_N_COMPONENTS,
+            "n_init": n_init,
+            "seed": seed,
+            "limit": 0,
+        }
+        stratify_dir = run_dir(
+            root, "stratify", cache.short_hash(cache.compute_hash(stratify_params))
+        )
+        params = {
+            "cohort": cohort_hash,
+            "ref_fit": ref_fit_hash,
+            "align": align_hash,
+            "stratify": cache.compute_hash(stratify_params),
+            "axis": axis,
+            "embedding": "lda+ellipse",
+            "n_shuffle": n_shuffle,
+            "seed": seed,
+        }
     with run_context("trajectory", params, root=root, force=force) as ctx:
         if ctx.cache_hit:
             cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
@@ -2047,31 +2089,37 @@ def trajectory(
         aligned: dict[int, list[pd.Series]] = {c: [] for c in range(n_classes)}
         sizes: dict[int, list[int]] = {c: [] for c in range(n_classes)}
         jaccard: dict[int, list[float]] = {c: [] for c in range(n_classes)}
-        for label in labels:
-            lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
-            if not lpath.is_file():
-                raise typer.BadParameter(
-                    f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
-                )
-            members = assignment.codes[assignment.codes == label].index
-            sub = CohortMatrix(
-                matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
-            )
-            stratum_md = model.prepare_inputs(sub, typing)[0]
-            stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
-            summary = drift_mod.summarise(stratum_md, stratum_labels, ref_labels)
+
+        def _collect(summary: drift_mod.StratumSummary, label: str) -> None:
             alignment = drift_mod.ALIGNMENTS["membership"].align(summary, reference)
             inverse = {ref: fit for fit, ref in alignment.mapping.items()}
             if len(inverse) != n_classes:
                 raise typer.BadParameter(
-                    f"stratum {label} did not recover {n_classes} classes; cannot build a "
-                    "trajectory for it"
+                    f"{label} did not recover {n_classes} classes; cannot build a trajectory for it"
                 )
             for c in range(n_classes):
                 fit_class = inverse[c]
                 aligned[c].append(summary.centroids.loc[fit_class])
-                sizes[c].append(int(summary.contingency.loc[fit_class].sum()))
+                sizes[c].append(int(round(float(summary.contingency.loc[fit_class].sum()))))
                 jaccard[c].append(float(alignment.quality.get(c, float("nan"))))
+
+        if focal_records is not None:
+            for record in focal_records:
+                _collect(drift_mod.deserialise_summary(record), str(record["label"]))
+        else:
+            for label in labels:
+                lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
+                if not lpath.is_file():
+                    raise typer.BadParameter(
+                        f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
+                    )
+                members = assignment.codes[assignment.codes == label].index
+                sub = CohortMatrix(
+                    matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+                )
+                stratum_md = model.prepare_inputs(sub, typing)[0]
+                stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
+                _collect(drift_mod.summarise(stratum_md, stratum_labels, ref_labels), str(label))
 
         pooled_sd = embedding.sd
         embed_rows: list[dict] = []
