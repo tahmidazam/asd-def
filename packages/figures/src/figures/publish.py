@@ -35,20 +35,29 @@ class FigureSpec:
         The analysis stage whose cached run the figure visualises.
     file_name : str
         The figure's base file name, without a suffix.
+    axis : str, optional
+        For a per-axis stage, the axis whose latest run the figure is taken from. ``None`` for
+        a figure whose source stage is not split by axis.
     """
 
     name: str
     source_stage: str
     file_name: str
+    axis: str | None = None
 
 
-# Every figure the package can publish, in the order the documentation presents them.
+# Every figure the package can publish, in the order the documentation presents them. The two
+# trajectory maps and the roughness figure all come from the per-axis ``trajectory`` stage; the
+# roughness figure is written under the age run directory, so it resolves from that axis.
 FIGURES: tuple[FigureSpec, ...] = (
     FigureSpec("reproduce", "align", "reproduction"),
     FigureSpec("select", "select", "selection_criteria"),
     FigureSpec("stability", "stability", "stability"),
     FigureSpec("nmin", "nmin", "stratum_size"),
     FigureSpec("replicate", "replicate", "replication"),
+    FigureSpec("trajectory-age", "trajectory", "trajectory_age_at_diagnosis", "age_at_diagnosis"),
+    FigureSpec("trajectory-era", "trajectory", "trajectory_era", "era"),
+    FigureSpec("roughness", "trajectory", "roughness", "age_at_diagnosis"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}
@@ -78,7 +87,7 @@ def publish_figure(root: Path, spec: FigureSpec, run: str | None = None) -> Path
         When no PNG has been rendered for the figure yet, so the caller is told to build it
         first.
     """
-    source_run = data.resolve_run(root, spec.source_stage, run)
+    source_run = data.resolve_run(root, spec.source_stage, run, axis=spec.axis)
     source_hash = source_run.name
     png = paths.figure_stem(root, spec.source_stage, source_hash, spec.file_name).with_suffix(
         ".png"

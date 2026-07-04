@@ -9,7 +9,7 @@ from analysis import cache
 from analysis.paths import run_dir, stage_dir
 
 
-def resolve_run(root: Path, stage: str, run: str | None = None) -> Path:
+def resolve_run(root: Path, stage: str, run: str | None = None, *, axis: str | None = None) -> Path:
     """Return the run directory to visualise for an analysis stage.
 
     Parameters
@@ -22,6 +22,9 @@ def resolve_run(root: Path, stage: str, run: str | None = None) -> Path:
         A run's short hash. When given, that run's directory is returned. When omitted, the
         most recently finished run for the stage is chosen (the latest manifest whose status
         is ``"ok"``).
+    axis : str, optional
+        Restrict the latest-run search to runs whose manifest records this axis (for the
+        per-axis stages, ``"age_at_diagnosis"`` or ``"era"``). Ignored when ``run`` is given.
 
     Returns
     -------
@@ -45,10 +48,14 @@ def resolve_run(root: Path, stage: str, run: str | None = None) -> Path:
     if sdir.is_dir():
         for child in sorted(sdir.iterdir()):
             manifest = cache.read_manifest(child) if child.is_dir() else None
-            if manifest is not None and manifest.get("status") == "ok":
-                completed.append((str(manifest.get("finished_at", "")), child))
+            if manifest is None or manifest.get("status") != "ok":
+                continue
+            if axis is not None and manifest.get("params", {}).get("axis") != axis:
+                continue
+            completed.append((str(manifest.get("finished_at", "")), child))
     if not completed:
-        msg = f"no completed {stage!r} run under {sdir}; run `analysis {stage}` first"
+        where = f"{stage!r}" if axis is None else f"{stage!r} (axis {axis!r})"
+        msg = f"no completed {where} run under {sdir}; run `analysis {stage}` first"
         raise FileNotFoundError(msg)
     completed.sort(key=lambda item: item[0])
     return completed[-1][1]
@@ -149,6 +156,37 @@ def load_stability(run_directory: Path) -> tuple[pd.DataFrame, dict, pd.DataFram
     aggregate = cache.load_json(run_directory / "aggregate.json")
     overlap_mean = cache.load_frame(run_directory / "overlap_mean.parquet")
     return comparisons, aggregate, overlap_mean
+
+
+def load_trajectory(run_directory: Path) -> tuple[pd.DataFrame, dict]:
+    """Load a ``trajectory`` run's embedding table and its manifest metrics.
+
+    Returns
+    -------
+    tuple
+        ``(embedding, meta)``: the ``embedding_<axis>`` table (anchors and stratum centroids
+        in discriminant coordinates) and the manifest metrics (``axis``, ``n_strata``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    embedding = cache.load_frame(run_directory / f"embedding_{axis}.parquet")
+    return embedding, manifest.get("metrics", {})
+
+
+def load_roughness(run_directory: Path) -> tuple[str, pd.DataFrame, pd.DataFrame]:
+    """Load a ``trajectory`` run's roughness and directional tables.
+
+    Returns
+    -------
+    tuple
+        ``(axis, roughness, directional)``: the axis id and the per-class ``roughness_<axis>``
+        and ``directional_<axis>`` tables.
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    roughness = cache.load_frame(run_directory / f"roughness_{axis}.parquet")
+    directional = cache.load_frame(run_directory / f"directional_{axis}.parquet")
+    return str(axis), roughness, directional
 
 
 def load_nmin(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:

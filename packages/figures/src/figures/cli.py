@@ -19,8 +19,12 @@ from figures.nmin import nmin_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
+from figures.roughness import roughness_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
+from figures.trajectory import trajectory_figure
+
+_NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
 
 app = typer.Typer(
     name="figures",
@@ -147,6 +151,43 @@ def nmin(run: str | None = _RUN, name: str = _name("stratum_size"), fmt: str = _
     per_fit, summary, metrics = data.load_nmin(run_directory)
     figure = nmin_figure(per_fit, summary, metrics)
     _write(root, "nmin", run_directory, figure, name, fmt)
+
+
+@app.command()
+def trajectory(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot each class's trajectory through the strata in the pooled discriminant space."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "trajectory", run, axis=axis)
+    embedding, meta = data.load_trajectory(run_directory)
+    figure = trajectory_figure(embedding, meta)
+    _write(root, "trajectory", run_directory, figure, name or f"trajectory_{axis}", fmt)
+
+
+@app.command()
+def roughness(
+    age_run: str | None = typer.Option(None, "--age-run", help="Age trajectory run hash."),
+    era_run: str | None = typer.Option(None, "--era-run", help="Era trajectory run hash."),
+    name: str = _name("roughness"),
+    fmt: str = _FMT,
+) -> None:
+    """Plot trajectory roughness and directional movement across both axes."""
+    root = find_repo_root()
+    age_dir = data.resolve_run(root, "trajectory", age_run, axis="age_at_diagnosis")
+    era_dir = data.resolve_run(root, "trajectory", era_run, axis="era")
+    roughness_by_axis = {}
+    directional_by_axis = {}
+    for directory in (age_dir, era_dir):
+        axis, rough, direction = data.load_roughness(directory)
+        label = _NICE_AXIS.get(axis, axis)
+        roughness_by_axis[label] = rough
+        directional_by_axis[label] = direction
+    figure = roughness_figure(roughness_by_axis, directional_by_axis)
+    _write(root, "trajectory", age_dir, figure, name, fmt)
 
 
 @app.command()

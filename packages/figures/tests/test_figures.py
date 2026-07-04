@@ -13,8 +13,10 @@ from figures.nmin import nmin_figure
 from figures.publish import FigureSpec, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
+from figures.roughness import roughness_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
+from figures.trajectory import trajectory_figure
 from matplotlib.figure import Figure
 
 _CATEGORIES = [
@@ -299,3 +301,118 @@ def test_publish_figure_missing_render(tmp_path: Path) -> None:
     )
     with pytest.raises(FileNotFoundError, match="run `figures select` first"):
         publish_figure(tmp_path, spec)
+
+
+# ---- trajectory and roughness figures -----------------------------------------
+_CLASS_NAMES = ("Moderate challenges", "Mixed ASD with DD", "Social/behavioral", "Broadly affected")
+
+
+def _trajectory_embedding() -> tuple[pd.DataFrame, dict]:
+    rng = np.random.default_rng(0)
+    rows: list[dict] = []
+    for c in range(4):
+        rows.append(
+            {
+                "kind": "anchor",
+                "ref_class": c,
+                "class_name": _CLASS_NAMES[c],
+                "stratum": "",
+                "order": -1,
+                "ld1": float(c),
+                "ld2": float(-c),
+                "ld3": 0.0,
+                "jaccard": float("nan"),
+                "reorganised": False,
+            }
+        )
+        for s in range(6):
+            jaccard = float(rng.uniform(0.3, 0.9))
+            rows.append(
+                {
+                    "kind": "stratum",
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "stratum": f"Q{s + 1}",
+                    "order": s,
+                    "ld1": float(c) + rng.normal() * 0.2,
+                    "ld2": float(-c) + rng.normal() * 0.2,
+                    "ld3": 0.0,
+                    "jaccard": jaccard,
+                    "reorganised": jaccard < 0.5,
+                }
+            )
+    return pd.DataFrame(rows), {"axis": "age_at_diagnosis", "n_strata": 6}
+
+
+def test_trajectory_figure_structure() -> None:
+    embedding, meta = _trajectory_embedding()
+    fig = trajectory_figure(embedding, meta)
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) >= 4
+
+
+def test_trajectory_figure_missing_column() -> None:
+    embedding, meta = _trajectory_embedding()
+    with pytest.raises(ValueError, match="missing columns"):
+        trajectory_figure(embedding.drop(columns=["ld2"]), meta)
+
+
+def _roughness_frames() -> tuple[dict, dict]:
+    def rough() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ref_class": range(4),
+                "class_name": _CLASS_NAMES,
+                "step": [1.0, 2.0, 1.5, 2.5],
+                "sampling_noise": [0.5, 0.5, 0.5, 0.5],
+                "snr": [2.0, 4.0, 3.0, 5.0],
+            }
+        )
+
+    def direction() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ref_class": range(4),
+                "class_name": _CLASS_NAMES,
+                "net": [2.0, 5.0, 3.0, 6.0],
+                "null95": [1.0, 1.0, 1.0, 1.0],
+                "p": [0.01, 0.001, 0.2, 0.001],
+                "significant": [True, True, False, True],
+            }
+        )
+
+    roughness_by_axis = {"age at diagnosis": rough(), "diagnostic era": rough()}
+    directional_by_axis = {"age at diagnosis": direction(), "diagnostic era": direction()}
+    return roughness_by_axis, directional_by_axis
+
+
+def test_roughness_figure_structure() -> None:
+    roughness_by_axis, directional_by_axis = _roughness_frames()
+    fig = roughness_figure(roughness_by_axis, directional_by_axis)
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) == 2
+
+
+def test_roughness_figure_mismatched_axes() -> None:
+    roughness_by_axis, directional_by_axis = _roughness_frames()
+    directional_by_axis = {"only one": next(iter(directional_by_axis.values()))}
+    with pytest.raises(ValueError, match="share the same axis labels"):
+        roughness_figure(roughness_by_axis, directional_by_axis)
+
+
+def test_resolve_run_axis_filter(tmp_path: Path) -> None:
+    stage = tmp_path / "artefacts" / "trajectory"
+
+    def manifest(name: str, axis: str, finished: str) -> None:
+        run = stage / name
+        run.mkdir(parents=True, exist_ok=True)
+        (run / "manifest.json").write_text(
+            json.dumps({"status": "ok", "finished_at": finished, "params": {"axis": axis}}),
+            encoding="utf-8",
+        )
+
+    manifest("aaaa", "age_at_diagnosis", "2026-01-01T00:00:00+00:00")
+    manifest("bbbb", "era", "2026-02-01T00:00:00+00:00")
+    manifest("cccc", "age_at_diagnosis", "2026-03-01T00:00:00+00:00")
+    assert data.resolve_run(tmp_path, "trajectory", axis="age_at_diagnosis").name == "cccc"
+    assert data.resolve_run(tmp_path, "trajectory", axis="era").name == "bbbb"

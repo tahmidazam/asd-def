@@ -5,7 +5,8 @@ built by a function that takes a dataframe and returns a figure, and a command-l
 subcommand resolves a cached run, builds the figure, and writes it under `artefacts/figures/`
 with a JSON provenance sidecar.
 
-The package covers the reproduction result and the phase-2 results, one figure each.
+The package covers the reproduction result, the phase-2 results, and the phase-4 class
+trajectories across the strata.
 
 ## Implemented figures
 
@@ -25,10 +26,42 @@ The package covers the reproduction result and the phase-2 results, one figure e
 - `figures nmin` plots recovery against subsample size from an `analysis nmin` run: each
   refit's profile correlation, the per-size mean, the recovery benchmark, and the isotonic
   floor with its bootstrap interval, beside the smallest class proportion.
+- `figures trajectory --axis <age_at_diagnosis|era>` plots each class's path through the strata
+  of an `analysis trajectory` run, one panel per class, in the pooled four-class discriminant
+  space: the pooled reference class as a ring, the stratum centroids coloured from the first
+  stratum to the last, and an arrow for the net displacement, with a red ring where membership
+  reorganised.
+- `figures roughness` plots the trajectory roughness across both axes from the two
+  `analysis trajectory` runs: the mean step between adjacent strata against the sampling-noise
+  expectation, and each class's net young-to-old displacement against the ordering-shuffle null.
 
 Each subcommand takes an optional `--run` (defaulting to the latest completed run of that
 stage) and writes a PDF and a PNG under `artefacts/figures/<stage>/<run-hash>/` beside a JSON
 sidecar that records the source run and the package version.
+
+## Class trajectories across the strata
+
+Each class's centroid, projected into the pooled four-class discriminant space, and how it
+moves across the age-at-diagnosis and diagnostic-era strata. The projection is linear, so
+positions and distances are honest, but it is an illustration: the movement claim rests on the
+full-dimensional roughness and directional statistics below, not on the picture. The null here
+is the pilot ordering-shuffle on the observed centroids; the confirmatory test is the
+continuous-trend regression against the refit permutation null.
+
+```{image} ../../_figures/trajectory_age_at_diagnosis.png
+:alt: Each class's trajectory through the age-at-diagnosis strata
+:width: 100%
+```
+
+```{image} ../../_figures/trajectory_era.png
+:alt: Each class's trajectory through the diagnostic-era strata
+:width: 100%
+```
+
+```{image} ../../_figures/roughness.png
+:alt: Trajectory roughness and directional movement across both axes
+:width: 100%
+```
 
 ## Publishing to the documentation
 

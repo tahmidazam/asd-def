@@ -4,8 +4,9 @@ API reference
 
 The importable ``figures`` API: the command-line interface, the house style and save helper,
 the helpers that resolve and load a cached analysis run, the output-path helpers, the
-reproduction, model-selection, stability, minimum-stratum-size, and replication figures, and
-the helper that publishes rendered figures into the documentation tree.
+reproduction, model-selection, stability, minimum-stratum-size, replication, class-trajectory,
+and trajectory-roughness figures, and the helper that publishes rendered figures into the
+documentation tree.
 
 Command-line interface
 =========================================
@@ -44,6 +45,12 @@ Figures
    :members:
 
 .. automodule:: figures.replication
+   :members:
+
+.. automodule:: figures.trajectory
+   :members:
+
+.. automodule:: figures.roughness
    :members:
 
 Publishing
