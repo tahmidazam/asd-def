@@ -39,6 +39,10 @@ either cohort. Each stage and where its result is reported:
 | `nmin` | Refits at descending sample sizes to fix the minimum viable stratum size. | {doc}`The minimum viable stratum size <investigations/the-minimum-stratum-size>` |
 | `replicate` | Fits on the SPARK features shared with the SSC, projects onto the SSC, and correlates the profiles against a permutation null. | {doc}`Replicating in the SSC <investigations/replicating-in-the-ssc>` |
 | `strata-describe` | Builds the age-at-diagnosis and diagnostic-era axes, the lag, and the demographics, and tests each binning policy against the acceptance requirements. | {doc}`Choosing the stratification bins <guides/choosing-the-stratification-bins>` |
+| `strata`, `stratify` | Assigns every proband to a stratum under the frozen policy, then re-estimates the four-class model independently within each stratum. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
+| `drift` | Aligns each stratum's classes to the reference and reads their movement against the permutation null. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
+| `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
+| `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 
 ## Technical guides
 
@@ -145,6 +149,10 @@ for the arc, or jump to one.
    do in the SSC, at $r = 0.89$ ($p = 0.006$), with a bootstrap interval $[0.79, 0.93]$ that
    includes the authors' published $0.927$; six of the seven categories correlate at $0.85$ or
    above, the developmental category lower at $0.79$.
+6. {doc}`Do the classes hold across the strata? <investigations/tracking-the-classes-across-strata>`
+   In the first stratified run (one hundred permutations, both axes) no stratum drifts beyond its
+   null, but the classes trace a gradual young-to-old trajectory carried by the developmental
+   classes and features, with the membership reorganising at the extremes.
 
 Several of these investigations carry a third condition alongside the full `2026-03-23` release
 and the published values: the cohort cut back to the records present at the authors' V9 freeze
@@ -190,6 +198,7 @@ investigations/selecting-the-number-of-classes
 investigations/stability-under-refitting
 investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
+investigations/tracking-the-classes-across-strata
 :::
 
 :::{toctree}
