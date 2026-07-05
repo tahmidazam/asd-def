@@ -94,6 +94,7 @@ def summarise_local_worker(
     reference_labels: pd.Series,
     n_init: int,
     seed: int,
+    structural: str | None = "covariate",
 ) -> StratumSummary | None:
     """Fit one local fit from its already-subset rows and return its summary (picklable).
 
@@ -114,6 +115,7 @@ def summarise_local_worker(
             n_init=n_init,
             random_state=seed,
             sample_weight=None if weights is None else weights.to_numpy(dtype=float),
+            structural=structural,
             progress_bar=0,
             verbose=0,
         )

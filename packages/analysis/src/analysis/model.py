@@ -94,6 +94,7 @@ def fit_gfmm(
     n_steps: int = config.DEFAULT_N_STEPS,
     random_state: int | None = None,
     sample_weight: np.ndarray | pd.Series | None = None,
+    structural: str | None = "covariate",
     progress_bar: int = 1,
     verbose: int = 1,
 ) -> FitResult:
@@ -120,6 +121,13 @@ def fit_gfmm(
         full. This is what a :class:`~analysis.localise.LocalisationScheme` supplies: an
         indicator weight reproduces a hard-bin subset fit, a kernel weight gives a local
         (LSEM) fit. ``None`` leaves every proband at weight one, the pooled fit.
+    structural : str or None, optional
+        The structural (concomitant) model. ``"covariate"`` (the default) is Litman's one-step
+        covariate parametrisation: the class prior depends on sex and age at evaluation, fitted
+        jointly. ``None`` fits the measurement model alone (marginal classes, no covariates). The
+        measurement-only fit exists for the kernel sweep, whose fractional weights make the
+        covariate general linear model diverge; it changes the estimand, so it is compared only
+        against a measurement-only reference, never the covariate one.
     progress_bar : int, optional
         StepMix progress-bar verbosity for the restart loop.
     verbose : int, optional
@@ -133,24 +141,30 @@ def fit_gfmm(
     """
     measurement_data, descriptor, covariates = prepare_inputs(matrix, typing)
     weights = None if sample_weight is None else np.asarray(sample_weight, dtype=float)
-    model = StepMix(
-        n_components=n_components,
-        measurement=descriptor,
-        structural="covariate",
-        n_steps=n_steps,
-        n_init=n_init,
-        random_state=random_state,
-        progress_bar=progress_bar,
-        verbose=verbose,
-    )
-    model.fit(measurement_data, covariates, sample_weight=weights)
+    options: dict[str, object] = {
+        "n_components": n_components,
+        "measurement": descriptor,
+        "n_steps": n_steps,
+        "n_init": n_init,
+        "random_state": random_state,
+        "progress_bar": progress_bar,
+        "verbose": verbose,
+    }
+    if structural is not None:
+        options["structural"] = structural
+    model = StepMix(**options)
+    fit_covariates = covariates if structural is not None else None
+    model.fit(measurement_data, fit_covariates, sample_weight=weights)
     labels = pd.Series(model.predict(measurement_data), index=measurement_data.index, name="class")
-    metrics = selection_metrics(model, measurement_data, covariates, labels)
+    metrics = selection_metrics(model, measurement_data, fit_covariates, labels)
     return FitResult(model=model, labels=labels, measurement_data=measurement_data, metrics=metrics)
 
 
 def selection_metrics(
-    model: StepMix, measurement_data: pd.DataFrame, covariates: pd.DataFrame, labels: pd.Series
+    model: StepMix,
+    measurement_data: pd.DataFrame,
+    covariates: pd.DataFrame | None,
+    labels: pd.Series,
 ) -> dict[str, object]:
     """Compute the information criteria and class proportions for a fit.
 

@@ -298,6 +298,7 @@ def fit_locale(
     n_init: int,
     random_state: int,
     weight_floor: float = DEFAULT_WEIGHT_FLOOR,
+    structural: str | None = "covariate",
     progress_bar: int = 0,
     verbose: int = 0,
 ) -> FitResult:
@@ -341,6 +342,7 @@ def fit_locale(
         n_init=n_init,
         random_state=random_state,
         sample_weight=weights.to_numpy()[keep],
+        structural=structural,
         progress_bar=progress_bar,
         verbose=verbose,
     )

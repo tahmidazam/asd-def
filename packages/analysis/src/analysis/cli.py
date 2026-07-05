@@ -1569,6 +1569,13 @@ def sweep(
     ),
     seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
     workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
+    no_covariates: bool = typer.Option(
+        False,
+        "--no-covariates",
+        help="Fit the local models measurement-only (drop the covariate structural model), which "
+        "the kernel arm needs because the covariate GLM diverges under fractional weights. This "
+        "changes the estimand, so compare it only against a measurement-only reference.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Run every localisation scheme end to end and read them against one shared null.
@@ -1637,11 +1644,13 @@ def sweep(
     axis_values = data.axes[column].reindex(matrix.features.index).dropna()
 
     n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+    structural = None if no_covariates else "covariate"
     params = {
         "cohort": cohort_hash,
         "axis": axis,
         "ref_fit": ref_fit_hash,
         "schemes": [s.spec() for _, s in schemes],
+        "structural": "measurement" if no_covariates else "covariate",
         "n_init": n_init,
         "n_permutations": n_permutations,
         "seed": seed,
@@ -1714,6 +1723,7 @@ def sweep(
                     ref_labels,
                     n_init,
                     seed + (perm + 1) * 100000 + k * 1000 + offset,
+                    structural,
                 )
                 return future, task, locale
 
