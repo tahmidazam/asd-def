@@ -1422,6 +1422,20 @@ def drift(
     seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed."),
     workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
+    reference_scheme: str = typer.Option(
+        "pooled",
+        "--reference-scheme",
+        help="What each stratum's drift is measured against: 'pooled' (default, the frozen "
+        "primary, calibrated against the permutation null) or 'pairwise' (each stratum against a "
+        "neighbouring stratum along the axis; observed-only over the cached fits, no refit, the "
+        "union-split null is a later stage).",
+    ),
+    pairwise_mode: str = typer.Option(
+        "adjacent",
+        "--pairwise-mode",
+        help="For --reference-scheme pairwise: 'adjacent' (default, each stratum against its "
+        "successor) or 'all-pairs'.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Align stratum classes to the reference and measure drift against the permutation null.
@@ -1443,6 +1457,7 @@ def drift(
 
     from analysis import checkpoint, model
     from analysis import drift as drift_mod
+    from analysis import reference_scheme as reference_scheme_mod
     from analysis.cohort import CohortMatrix, get_cohort
     from analysis.paths import run_dir
 
@@ -1450,6 +1465,12 @@ def drift(
         raise typer.BadParameter(f"alignment must be one of {sorted(drift_mod.ALIGNMENTS)}")
     if distance not in drift_mod.DISTANCES:
         raise typer.BadParameter(f"distance must be one of {sorted(drift_mod.DISTANCES)}")
+    if reference_scheme not in reference_scheme_mod.REFERENCE_SCHEMES:
+        raise typer.BadParameter(
+            f"reference-scheme must be one of {sorted(reference_scheme_mod.REFERENCE_SCHEMES)}"
+        )
+    if reference_scheme == "pairwise" and pairwise_mode not in ("adjacent", "all-pairs"):
+        raise typer.BadParameter("pairwise-mode must be 'adjacent' or 'all-pairs'")
 
     def labels_series(frame: pd.DataFrame) -> pd.Series:
         others = [c for c in frame.columns if c != "class"]
@@ -1496,6 +1517,105 @@ def drift(
         "limit": 0,
     }
     stratify_dir = run_dir(root, "stratify", cache.short_hash(cache.compute_hash(stratify_params)))
+
+    def stratum_query(
+        label: object,
+    ) -> tuple[reference_scheme_mod.QueryFit, drift_mod.ReferenceModel]:
+        """Load one cached stratum fit as a query summary and a promoted reference (no refit)."""
+        lpath = stratify_dir / f"labels_{axis}_{label}.parquet"
+        if not lpath.is_file():
+            raise typer.BadParameter(
+                f"no stratify fit for {axis}/{label}; run `analysis stratify --axis {axis}`"
+            )
+        members = assignment.codes[assignment.codes == label].index
+        sub = CohortMatrix(
+            matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+        )
+        stratum_md = model.prepare_inputs(sub, typing)[0]
+        stratum_labels = labels_series(cache.load_frame(lpath)).reindex(stratum_md.index)
+        summary = drift_mod.summarise(stratum_md, stratum_labels, ref_labels)
+        promoted = drift_mod.build_reference(stratum_md, stratum_labels)
+        position = float(axis_values.loc[members].median())
+        return reference_scheme_mod.QueryFit(str(label), position, summary), promoted
+
+    if reference_scheme == "pairwise":
+        # Observed-only trajectory of change along the axis, reusing the cached stratify fits: each
+        # stratum is aligned by centroid (the strata are disjoint) to a neighbour promoted to a
+        # reference, so no refit and no permutation null run here. The union-split null is a later
+        # stage; drift is still scaled by the pooled between-class separation for a common scale.
+        if alignment != "centroid":
+            typer.echo(
+                "note: pairwise uses centroid alignment (disjoint strata); --alignment ignored"
+            )
+        scheme = reference_scheme_mod.PairwiseReference(mode=pairwise_mode)
+        separation = drift_mod.class_separation(reference, distancer)
+        measure_params = {
+            "stratify": cache.compute_hash(stratify_params),
+            "axis": axis,
+            "distance": distance,
+            "reference_scheme": "pairwise",
+            "mode": pairwise_mode,
+        }
+        with run_context("drift", measure_params, root=root, force=force) as ctx:
+            if ctx.cache_hit:
+                cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+                typer.echo(f"drift pairwise: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+                return
+            queries: list[reference_scheme_mod.QueryFit] = []
+            promoted_refs: dict[str, drift_mod.ReferenceModel] = {}
+            for label in labels:
+                query, promoted = stratum_query(label)
+                queries.append(query)
+                promoted_refs[str(label)] = promoted
+            resolver = reference_scheme_mod.MappingResolver(reference, promoted_refs)
+            comparisons = reference_scheme_mod.resolve_comparisons(scheme, queries, resolver)
+            measured = reference_scheme_mod.measure(comparisons, distance)
+            rows: list[dict] = []
+            for comparison in comparisons:
+                result = measured[comparison.query_label]
+                for ref_class, value in result.distances.items():
+                    rows.append(
+                        {
+                            "query_stratum": comparison.query_label,
+                            "reference_stratum": comparison.reference_label,
+                            "position": comparison.position,
+                            "ref_class": int(ref_class),
+                            "drift": float(value),
+                            "drift_vs_separation": (
+                                float(value) / separation if separation else float("nan")
+                            ),
+                            "centroid_quality": float(
+                                result.alignment.quality.get(int(ref_class), float("nan"))
+                            ),
+                            "overall_quality": float(result.alignment.overall),
+                        }
+                    )
+            trajectory = pd.DataFrame(rows)
+            cache.save_frame(trajectory, ctx.path(f"pairwise_{axis}.parquet"))
+            ctx.metrics = {
+                "axis": axis,
+                "reference_scheme": "pairwise",
+                "mode": pairwise_mode,
+                "distance": distance,
+                "n_pairs": len(comparisons),
+                "n_tests": len(trajectory),
+                "class_separation": separation,
+                "mean_drift_vs_separation": (
+                    float(trajectory["drift_vs_separation"].mean())
+                    if len(trajectory)
+                    else float("nan")
+                ),
+            }
+        typer.echo(
+            f"drift {axis} pairwise/{pairwise_mode} ({distance}): "
+            f"run {cache.short_hash(ctx.run_hash)}"
+        )
+        typer.echo(
+            f"  {ctx.metrics['n_pairs']} neighbour comparisons, mean drift/separation "
+            f"{ctx.metrics['mean_drift_vs_separation']:.3f}; observed-only (the union-split null "
+            f"is a later stage)"
+        )
+        return
 
     null_params = {
         "cohort": cohort_hash,

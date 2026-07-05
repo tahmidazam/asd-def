@@ -49,25 +49,6 @@ def _two_class_centroids(rows: list[list[float]]) -> pd.DataFrame:
     return frame
 
 
-class _Resolver:
-    """A resolver backed by in-memory reference models, for the resolution tests."""
-
-    def __init__(
-        self, pooled: drift.ReferenceModel, promoted: dict[str, drift.ReferenceModel]
-    ) -> None:
-        self._pooled = pooled
-        self._promoted = promoted
-
-    def pooled(self) -> drift.ReferenceModel:
-        return self._pooled
-
-    def promote(self, label: str) -> drift.ReferenceModel:
-        return self._promoted[label]
-
-    def complement(self, label: str) -> drift.ReferenceModel:  # pragma: no cover - not built yet
-        raise NotImplementedError
-
-
 def test_pooled_pairings_one_per_fit_in_order() -> None:
     """The pooled scheme emits one pooled-reference pairing per fit, order preserved."""
     ordered = [("a", 1.0), ("b", 2.0), ("c", 3.0)]
@@ -106,7 +87,7 @@ def test_resolve_pooled_uses_pooled_reference_and_membership() -> None:
     reference = _reference(centroids, np.eye(3))
     contingency = pd.DataFrame([[10, 2], [1, 8]], index=[0, 1], columns=[0, 1])
     stratum = _stratum(centroids, contingency)
-    resolver = _Resolver(reference, {})
+    resolver = rs.MappingResolver(reference, {})
 
     comparisons = rs.resolve_comparisons(
         rs.PooledReference(), [rs.QueryFit("q", 5.0, stratum)], resolver
@@ -128,7 +109,7 @@ def test_resolve_pairwise_promotes_neighbour_and_uses_centroid() -> None:
         rs.QueryFit("a", 1.0, _stratum(centroids, identity)),
         rs.QueryFit("b", 2.0, _stratum(centroids, identity)),
     ]
-    resolver = _Resolver(pooled, {"b": neighbour})
+    resolver = rs.MappingResolver(pooled, {"b": neighbour})
 
     comparisons = rs.resolve_comparisons(rs.PairwiseReference(), queries, resolver)
     assert len(comparisons) == 1
@@ -154,7 +135,7 @@ def test_resolve_promote_pairing_without_label_raises() -> None:
 
     identity = pd.DataFrame(np.eye(2, dtype=int), index=[0, 1], columns=[0, 1])
     centroids = _two_class_centroids([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
-    resolver = _Resolver(_reference(centroids, np.eye(3)), {})
+    resolver = rs.MappingResolver(_reference(centroids, np.eye(3)), {})
     with pytest.raises(ValueError, match="needs a reference label"):
         rs.resolve_comparisons(
             _BadScheme(), [rs.QueryFit("a", 1.0, _stratum(centroids, identity))], resolver
@@ -174,7 +155,7 @@ def test_measure_pooled_matches_compute_drift() -> None:
     stratum_centroids = _two_class_centroids([[0.2, -0.1, 0.3], [1.4, 0.9, 1.1]])
     contingency = pd.DataFrame([[9, 1], [2, 7]], index=[0, 1], columns=[0, 1])
     stratum = _stratum(stratum_centroids, contingency)
-    resolver = _Resolver(reference, {})
+    resolver = rs.MappingResolver(reference, {})
 
     measured = rs.measure(
         rs.resolve_comparisons(rs.PooledReference(), [rs.QueryFit("q", 0.0, stratum)], resolver)
@@ -197,7 +178,7 @@ def test_measure_pairwise_against_self_is_zero() -> None:
     stratum = _stratum(centroids, identity)
     self_reference = _reference(centroids, np.eye(3))
     queries = [rs.QueryFit("a", 1.0, stratum), rs.QueryFit("b", 2.0, stratum)]
-    resolver = _Resolver(self_reference, {"b": self_reference})
+    resolver = rs.MappingResolver(self_reference, {"b": self_reference})
 
     measured = rs.measure(rs.resolve_comparisons(rs.PairwiseReference(), queries, resolver))
     assert set(measured) == {"a"}

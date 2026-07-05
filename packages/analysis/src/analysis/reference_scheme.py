@@ -22,9 +22,6 @@ Two alternative targets remove the overlap by construction instead:
   move-versus-reorganise distinction needs shared members). It reads change along the axis rather
   than distance from a single pooled partition, the honest test when the existence of one reference
   structure is itself in question.
-- Leave-one-out (deferred) would compare each stratum to the pooled fit with that stratum removed,
-  free of contamination while keeping a three-way comparison, at the cost of a fresh reference fit
-  per stratum. It is not built here; the :class:`ReferenceResolver` protocol leaves room for it.
 
 The work splits in two. Topology (which fit pairs with which) is a :class:`Pairing`, a pure
 function of the fit labels and positions, so it is tested without any fit. Resolution turns a
@@ -37,6 +34,7 @@ distance or alignment code is duplicated here.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -84,9 +82,8 @@ class Pairing:
     query_label : str
         The fit whose drift is measured.
     reference_kind : str
-        How the reference is obtained: ``"pooled"`` (the fixed pooled reference), ``"promote"``
-        (build a reference from the ``reference_label`` fit), or ``"complement"`` (the pooled fit
-        with the query removed).
+        How the reference is obtained: ``"pooled"`` (the fixed pooled reference) or ``"promote"``
+        (build a reference from the ``reference_label`` fit).
     reference_label : str or None
         The other fit a ``"promote"`` pairing draws its reference from; ``None`` otherwise.
     """
@@ -130,11 +127,10 @@ class DriftComparison:
 class ReferenceResolver(Protocol):
     """Build the concrete reference model a pairing names, backed by the caller's fits.
 
-    A scheme names its references abstractly (the pooled reference, a named neighbour, the pooled
-    complement of a stratum); the resolver turns each name into a
-    :class:`~analysis.drift.ReferenceModel`. The caller implements it over the cached fits, so a
-    pairwise reference is built from a neighbour stratum with no re-fit, and the (deferred)
-    leave-one-out reference is where a re-fit would live.
+    A scheme names its references abstractly (the pooled reference, or a named neighbour); the
+    resolver turns each name into a :class:`~analysis.drift.ReferenceModel`. The caller implements
+    it over the cached fits, so a pairwise reference is built from a neighbour stratum with no
+    re-fit.
     """
 
     def pooled(self) -> ReferenceModel:
@@ -145,9 +141,33 @@ class ReferenceResolver(Protocol):
         """Return the fit named ``label`` promoted to a reference (its centroids as a target)."""
         ...
 
-    def complement(self, label: str) -> ReferenceModel:
-        """Return the pooled fit re-estimated with the ``label`` stratum removed."""
-        ...
+
+@dataclass
+class MappingResolver:
+    """Resolve references from a fixed pooled reference and a per-label promoted map.
+
+    The concrete resolver the drift stage uses. ``pooled`` returns the pooled reference; ``promote``
+    looks a fit's own promoted reference up in ``promoted``, which the caller has built once from
+    each cached fit, so a pairwise comparison reuses a neighbour fit with no re-fit.
+
+    Attributes
+    ----------
+    pooled_reference : analysis.drift.ReferenceModel
+        The fixed pooled reference.
+    promoted : Mapping of str to analysis.drift.ReferenceModel
+        Each fit's own promoted reference, keyed by the fit label.
+    """
+
+    pooled_reference: ReferenceModel
+    promoted: Mapping[str, ReferenceModel]
+
+    def pooled(self) -> ReferenceModel:
+        """Return the fixed pooled reference."""
+        return self.pooled_reference
+
+    def promote(self, label: str) -> ReferenceModel:
+        """Return the promoted reference for the fit named ``label``."""
+        return self.promoted[label]
 
 
 @runtime_checkable
@@ -244,9 +264,8 @@ def resolve_comparisons(
 
     Reads the topology from ``scheme.pairings`` over the query labels and positions, then builds
     each pairing's reference through ``resolver``: the pooled reference for a ``"pooled"`` pairing,
-    the named neighbour promoted to a reference for a ``"promote"`` pairing, or the pooled
-    complement for a ``"complement"`` pairing. The alignment is the scheme's default, which the
-    caller may override per comparison.
+    or the named neighbour promoted to a reference for a ``"promote"`` pairing. The alignment is the
+    scheme's default, which the caller may override per comparison.
     """
     by_label = {q.label: q for q in queries}
     ordered = [(q.label, q.position) for q in queries]
@@ -259,8 +278,6 @@ def resolve_comparisons(
             if pairing.reference_label is None:
                 raise ValueError("a 'promote' pairing needs a reference label")
             reference = resolver.promote(pairing.reference_label)
-        elif pairing.reference_kind == "complement":
-            reference = resolver.complement(pairing.query_label)
         else:
             raise ValueError(f"unknown reference kind {pairing.reference_kind!r}")
         comparisons.append(
