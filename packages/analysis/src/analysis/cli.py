@@ -283,6 +283,12 @@ def fit(
     as_of: str | None = _AS_OF,
     sample_n: int | None = _SAMPLE_N,
     sample_seed: int = _SAMPLE_SEED,
+    no_covariates: bool = typer.Option(
+        False,
+        "--no-covariates",
+        help="Fit the measurement model alone (no covariate structural model), the "
+        "measurement-only reference the kernel sweep is compared against.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Fit the reference general finite mixture model and predict class labels."""
@@ -290,7 +296,10 @@ def fit(
     cohort_hash, _ = _run_cohort(
         root, dataset, version, force=force, as_of=as_of, sample_n=sample_n, sample_seed=sample_seed
     )
+    structural = None if no_covariates else "covariate"
     params = _fit_params(cohort_hash, n_components, n_init, seed)
+    if no_covariates:
+        params = {**params, "structural": "measurement"}
     with run_context("fit", params, root=root, force=force) as ctx:
         if ctx.cache_hit:
             metrics = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
@@ -302,7 +311,12 @@ def fit(
         matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
         ctx.log.info("fitting GFMM: n_components=%d n_init=%d seed=%d", n_components, n_init, seed)
         result = model.fit_gfmm(
-            matrix, typing, n_components=n_components, n_init=n_init, random_state=seed
+            matrix,
+            typing,
+            n_components=n_components,
+            n_init=n_init,
+            random_state=seed,
+            structural=structural,
         )
         centroids = model.class_centroids(result.measurement_data, result.labels)
         cache.save_model(result.model, ctx.path("model.joblib"))
@@ -1038,7 +1052,10 @@ def _fit_and_save_stratum(
 
 @app.command()
 def stratify(
-    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    axis: str = typer.Option(
+        "age_at_diagnosis",
+        help="Axis: age_at_diagnosis or era (SPARK), or cognitive_impairment or iq (both cohorts).",
+    ),
     dataset: str = _DATASET,
     version: str = _VERSION,
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per stratum fit."),
@@ -1073,27 +1090,21 @@ def stratify(
 
     import pandas as pd
 
-    from analysis import checkpoint, profiling, strata_data
-    from analysis import strata as strata_mod
+    from analysis import checkpoint, profiling
+    from analysis.cohort import get_cohort
     from analysis.progress import task_bar
-
-    if axis not in ("age_at_diagnosis", "era"):
-        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
 
     root = find_repo_root()
     cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
-    data = strata_data.build_strata_data(
-        root,
-        version,
-        matrix.features.index,
-        matrix.covariates["age_at_eval_years"],
-        matrix.covariates["sex"],
+    resolved = get_cohort(dataset, version, root).axis(
+        axis, matrix.features.index, matrix.covariates, min_bin_size
     )
-    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
-    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
-    assignment = policy.assign(data.axes[column])
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, policy = resolved
+    assignment = policy.assign(axis_values)
     order = assignment.labels
 
     params = {
@@ -1326,7 +1337,10 @@ def _run_drift_null(
 
 @app.command()
 def drift(
-    axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
+    axis: str = typer.Option(
+        "age_at_diagnosis",
+        help="Axis: age_at_diagnosis or era (SPARK), or cognitive_impairment or iq (both cohorts).",
+    ),
     dataset: str = _DATASET,
     version: str = _VERSION,
     n_init: int = typer.Option(config.DEFAULT_N_INIT, help="StepMix restarts per fit."),
@@ -1365,14 +1379,11 @@ def drift(
 
     import pandas as pd
 
-    from analysis import checkpoint, model, strata_data
+    from analysis import checkpoint, model
     from analysis import drift as drift_mod
-    from analysis import strata as strata_mod
-    from analysis.cohort import CohortMatrix
+    from analysis.cohort import CohortMatrix, get_cohort
     from analysis.paths import run_dir
 
-    if axis not in ("age_at_diagnosis", "era"):
-        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
     if alignment not in drift_mod.ALIGNMENTS:
         raise typer.BadParameter(f"alignment must be one of {sorted(drift_mod.ALIGNMENTS)}")
     if distance not in drift_mod.DISTANCES:
@@ -1402,16 +1413,13 @@ def drift(
     aligner = drift_mod.ALIGNMENTS[alignment]
     distancer = drift_mod.DISTANCES[distance]
 
-    data = strata_data.build_strata_data(
-        root,
-        version,
-        matrix.features.index,
-        matrix.covariates["age_at_eval_years"],
-        matrix.covariates["sex"],
+    resolved = get_cohort(dataset, version, root).axis(
+        axis, matrix.features.index, matrix.covariates, min_bin_size
     )
-    column = "age_at_diagnosis_years" if axis == "age_at_diagnosis" else "diagnosis_year"
-    policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
-    assignment = policy.assign(data.axes[column])
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, policy = resolved
+    assignment = policy.assign(axis_values)
     labels = assignment.labels
     sizes = [int((assignment.codes == label).sum()) for label in labels]
     assigned = assignment.codes[assignment.codes.notna()].index
