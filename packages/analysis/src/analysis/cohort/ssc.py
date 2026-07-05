@@ -24,8 +24,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from analysis.strata import BinningPolicy
 
 from analysis import config
 from analysis.cohort import open_catalogue, read_columns, source_csv
@@ -71,9 +75,45 @@ class SscCohort:
         """Return ``False``: SSC does not expose a clean diagnosis timestamp (plan section 5)."""
         return False
 
+    def axis(
+        self,
+        name: str,
+        index: pd.Index,
+        covariates: pd.DataFrame,
+        min_bin_size: int = 1000,
+    ) -> tuple[pd.Series, BinningPolicy] | None:
+        """Resolve a stratification axis to its variable and binning policy.
+
+        SSC provides the two shared cognitive axes and neither timing axis (it has no clean
+        diagnosis timestamp, plan section 5). Both cognitive axes read the harmonised
+        full-scale deviation IQ (``ssc_diagnosis.fs_deviation_score``): ``cognitive_impairment``
+        dichotomises it at the intellectual-disability threshold (:data:`config.ID_IQ_THRESHOLD`,
+        the same construct as SPARK's flag), and ``iq`` bins it by equal frequency, using the
+        continuous score SPARK lacks. ``age_at_diagnosis`` and ``era`` return ``None``.
+        """
+        from analysis import strata as strata_mod
+
+        if name in ("cognitive_impairment", "iq"):
+            values = self._read_axis_column("ssc_diagnosis", "fs_deviation_score", index)
+            if name == "cognitive_impairment":
+                return values, strata_mod.id_dichotomy(config.ID_IQ_THRESHOLD, low_is_impaired=True)
+            return values, strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+        return None
+
     def _read(self, table: str) -> pd.DataFrame:
         path = source_csv(self._cat, self.root, self.dataset, self.version, table, role=_ROLE)
         return pd.read_csv(path).set_index(_INDEX)
+
+    def _read_axis_column(self, table: str, column: str, index: pd.Index) -> pd.Series:
+        """Read one numeric column of a proband table, deduplicated and reindexed.
+
+        Reads only the id and the requested column (the ``dscat`` guardrail), keeps the first
+        row per proband, coerces to numeric, and aligns to the modelling-cohort index.
+        """
+        path = source_csv(self._cat, self.root, self.dataset, self.version, table, role=_ROLE)
+        df = read_columns(path, [_INDEX, column]).set_index(_INDEX)
+        df = df[~df.index.duplicated(keep="first")]
+        return pd.to_numeric(df[column], errors="coerce").reindex(index)
 
     def _core_descriptive(self) -> pd.DataFrame:
         df = self._read("ssc_core_descriptive")

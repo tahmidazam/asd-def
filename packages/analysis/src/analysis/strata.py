@@ -266,6 +266,35 @@ class MaxEqualBins:
         return {"policy": self.name, "interval": "left-closed", "min_bin_size": self.min_bin_size}
 
 
+def id_dichotomy(edge: float, *, low_is_impaired: bool, name: str = "id-dichotomy") -> FixedBands:
+    """Split a cognitive variable into two intellectual-disability strata.
+
+    The cross-cohort cognitive-impairment axis (plan section 8) is a two-band split of a
+    variable that indexes cognitive level: SSC full-scale deviation IQ (impaired band low, so
+    the edge is the IQ threshold), or SPARK's binary machine-learned impairment flag (impaired
+    band high, so the edge is ``0.5``). Both cohorts use the same band names, ``"id"`` and
+    ``"no_id"``, so a stratum matches its counterpart across cohorts regardless of which side
+    of the edge the impaired band sits on.
+
+    Parameters
+    ----------
+    edge : float
+        The single interior cut point: the IQ threshold for a score, or ``0.5`` for a 0/1 flag.
+    low_is_impaired : bool
+        Whether the impaired band is below the edge. ``True`` for an IQ score (a low score is
+        impaired), ``False`` for an impairment flag (the value ``1`` is impaired).
+    name : str, default "id-dichotomy"
+        Policy name recorded in the spec.
+
+    Returns
+    -------
+    FixedBands
+        A two-band policy labelled ``("id", "no_id")`` in ascending order of the variable.
+    """
+    labels = ("id", "no_id") if low_is_impaired else ("no_id", "id")
+    return FixedBands(edges=(float(edge),), labels=labels, name=name)
+
+
 # Provisional parameter sets, illustrative only and NOT the frozen pre-registration values
 # (plan section 12 freezes those after the distribution and feasibility check on this branch).
 # Edges are in the units of each axis: age at diagnosis in years, era as a calendar year. The

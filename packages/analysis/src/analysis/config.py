@@ -26,6 +26,14 @@ REFERENCE_VERSION = "2026-03-23"
 COVARIATES: tuple[str, ...] = ("sex", "age_at_eval_years")
 AGE_AT_EVAL_RANGE: tuple[int, int] = (4, 18)
 
+# Intelligence-quotient threshold that splits the cross-cohort cognitive-impairment axis into
+# intellectual-disability positive and negative strata (plan section 8). Set to 80 because
+# SPARK's machine-learned cognitive-impairment flag (``ml_predicted_cog_impair``) is trained
+# against measured full-scale IQ below 80, so dichotomising the SSC full-scale deviation IQ at
+# the same value gives the two cohorts the same construct. This is a phase-5 sensitivity axis,
+# not part of the frozen phase-4 pre-registration (section 12a).
+ID_IQ_THRESHOLD = 80
+
 # The freeze date of the SPARK Phenotype Dataset version Litman et al. fit on (V9). The paper
 # text names only "V9"; the released preprocessing pins the date, hard-coding the directory
 # ``SPARK_collection_v9_2022-12-12`` and per-instrument ``<table>_2022-12-12.csv``. Passing

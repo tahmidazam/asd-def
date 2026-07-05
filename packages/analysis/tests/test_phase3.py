@@ -18,7 +18,37 @@ from analysis.strata import (
     MaxEqualBins,
     QuantileBins,
     StratumAssignment,
+    id_dichotomy,
 )
+
+
+def test_id_dichotomy_on_an_iq_score_puts_low_scores_in_the_id_band() -> None:
+    # A continuous IQ: low is impaired, so the impaired band sits below the threshold.
+    policy = id_dichotomy(80, low_is_impaired=True)
+    result = policy.assign(pd.Series([65.0, 80.0, 95.0, np.nan]))
+    assert policy.labels == ("id", "no_id")
+    # Left-closed: the threshold itself falls on the "no_id" side.
+    assert list(result.codes.iloc[:3]) == ["id", "no_id", "no_id"]
+    assert result.counts == {"id": 1, "no_id": 2}
+    assert result.n_missing == 1
+
+
+def test_id_dichotomy_on_a_binary_flag_puts_the_flagged_value_in_the_id_band() -> None:
+    # A 0/1 impairment flag: the value 1 is impaired, so the impaired band sits above 0.5.
+    policy = id_dichotomy(0.5, low_is_impaired=False)
+    result = policy.assign(pd.Series([0.0, 1.0, 1.0, 0.0]))
+    assert policy.labels == ("no_id", "id")
+    assert result.counts == {"no_id": 2, "id": 2}
+
+
+def test_id_dichotomy_uses_the_same_band_names_regardless_of_orientation() -> None:
+    # The cross-cohort contract: a stratum matches its counterpart by name on both cohorts.
+    score = id_dichotomy(80, low_is_impaired=True)
+    flag = id_dichotomy(0.5, low_is_impaired=False)
+    assert score.labels is not None
+    assert flag.labels is not None
+    assert set(score.labels) == set(flag.labels) == {"id", "no_id"}
+    assert score.spec()["policy"] == flag.spec()["policy"] == "id-dichotomy"
 
 
 def test_fixed_bands_assigns_left_closed_with_open_outer_bins() -> None:

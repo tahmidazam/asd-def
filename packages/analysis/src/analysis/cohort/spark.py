@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -34,6 +35,9 @@ from analysis.cohort import (
     source_csv,
 )
 from analysis.cohort.schema import CBCL_REPLACEMENTS, SEX_ENCODING, load_feature_list
+
+if TYPE_CHECKING:
+    from analysis.strata import BinningPolicy
 
 log = logging.getLogger("analysis.cohort")
 
@@ -79,6 +83,59 @@ class SparkCohort:
 
     def _path(self, table: str) -> Path:
         return source_csv(self._cat, self.root, self.dataset, self.version, table)
+
+    def _read_axis_column(self, table: str, column: str, index: pd.Index) -> pd.Series:
+        """Read one numeric column of a table, deduplicated and reindexed to the cohort.
+
+        Reads only the id and the requested column (the ``dscat`` guardrail), keeps the first
+        row per proband, coerces to numeric (a censored IQ such as ``"<40"`` becomes missing),
+        and aligns to the modelling-cohort index.
+        """
+        path = self._path(table)
+        df = read_columns(path, [INDEX_COLUMN, column]).set_index(INDEX_COLUMN)
+        df = df[~df.index.duplicated(keep="first")]
+        return pd.to_numeric(df[column], errors="coerce").reindex(index)
+
+    def axis(
+        self,
+        name: str,
+        index: pd.Index,
+        covariates: pd.DataFrame,
+        min_bin_size: int = 1000,
+    ) -> tuple[pd.Series, BinningPolicy] | None:
+        """Resolve a stratification axis to its variable and binning policy.
+
+        SPARK provides the two SPARK-only timing axes and the two shared cognitive axes:
+
+        - ``age_at_diagnosis`` and ``era`` reuse :func:`analysis.strata_data.build_strata_data`
+          and the frozen :class:`~analysis.strata.MaxEqualBins` policy (plan section 12a);
+        - ``cognitive_impairment`` is the binary ``ml_predicted_cog_impair`` flag (trained
+          against measured IQ below 80), split by the two-band intellectual-disability policy;
+        - ``iq`` is the medical-record full-scale IQ (``iq.fsiq_score``), equal-frequency
+          binned like the timing axes.
+        """
+        from analysis import strata as strata_mod
+        from analysis import strata_data
+
+        if name in ("age_at_diagnosis", "era"):
+            data = strata_data.build_strata_data(
+                self.root,
+                self.version,
+                index,
+                covariates["age_at_eval_years"],
+                covariates["sex"],
+            )
+            column = "age_at_diagnosis_years" if name == "age_at_diagnosis" else "diagnosis_year"
+            return data.axes[column], strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+        if name == "cognitive_impairment":
+            values = self._read_axis_column(
+                "approximated_cognitive_impairment", "ml_predicted_cog_impair", index
+            )
+            return values, strata_mod.id_dichotomy(0.5, low_is_impaired=False)
+        if name == "iq":
+            values = self._read_axis_column("iq", "fsiq_score", index)
+            return values, strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
+        return None
 
     def _instrument_features(self, available: list[str]) -> list[str]:
         """Return the author features present in an instrument, in feature-list order."""

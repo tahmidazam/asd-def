@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import pandas as pd
 from dscat import queries
@@ -24,6 +24,9 @@ from dscat.paths import index_path
 
 from analysis import config
 from analysis.paths import find_repo_root
+
+if TYPE_CHECKING:
+    from analysis.strata import BinningPolicy
 
 INDEX_COLUMN = "subject_sp_id"
 
@@ -81,6 +84,44 @@ class Cohort(Protocol):
 
     def supports_timing(self) -> bool:
         """Return whether the backend can provide diagnosis-timing fields."""
+        ...
+
+    def axis(
+        self,
+        name: str,
+        index: pd.Index,
+        covariates: pd.DataFrame,
+        min_bin_size: int = 1000,
+    ) -> tuple[pd.Series, BinningPolicy] | None:
+        """Return a stratification variable and its default binning policy.
+
+        The stratified analysis (plan section 7) re-estimates the mixture within strata of an
+        axis. A backend resolves a named axis to the per-proband variable (on ``index``) and
+        the policy that bins it, so a stage names an axis and never reads a cohort-specific
+        column itself. This generalises :meth:`supports_timing`: the diagnosis-timing axes
+        (``age_at_diagnosis``, ``era``) are SPARK-only, while the cognitive axes
+        (``cognitive_impairment``, ``iq``) are shared, so the SSC backend provides the second
+        pair and none of the first (plan sections 5 and 8).
+
+        Parameters
+        ----------
+        name : str
+            The axis to resolve.
+        index : pandas.Index
+            The modelling-cohort proband index the variable is built on.
+        covariates : pandas.DataFrame
+            The cohort covariates, on ``index``; the timing axes read age at evaluation and
+            sex from here.
+        min_bin_size : int, default 1000
+            The floor passed to a size-based policy (:class:`~analysis.strata.MaxEqualBins`);
+            ignored by the fixed dichotomy.
+
+        Returns
+        -------
+        tuple of (pandas.Series, BinningPolicy) or None
+            The variable and its policy, or ``None`` when the backend does not provide
+            ``name``.
+        """
         ...
 
 

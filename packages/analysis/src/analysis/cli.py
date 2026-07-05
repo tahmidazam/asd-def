@@ -26,6 +26,8 @@ from analysis.run import run_context
 if TYPE_CHECKING:
     import pandas as pd
 
+    from analysis.cohort import CohortMatrix
+
 app = typer.Typer(
     name="analysis",
     help="Reproduce the Litman autism classes and test their stability across age at "
@@ -154,6 +156,50 @@ def _load_cohort_matrix(root: Path, cohort_hash: str, dataset: str, version: str
     matrix = CohortMatrix(features_df, covariates_df, dataset, version)
     typing = Typing(**typing_json)
     return matrix, typing
+
+
+def _build_shared_cohort(
+    root: Path, dataset: str, version: str, shared_with: str, *, force: bool
+) -> tuple[CohortMatrix, Typing, str]:
+    """Build ``dataset``'s matrix on the features it shares with ``shared_with``.
+
+    Cross-cohort stratification (plan section 8) re-estimates the mixture within strata on the
+    intersection of the two cohorts' harmonised features, so a cohort that provides only a
+    subset of the 238 author features (the SSC) can still be fitted and compared against the
+    reference cohort. This reuses the shared-feature construction of the replicate stage
+    (:func:`analysis.replicate.shared_feature_set`). The reference cohort (``shared_with``, at
+    :data:`config.REFERENCE_VERSION`) is built on the full feature set; this cohort is
+    restricted to the shared columns. The reference typing is returned unchanged and filtered
+    to the shared columns at fit time (as in the replicate stage). The returned hash is a
+    content digest over the integrated frame and the shared feature set, so a change to either
+    cohort's harmonisation invalidates the cache.
+    """
+    from analysis.cohort import CohortMatrix
+    from analysis.replicate import shared_feature_set
+
+    other_hash, _ = _run_cohort(root, shared_with, config.REFERENCE_VERSION, force=force)
+    other_matrix, typing = _load_cohort_matrix(
+        root, other_hash, shared_with, config.REFERENCE_VERSION
+    )
+
+    integrated = get_cohort(dataset, version, root).integrate()
+    feature_set = set(load_feature_list(config.author_feature_list(root)))
+    available = [c for c in integrated.columns if c in feature_set and c not in config.COVARIATES]
+    matrix = build_matrix(integrated, available, dataset, version)
+
+    shared = shared_feature_set(other_matrix, matrix)
+    shared_matrix = CohortMatrix(matrix.features[shared], matrix.covariates, dataset, version)
+    cohort_hash = cache.compute_hash(
+        {
+            "dataset": dataset,
+            "version": version,
+            "shared_with": shared_with,
+            "reference_version": config.REFERENCE_VERSION,
+            "content": cache.frame_digest(integrated),
+            "shared_features": shared,
+        }
+    )
+    return shared_matrix, typing, cohort_hash
 
 
 _DATASET = typer.Option(config.REFERENCE_DATASET, "--dataset", "-d", help="Cohort id.")
@@ -1067,6 +1113,12 @@ def stratify(
     ),
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match the strata stage."),
     workers: int = typer.Option(0, help="Parallel fit workers (0 = logical cores minus one)."),
+    shared_with: str | None = typer.Option(
+        None,
+        "--shared-with",
+        help="Fit on the features shared with this cohort (e.g. spark), for a cohort that "
+        "provides only a subset of the 238 features (the SSC). Enables SSC-native stratify.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Re-estimate the GFMM independently within each stratum of an axis.
@@ -1083,7 +1135,9 @@ def stratify(
     oversubscribe the machine. Every fit is measured (:mod:`analysis.profiling`) and streamed
     to a resumable checkpoint, so an interrupt continues from the first unfitted stratum.
     ``--limit`` fits only the first few strata, to debug the instrumented pipeline or pilot it
-    before the full run.
+    before the full run. ``--shared-with`` fits on the cross-cohort shared feature set (plan
+    section 8), so the SSC, which provides only a subset of the 238 features, can be
+    re-estimated within its cognitive strata and compared against the reference cohort.
     """
     import os
     from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -1095,8 +1149,13 @@ def stratify(
     from analysis.progress import task_bar
 
     root = find_repo_root()
-    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
-    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+    if shared_with:
+        matrix, typing, cohort_hash = _build_shared_cohort(
+            root, dataset, version, shared_with, force=force
+        )
+    else:
+        cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+        matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
     resolved = get_cohort(dataset, version, root).axis(
         axis, matrix.features.index, matrix.covariates, min_bin_size
@@ -1107,6 +1166,9 @@ def stratify(
     assignment = policy.assign(axis_values)
     order = assignment.labels
 
+    # The shared-feature cohort hash (``_build_shared_cohort``) already differs from the full
+    # cohort hash, so the shared and full runs cache separately without a redundant key here;
+    # the age/era run hashes are therefore unchanged from before this option existed.
     params = {
         "cohort": cohort_hash,
         "axis": axis,
