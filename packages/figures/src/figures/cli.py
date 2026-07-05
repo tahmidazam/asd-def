@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 from figures import data, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.nmin import nmin_figure
+from figures.pairwise import pairwise_trajectory_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
@@ -184,6 +185,24 @@ def sweep(
     meta = {**manifest.get("metrics", {}), "axis": axis}
     figure = sweep_trajectory_figure(decision, data.class_names(root, axis), meta)
     _write(root, "sweep", run_directory, figure, name or f"sweep_trajectory_{axis}", fmt)
+
+
+@app.command()
+def pairwise(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot each class's neighbour-to-neighbour drift along the axis, from a pairwise run."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(
+        root, "drift", run, axis=axis, require={"reference_scheme": "pairwise"}
+    )
+    trajectory, metrics = data.load_pairwise(run_directory)
+    meta = {**metrics, "axis": axis}
+    figure = pairwise_trajectory_figure(trajectory, data.class_names(root, axis), meta)
+    _write(root, "drift", run_directory, figure, name or f"pairwise_trajectory_{axis}", fmt)
 
 
 @app.command()

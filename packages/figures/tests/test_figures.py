@@ -11,6 +11,7 @@ import pytest
 from figures import data, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.nmin import nmin_figure
+from figures.pairwise import pairwise_trajectory_figure
 from figures.publish import FigureSpec, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
@@ -356,6 +357,49 @@ def test_trajectory_figure_missing_column() -> None:
     embedding, meta = _trajectory_embedding()
     with pytest.raises(ValueError, match="missing columns"):
         trajectory_figure(embedding.drop(columns=["ld2"]), meta)
+
+
+def _pairwise_trajectory() -> tuple[pd.DataFrame, dict]:
+    """Build an adjacent pairwise-trajectory table shaped like a pairwise ``drift`` run."""
+    positions = [1.0, 2.0, 3.0, 4.0]
+    rows: list[dict] = []
+    for step, position in enumerate(positions):
+        for ref_class in range(4):
+            drift = 0.2 + 0.1 * ref_class + 0.05 * step
+            rows.append(
+                {
+                    "query_stratum": f"Q{step + 1}",
+                    "reference_stratum": f"Q{step + 2}",
+                    "position": position,
+                    "ref_class": ref_class,
+                    "drift": drift,
+                    "drift_vs_separation": drift,
+                    "centroid_quality": 0.3,
+                    "overall_quality": 0.25 + 0.02 * step,
+                }
+            )
+    return pd.DataFrame(rows), {"axis": "age_at_diagnosis", "mode": "adjacent"}
+
+
+def test_pairwise_trajectory_figure_structure() -> None:
+    trajectory, meta = _pairwise_trajectory()
+    fig = pairwise_trajectory_figure(trajectory, dict(enumerate(_CLASS_NAMES)), meta)
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) == 2
+
+
+def test_pairwise_trajectory_figure_missing_column() -> None:
+    trajectory, meta = _pairwise_trajectory()
+    with pytest.raises(ValueError, match="missing columns"):
+        pairwise_trajectory_figure(trajectory.drop(columns=["drift_vs_separation"]), {}, meta)
+
+
+def test_pairwise_trajectory_figure_rejects_all_pairs() -> None:
+    trajectory, meta = _pairwise_trajectory()
+    # Two comparisons at the same position for one class is the all-pairs shape, not a trajectory.
+    doubled = pd.concat([trajectory, trajectory.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="all-pairs"):
+        pairwise_trajectory_figure(doubled, {}, meta)
 
 
 def _roughness_frames() -> tuple[dict, dict]:

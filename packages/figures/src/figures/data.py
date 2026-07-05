@@ -9,7 +9,14 @@ from analysis import cache
 from analysis.paths import run_dir, stage_dir
 
 
-def resolve_run(root: Path, stage: str, run: str | None = None, *, axis: str | None = None) -> Path:
+def resolve_run(
+    root: Path,
+    stage: str,
+    run: str | None = None,
+    *,
+    axis: str | None = None,
+    require: dict[str, object] | None = None,
+) -> Path:
     """Return the run directory to visualise for an analysis stage.
 
     Parameters
@@ -25,6 +32,10 @@ def resolve_run(root: Path, stage: str, run: str | None = None, *, axis: str | N
     axis : str, optional
         Restrict the latest-run search to runs whose manifest records this axis (for the
         per-axis stages, ``"age_at_diagnosis"`` or ``"era"``). Ignored when ``run`` is given.
+    require : dict, optional
+        Further manifest-parameter equalities the latest run must satisfy, so one stage that
+        writes several run flavours (for example the ``drift`` stage's pooled and pairwise runs)
+        can be told apart by ``{"reference_scheme": "pairwise"}``. Ignored when ``run`` is given.
 
     Returns
     -------
@@ -50,7 +61,12 @@ def resolve_run(root: Path, stage: str, run: str | None = None, *, axis: str | N
             manifest = cache.read_manifest(child) if child.is_dir() else None
             if manifest is None or manifest.get("status") != "ok":
                 continue
-            if axis is not None and manifest.get("params", {}).get("axis") != axis:
+            params = manifest.get("params", {})
+            if axis is not None and params.get("axis") != axis:
+                continue
+            if require is not None and any(
+                params.get(key) != value for key, value in require.items()
+            ):
                 continue
             completed.append((str(manifest.get("finished_at", "")), child))
     if not completed:
@@ -240,6 +256,27 @@ def load_sweep(run_directory: Path) -> tuple[pd.DataFrame, dict]:
     if not decisions:
         raise FileNotFoundError(f"no decision table in {run_directory}")
     return cache.load_frame(decisions[0]), cache.read_manifest(run_directory) or {}
+
+
+def load_pairwise(run_directory: Path) -> tuple[pd.DataFrame, dict]:
+    """Load a pairwise ``drift`` run's trajectory table and its manifest metrics.
+
+    Parameters
+    ----------
+    run_directory : pathlib.Path
+        The ``drift`` run directory of a ``--reference-scheme pairwise`` run.
+
+    Returns
+    -------
+    tuple
+        The trajectory table (``pairwise_<axis>.parquet``: one row per neighbour comparison and
+        reference class) and the manifest metrics (``axis``, ``mode``, ``class_separation``).
+    """
+    tables = sorted(run_directory.glob("pairwise_*.parquet"))
+    if not tables:
+        raise FileNotFoundError(f"no pairwise trajectory table in {run_directory}")
+    manifest = cache.read_manifest(run_directory) or {}
+    return cache.load_frame(tables[0]), manifest.get("metrics", {})
 
 
 def class_names(root: Path, axis: str) -> dict[int, str]:
