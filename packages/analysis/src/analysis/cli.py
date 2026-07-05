@@ -1629,12 +1629,17 @@ def sweep(
     cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
     matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
 
-    ref_fit_hash = cache.compute_hash(
-        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
-    )
+    # Align to a like-specification reference: a measurement-only sweep matches the
+    # measurement-only reference (`fit --no-covariates`), not the covariate one, so the estimand
+    # is consistent on both sides.
+    ref_params = _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
+    if no_covariates:
+        ref_params = {**ref_params, "structural": "measurement"}
+    ref_fit_hash = cache.compute_hash(ref_params)
     ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
     if not (ref_dir / "labels.parquet").is_file():
-        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit`")
+        hint = " --no-covariates" if no_covariates else ""
+        raise typer.BadParameter(f"no reference fit at {ref_dir}; run `analysis fit{hint}`")
     ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
     measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
     reference = drift_mod.build_reference(measurement_data, ref_labels)
