@@ -112,6 +112,9 @@ Stratified analysis
 .. automodule:: analysis.attribution
    :members:
 
+.. automodule:: analysis.reference_scheme
+   :members:
+
 .. automodule:: analysis.trajectory
    :members:
 
