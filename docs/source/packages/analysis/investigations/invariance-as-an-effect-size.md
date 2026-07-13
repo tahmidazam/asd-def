@@ -1,15 +1,41 @@
-# Invariance as an effect size
+# H0A / H0D: invariance as an effect size
 
-The score-based invariance test ({doc}`score-based-invariance`) reads the class profiles for
-stability along an axis from the single cached fit. At the reference sample size, roughly 11,700
-probands, it has so much power that exact invariance is always rejected: on the real runs every
-whole-class block and almost every class-by-category block rejects at the smallest attainable
-$p$-value, and the break confidence sets span nearly the whole axis. Exact measurement invariance
-is a point null, and no real class profile sits exactly on it, so the bridge $p$-value stops
-discriminating once the sample runs to the thousands. This is the known large-sample regime for
-measurement invariance (Meredith 1993, *Psychometrika*; Putnick and Bornstein 2016, *Dev Rev*).
+:::{admonition} The question
+:class: note
 
-This guide describes the recast that the `invariance-trajectory` stage runs. It keeps the same
+Are the four class profiles invariant to diagnostic era and age at diagnosis (H0A), and if not, is
+the drift small relative to the between-class separation (H0D)? The score-based invariance test
+({doc}`score-based-invariance`) reads the class profiles for stability along an axis from the
+single cached fit, but at the reference sample size, roughly 11,700 probands, it has so much power
+that exact invariance is always rejected: on the real runs every whole-class block and almost every
+class-by-category block rejects at the smallest attainable $p$-value, and the break confidence sets
+span nearly the whole axis. Exact measurement invariance is a point null, and no real class profile
+sits exactly on it, so the bridge $p$-value stops discriminating once the sample runs to the
+thousands, the known large-sample regime for measurement invariance (Meredith 1993, *Psychometrika*;
+Putnick and Bornstein 2016, *Dev Rev*). This page recasts both nulls as a null-free effect size, the
+separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube,
+an in-plane capture fraction, and a specificity check against a control panel, so a class-profile
+drift is read by its size against the gap between classes rather than by whether it is exactly zero.
+:::
+
+:::{admonition} The result
+:class: tip
+
+Both nulls are rejected. The separation-scaled endpoint displacement averages about 2.8 along
+diagnosis year and about 6.0 along age at diagnosis, against a control panel of about 3.2 for
+household income, 2.1 for area deprivation, and 1.3 for the random floor: both timing axes clear
+the noise floor, and age at diagnosis clears every covariate control for all four classes (H0A
+rejected, paired specificity bootstrap floor $p = 0.0005$ on both axes). The drift is not small
+relative to the between-class separation either: roughly a third of the per-feature displacements
+survive the false-discovery step for diagnosis year and over half for age at diagnosis, and in
+root-mean-square terms the diagnosis-year magnitude is about a fifth of a class gap (H0D rejected,
+same bootstrap tube, comparative specificity $p = 0.0005$). The capture fractions are all small, so
+the drift is high-dimensional and mostly out of the between-class discriminant plane the trajectory
+figures draw; the full-dimensional magnitude is the authoritative read, not the short in-plane
+paths.
+:::
+
+This page describes the recast that the `invariance-trajectory` stage runs. It keeps the same
 frozen fit and the same question, whether the class profiles move along age at diagnosis or
 diagnosis year, but makes a null-free effect size the headline and demotes the bridge $p$-value to
 corroboration. It reuses the cached measurement-only reference fit and refits nothing.
@@ -40,7 +66,7 @@ carries a larger norm; the bootstrap tube below is what makes grains of differen
 ## The discriminant plane is a view, not the authority
 
 The class trajectories are drawn in the fixed between-class discriminant plane, the same linear-
-discriminant embedding the {doc}`trajectory <../investigations/tracking-the-classes-across-strata>`
+discriminant embedding the {doc}`trajectory <tracking-the-classes-across-strata>`
 figure fits once on the pooled classes. Because the plane is two-dimensional and the displacement is
 full-dimensional, a picture can flatter or hide the movement. Each class therefore carries an
 in-plane capture fraction, the fraction of its displacement that lies in the plane,
@@ -264,6 +290,13 @@ descriptive single-break locations on diagnosis year cluster around 2017, a few 
 DSM-5 boundary of 2013, consistent with the score-test break estimates; they are read with their
 bootstrap spread, not as a resolved changepoint, because the bridge confidence set saturates.
 
-Whether this recast is re-registered as the primary invariance read, and how it sits beside the
-frozen refit null of the pre-registration, is a decision recorded in the progress log rather than
-taken by the stage.
+## Limits
+
+The read is conditional on the pooled fit: it freezes the reference responsibilities and reweights,
+so it measures where the class centroids sit along the axis, not a re-estimated partition. The
+capture fractions warn that the discriminant-plane figures understate the movement; the
+full-dimensional, separation-scaled magnitude is the authoritative number. The specificity split on
+diagnostic era, where two classes clear the covariate controls and two do not, means the era verdict
+is not uniform across classes even though the joint test rejects. Whether this recast is
+re-registered as the primary invariance read, and how it sits beside the frozen refit null of the
+pre-registration, is a decision recorded in the progress log rather than taken by the stage.

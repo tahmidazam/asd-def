@@ -1,4 +1,4 @@
-# Tracking the classes across the strata
+# H0A pilot / H0F: tracking the classes across the strata
 
 :::{admonition} The question
 :class: note
@@ -169,7 +169,7 @@ The recurring discriminators are the developmental milestones (age at combined w
 toilet-trained) and the broad CBCL problem scores (total, conduct, anxious or depressed), all
 Benjamini-Hochberg significant at each class's peak-churn stratum. The probands who change class are
 the boundary cases whose milestone timing and problem burden sit between two profiles, the same ones
-the [stability analysis](stability-under-refitting) found move between fits.
+the [stability analysis](../archive/stability-under-refitting) found move between fits.
 
 ## Limits
 

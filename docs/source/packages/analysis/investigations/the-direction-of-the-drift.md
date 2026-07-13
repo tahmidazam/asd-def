@@ -1,4 +1,4 @@
-# The direction of the drift
+# H0E: the direction of the drift
 
 :::{admonition} The question
 :class: note
@@ -49,7 +49,7 @@ Significance comes from the family-clustered bootstrap, not the slope on its own
 upward bias. The net direction is fixed at its observed value and whole families are resampled, so
 siblings move together and the projected slope stays a fixed linear read whose two-sided bootstrap
 interval can cover zero. The mechanics, and the correctness gates that separate a planted trend from a
-planted excursion, are in the guide on {doc}`invariance as an effect size <../guides/invariance-as-an-effect-size>`.
+planted excursion, are in {doc}`invariance as an effect size <invariance-as-an-effect-size>`.
 
 The runs are on SPARK `2026-03-23` (11,704 probands), against the measurement-only reference fit
 `41ab0e38`, at 500 bootstrap replicates: era run `7a62da33` (coverage 99.5 per cent, bandwidth 1.87
@@ -120,4 +120,4 @@ net direction, so the era split is a statement about how each class drifts rathe
 the four are ranked on. What the directional read settles is narrower and firm: the age drift is a
 coherent trend across all four classes, the era drift is directional for three and a magnitude-only
 excursion for the fourth, and both separate direction from size on the same effect size the
-{doc}`invariance recast <../guides/invariance-as-an-effect-size>` measures.
+{doc}`invariance recast <invariance-as-an-effect-size>` measures.

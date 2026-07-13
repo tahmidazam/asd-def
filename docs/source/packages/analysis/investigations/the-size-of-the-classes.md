@@ -1,4 +1,4 @@
-# The size of the classes
+# H0B: the size of the classes
 
 :::{admonition} The question
 :class: note

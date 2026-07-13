@@ -2,46 +2,49 @@
 
 ## Investigations
 
+Each investigation tests one hypothesis from the labelled registry (H0A to H0J). See
+{doc}`the analysis package <packages/analysis/index>` for the full list, and its archive for the
+reproduction and replication work these tests depend on.
+
 ::::{grid} 1 1 2 2
 :gutter: 3
 
-:::{grid-item-card} 1. Reproducing the reference classes
-:link: packages/analysis/investigations/reproducing-the-reference-classes
+:::{grid-item-card} H0A / H0D. Invariance as an effect size
+:link: packages/analysis/investigations/invariance-as-an-effect-size
 :link-type: doc
 
-Do the four classes reproduce on the release held here, and can they be named as the authors
-named them?
+Are the class profiles invariant to diagnostic era or age at diagnosis, and is any drift small
+relative to the between-class separation?
 :::
 
-:::{grid-item-card} 2. Selecting the number of classes
-:link: packages/analysis/investigations/selecting-the-number-of-classes
+:::{grid-item-card} H0A corroboration. Score-based measurement invariance
+:link: packages/analysis/investigations/score-based-invariance
 :link-type: doc
 
-How many classes do the data support, and do the selection criteria back the authors' choice of
-four?
+Does a score-based fluctuation-process test corroborate the invariance read from the single
+cached fit?
 :::
 
-:::{grid-item-card} 3. Stability under refitting
-:link: packages/analysis/investigations/stability-under-refitting
+:::{grid-item-card} H0A pilot / H0F. Tracking the classes across the strata
+:link: packages/analysis/investigations/tracking-the-classes-across-strata
 :link-type: doc
 
-Do the classes survive re-initialisation and resampling, or are they an artefact of one fit or
-one sample?
+Do the classes hold across the strata, and is the drift spread evenly across the seven
+phenotypic categories?
 :::
 
-:::{grid-item-card} 4. The minimum viable stratum size
-:link: packages/analysis/investigations/the-minimum-stratum-size
+:::{grid-item-card} H0E. The direction of the drift
+:link: packages/analysis/investigations/the-direction-of-the-drift
 :link-type: doc
 
-How small can a stratum be before four-class recovery breaks down, which bounds the
-stratification bins?
+Does the drift have a direction, or is it a symmetric excursion?
 :::
 
-:::{grid-item-card} 5. Replicating in the SSC
-:link: packages/analysis/investigations/replicating-in-the-ssc
+:::{grid-item-card} H0B. The size of the classes
+:link: packages/analysis/investigations/the-size-of-the-classes
 :link-type: doc
 
-Do the four classes reappear in a second, independent cohort?
+Do the four classes make up the same share of the diagnosed population across the axis?
 :::
 
 ::::

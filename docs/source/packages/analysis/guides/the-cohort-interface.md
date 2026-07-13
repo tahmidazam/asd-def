@@ -47,7 +47,7 @@ On SPARK 2026-03-23 this yields 11,704 probands by 238 features, with sex and ag
 evaluation as covariates. That cohort is larger than the authors' 5,392, because the release
 is several years later and much larger; the reproduction is therefore judged on the class
 profile and proportions, not on the cohort size (see
-[Reproducing the reference classes](../investigations/reproducing-the-reference-classes.md)).
+[Reproducing the reference classes](../archive/reproducing-the-reference-classes.md)).
 
 ## The SSC backend
 

@@ -1,13 +1,33 @@
-# Score-based measurement invariance
+# H0A corroboration: score-based measurement invariance
 
-The drift stages ask whether the four reference classes move when the mixture is re-estimated
-inside strata of an axis, and pay for a fit and a permutation null in each stratum. The
-score-based test asks the same question from the single cached fit, with an analytic null and no
-refitting. It follows the empirical fluctuation process of Merkle and Zeileis (2013,
-*Psychometrika*) and Merkle, Fan and Zeileis (2014), read here against the axis of age at
-diagnosis or diagnosis year.
+:::{admonition} The question
+:class: note
 
-This guide describes the casewise score, the fluctuation process and its bridge null, the two
+Are the four class profiles invariant to diagnostic era and age at diagnosis (H0A), read a second
+way? The drift stages ask this by refitting the mixture inside strata of an axis, and paying for a
+fit and a permutation null in each stratum. The score-based test asks the same question from the
+single cached fit instead, with an analytic null and no refitting, following the empirical
+fluctuation process of Merkle and Zeileis (2013, *Psychometrika*) and Merkle, Fan and Zeileis
+(2014). It is the corroborating technique for H0A alongside the primary moving-window read in
+{doc}`invariance as an effect size <invariance-as-an-effect-size>`, sharing no machinery with it, so
+agreement between the two is not circular.
+:::
+
+:::{admonition} The result
+:class: tip
+
+The test corroborates the rejection of H0A but saturates at this sample size: on both axes, almost
+every whole-class and class-by-category block rejects at the smallest attainable bridge $p$-value,
+and the observed fluctuation process sits an order of magnitude above the simulated null band across
+the whole axis, not just at one point, the signature of a pervasive drift rather than a single sharp
+break. The break locations are diffuse rather than sharp: on diagnostic era they cluster near 2016,
+a few years after the DSM-5 (2013) boundary, and on age at diagnosis near the five-to-six year mark,
+both consistent with the descriptive breaks the effect-size read finds independently. Because the
+bridge confidence sets span nearly the whole axis at this sample size, the test corroborates
+direction and rough location; the effect size carries the primary magnitude read.
+:::
+
+This page describes the casewise score, the fluctuation process and its bridge null, the two
 statistics, the focal blocks, the correctness gates, and how to read the result. The stage is a
 pure consumer of the measurement-only reference fit and the axis, so it never refits the mixture.
 
@@ -157,6 +177,11 @@ far the break departs from the median (where the drift concentrates) and the sig
 directional slope (which way it goes). The whole trajectory is traced directly, rather than tested,
 by the kernel sweep and the pairwise-drift arms.
 
-The relationship of this test to the frozen refit null of the pre-registration, whether it
-supplements or replaces it and any re-pre-registration, is a decision recorded in the progress log
-rather than taken by the stage.
+## Limits
+
+The test's great power at this sample size makes the binary decision uninformative on its own; the
+break location and the directional slope carry the reading, not the rejection. The break confidence
+sets span nearly the whole axis, so the break locations are corroborating and descriptive, not
+resolved changepoints. The relationship of this test to the frozen refit null of the
+pre-registration, whether it supplements or replaces it and any re-pre-registration, is a decision
+recorded in the progress log rather than taken by the stage.
