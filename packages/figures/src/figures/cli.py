@@ -235,8 +235,8 @@ def local_specificity(
     """Plot the specificity small-multiple: timing-axis drift against the control panel.
 
     Reads the latest ``invariance-trajectory`` run for each timing axis and pools their endpoint
-    displacements, so the era and age effects are shown together against sex, area deprivation, and
-    the random-ordering floor.
+    displacements, so the era and age effects are shown together against household income, area
+    deprivation, and the random-ordering floor.
     """
     import pandas as pd
 

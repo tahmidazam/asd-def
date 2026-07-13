@@ -15,8 +15,9 @@ Three figures:
   within-class member ellipse, which answer different questions (where the centroid sits versus
   where the members spread);
 - :func:`specificity_figure` is the small-multiple that reads the separation-scaled endpoint
-  displacement of the timing axes against the control panel (sex, area deprivation, a random
-  ordering), so the timing effect is shown to be larger than a control rather than merely non-zero;
+  displacement of the timing axes against the control panel (household income, area deprivation, a
+  random ordering), so the timing effect is shown to be larger than a control rather than merely
+  non-zero;
 - :func:`directional_figure` (DIREC, plan 12b) draws each class's one-dimensional signed
   trajectory, the projection onto its net direction, with the clustered-bootstrap band and the
   descriptive single-break location, so a monotone trend and a boundary discontinuity are visible.
@@ -43,8 +44,9 @@ from figures.trajectory import (
 _LETTERS = ("A", "B", "C", "D")
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
 _NICE_CONTROL = {
-    "sex": "sex",
+    "household_income": "household income",
     "area_deprivation": "area deprivation",
+    "sex": "sex",
     "random": "random order",
     "era": "diagnostic era",
     "age_at_diagnosis": "age at diagnosis",
@@ -280,7 +282,7 @@ def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
         The single-panel figure.
     """
     timing = set(meta.get("timing_axes", ["era", "age_at_diagnosis"]))
-    order = ["era", "age_at_diagnosis", "area_deprivation", "sex", "random"]
+    order = ["era", "age_at_diagnosis", "area_deprivation", "household_income", "sex", "random"]
     present = [a for a in order if a in set(specificity["axis_name"])]
     means = specificity.groupby("axis_name")["endpoint_magnitude"].mean()
 

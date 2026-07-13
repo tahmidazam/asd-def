@@ -637,7 +637,7 @@ def test_local_specificity_figure_orders_axes() -> None:
         "era": 2.8,
         "age_at_diagnosis": 6.0,
         "area_deprivation": 2.1,
-        "sex": 0.8,
+        "household_income": 1.9,
         "random": 1.3,
     }
     for axis_name, base in magnitudes.items():
