@@ -104,22 +104,45 @@ effective probands at each focal point.
 A large magnitude alone does not separate genuine drift from noise accumulated across many features,
 because the norm of pure sampling noise is positive too. The specificity check reads the same
 separation-scaled endpoint displacement along control variables that are not the mechanism under
-test: sex, the area deprivation index, and a random ordering. The claim is comparative: the timing
-axes exceed the controls. The random ordering is the floor a meaningless axis produces, and area
-deprivation is a real socio-geographic variable that the class profiles may track, so it is a harder
-control than the random floor. This is a magnitude comparison, not a reject-or-not decision, because
-at this sample size everything rejects.
+test, and asks whether the timing axes exceed them.
+
+The controls are screened, not assumed. A valid control is a real proband-level covariate that is
+not the phenotype and is orthogonal to the timing axes. The phenotype is excluded on principle: the
+classes are defined on the 238 clustered features, so ordering probands by one of them, or by a
+symptom total correlated with them, moves the class centroids by construction, which is circular
+rather than a null. Orthogonality to timing is checked on the data: across the modelling cohort the
+rank correlation of each control with year of diagnosis and with age at diagnosis is near zero
+(household income about 0.07, area deprivation about 0.04), against 0.4 to 0.7 for variables that are
+timing by construction. Two graded covariates pass both tests, household income (a nine-band
+ordinal) and the 2019 area deprivation index, so the displacement trajectory has an axis to walk.
+Sex, used in an earlier version of the panel, is dropped: it is binary, so the trajectory is
+degenerate, and it is the least timing-orthogonal of the candidates.
+
+The panel brackets the timing effect. The random ordering is the floor a meaningless axis produces
+(mean displacement about 1.3 separation units). Household income (about 3.2) and area deprivation
+(about 2.1) are real covariates that the class profiles track through a non-timing pathway, so they
+are harder controls than the floor. A timing axis is above the noise floor if it clears the random
+ordering, and specific to timing if it also clears the two covariate controls. This is a magnitude
+comparison, not a reject-or-not decision, because at this sample size everything rejects.
 
 :::{figure} /_figures/local_specificity.png
-:alt: Bar chart of endpoint displacement for era, age, area deprivation, sex, and random order
+:alt: Bar chart of endpoint displacement for era, age, area deprivation, household income, and random order
 :width: 100%
 :align: center
 
 Endpoint displacement by axis, in separation units. The two timing axes (highlighted) sit above the
 control panel, with a dot per class on each bar. Age at diagnosis is the largest, carried by the
-developmental class; both timing axes clear the control mean (the dotted line), so the drift is above
-the noise floor a random ordering gives and larger than the sex and deprivation controls.
+developmental class; both timing axes clear the control mean (the dotted line), above the noise floor
+a random ordering gives and above the income and deprivation covariates.
 :::
+
+Specificity is read per class, not on the between-class mean, because a mean hides drift concentrated
+in one class. Along age at diagnosis all four classes clear every control, so the effect is specific
+throughout, and largest for the developmental class (endpoint about 10.9 separation units). Along
+diagnostic era the picture splits: the moderate-challenges and the developmental (Mixed ASD with DD)
+classes clear the covariate controls, while the broadly-affected and social-or-behavioral classes sit
+above the random floor but below their own household-income control, so their era drift is above
+noise but not specific to timing.
 
 ## Directionality (DIREC)
 
@@ -212,11 +235,14 @@ local-specificity` (the control-panel small-multiple, which reads both timing ax
 
 ## Reading the result
 
-On the reference release the two axes tell a consistent story. Diagnosis year and age at diagnosis
-both drift beyond the control panel: the separation-scaled endpoint displacement averages about 2.8
-along diagnosis year and about 6.0 along age at diagnosis, against 2.1 for area deprivation, 1.3 for
-the random floor, and 0.8 for sex. The age effect is the larger, carried by the developmental class
-(the Mixed ASD with developmental delay class moves furthest). Roughly a third of the per-feature
+On the reference release the two axes tell a consistent story with an honest split. The
+separation-scaled endpoint displacement averages about 2.8 along diagnosis year and about 6.0 along
+age at diagnosis, against a control panel of about 3.2 for household income, 2.1 for area
+deprivation, and 1.3 for the random floor. Age at diagnosis clears every control, on the mean and for
+all four classes. Diagnosis year clears the random floor and area deprivation, but its mean sits just
+below the household-income control, and per class only the moderate-challenges and developmental
+classes clear the covariate controls. The age effect is the larger, carried by the developmental
+class (the Mixed ASD with developmental delay class moves furthest). Roughly a third of the per-feature
 displacements survive the false-discovery step for diagnosis year and over half for age at
 diagnosis, so the drift is pervasive but not total: most single features stay within sampling noise
 while the class profiles as a whole move.

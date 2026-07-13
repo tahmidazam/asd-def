@@ -162,7 +162,12 @@ for the arc, or jump to one.
    the eight class-by-axis tests it does. Age at diagnosis moves every class the same way, led by
    the developmental class; diagnostic era splits, and the Moderate challenges class has a large
    era displacement but no directional trend, with the era breaks falling around 2017.
-8. {doc}`Do the class sizes shift? <investigations/the-size-of-the-classes>` Every class's
+8. {doc}`Which controls does the specificity check use? <investigations/choosing-the-specificity-controls>`
+   The negative controls are chosen by role and by a timing-orthogonality screen, not by convenience:
+   the phenotype and the clustered features are excluded on principle, leaving household income and
+   area deprivation against a random floor. The one control that decides the era verdict, household
+   income, is shown to be a genuine socioeconomic gradient rather than leaked phenotype.
+9. {doc}`Do the class sizes shift? <investigations/the-size-of-the-classes>` Every class's
    proportion trends on both axes. The developmental class falls from about a third of the
    earliest-diagnosed to almost none of the latest while the social class grows to three fifths; the
    era shift is milder, and its social rise is explained away by measurement timing while the age
@@ -217,6 +222,7 @@ investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
 investigations/tracking-the-classes-across-strata
 investigations/the-direction-of-the-drift
+investigations/choosing-the-specificity-controls
 investigations/the-size-of-the-classes
 :::
 

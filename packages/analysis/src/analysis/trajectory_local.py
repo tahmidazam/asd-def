@@ -659,7 +659,7 @@ class ControlComparison:
     ----------
     axis_magnitude, control_magnitude : float
         The observed, class-averaged, separation-scaled endpoint magnitude of the timing axis and
-        of the control variable (sex, area deprivation, or a random ordering).
+        of the control variable (household income, area deprivation, or a random ordering).
     difference : float
         ``axis_magnitude - control_magnitude``.
     diff_draws : numpy.ndarray
