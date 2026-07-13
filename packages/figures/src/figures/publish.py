@@ -64,6 +64,21 @@ FIGURES: tuple[FigureSpec, ...] = (
         "movers-age", "attribute", "attribution_movers_age_at_diagnosis", "age_at_diagnosis"
     ),
     FigureSpec("movers-era", "attribute", "attribution_movers_era", "era"),
+    FigureSpec(
+        "local-plane-age",
+        "invariance-trajectory",
+        "local_plane_age_at_diagnosis",
+        "age_at_diagnosis",
+    ),
+    FigureSpec("local-plane-era", "invariance-trajectory", "local_plane_era", "era"),
+    FigureSpec(
+        "local-panels-age",
+        "invariance-trajectory",
+        "local_panels_age_at_diagnosis",
+        "age_at_diagnosis",
+    ),
+    # The specificity small-multiple pools both timing axes and is written under the era run.
+    FigureSpec("local-specificity", "invariance-trajectory", "local_specificity", "era"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}

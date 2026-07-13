@@ -44,14 +44,16 @@ either cohort. Each stage and where its result is reported:
 | `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`Score-based measurement invariance <guides/score-based-invariance>` |
+| `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube, an in-plane capture fraction, and a control-panel specificity check. | {doc}`Invariance as an effect size <guides/invariance-as-an-effect-size>` |
 
 ## Technical guides
 
 How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
 the SSC milestone parsing, choosing the stratification bins, the two halves of the drift read
 (aligning a stratum to the reference and measuring how far each class moved), attributing a
-movement to the features and probands that carry it, and the score-based measurement-invariance
-test that reads the same question from the single cached fit.
+movement to the features and probands that carry it, the score-based measurement-invariance
+test that reads the same question from the single cached fit, and its recast as a null-free effect
+size.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -190,6 +192,7 @@ guides/aligning-stratum-classes
 guides/measuring-class-drift
 guides/attributing-class-movement
 guides/score-based-invariance
+guides/invariance-as-an-effect-size
 :::
 
 :::{toctree}
