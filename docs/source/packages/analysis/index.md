@@ -162,6 +162,11 @@ for the arc, or jump to one.
    the eight class-by-axis tests it does. Age at diagnosis moves every class the same way, led by
    the developmental class; diagnostic era splits, and the Moderate challenges class has a large
    era displacement but no directional trend, with the era breaks falling around 2017.
+8. {doc}`Do the class sizes shift? <investigations/the-size-of-the-classes>` Every class's
+   proportion trends on both axes. The developmental class falls from about a third of the
+   earliest-diagnosed to almost none of the latest while the social class grows to three fifths; the
+   era shift is milder, and its social rise is explained away by measurement timing while the age
+   shift is not.
 
 Several of these investigations carry a third condition alongside the full `2026-03-23` release
 and the published values: the cohort cut back to the records present at the authors' V9 freeze
@@ -212,6 +217,7 @@ investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
 investigations/tracking-the-classes-across-strata
 investigations/the-direction-of-the-drift
+investigations/the-size-of-the-classes
 :::
 
 :::{toctree}

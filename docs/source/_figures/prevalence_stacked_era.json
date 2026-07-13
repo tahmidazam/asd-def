@@ -1,0 +1,7 @@
+{
+  "figure": "prevalence-stacked-era",
+  "source_stage": "prevalence",
+  "source_run": "b01252478361c865",
+  "source_git_commit": "9d8ce85-dirty",
+  "figures_version": "0.6.0"
+}

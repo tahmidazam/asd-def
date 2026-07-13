@@ -90,6 +90,15 @@ FIGURES: tuple[FigureSpec, ...] = (
         "invariance-age", "invariance", "invariance_process_age_at_diagnosis", "age_at_diagnosis"
     ),
     FigureSpec("invariance-era", "invariance", "invariance_process_era", "era"),
+    FigureSpec("prevalence-age", "prevalence", "prevalence_age_at_diagnosis", "age_at_diagnosis"),
+    FigureSpec("prevalence-era", "prevalence", "prevalence_era", "era"),
+    FigureSpec(
+        "prevalence-stacked-age",
+        "prevalence",
+        "prevalence_stacked_age_at_diagnosis",
+        "age_at_diagnosis",
+    ),
+    FigureSpec("prevalence-stacked-era", "prevalence", "prevalence_stacked_era", "era"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}
