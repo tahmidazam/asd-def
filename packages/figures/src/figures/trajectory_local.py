@@ -16,7 +16,10 @@ Three figures:
   where the members spread);
 - :func:`specificity_figure` is the small-multiple that reads the separation-scaled endpoint
   displacement of the timing axes against the control panel (sex, area deprivation, a random
-  ordering), so the timing effect is shown to be larger than a control rather than merely non-zero.
+  ordering), so the timing effect is shown to be larger than a control rather than merely non-zero;
+- :func:`directional_figure` (DIREC, plan 12b) draws each class's one-dimensional signed
+  trajectory, the projection onto its net direction, with the clustered-bootstrap band and the
+  descriptive single-break location, so a monotone trend and a boundary discontinuity are visible.
 """
 
 from __future__ import annotations
@@ -321,4 +324,80 @@ def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
         )
         style.panel_title(ax, "A", "Specificity: timing drift against the control panel")
         ax.margins(x=0.04)
+    return fig
+
+
+def directional_figure(signed: pd.DataFrame, directional: pd.DataFrame, meta: dict) -> Figure:
+    """Build the DIREC figure: each class's one-dimensional signed trajectory along the axis.
+
+    Each class is projected onto its own net direction, giving a signed trajectory $s_k(f)$ whose
+    slope is the directional statistic. The clustered-bootstrap band is shaded, the horizontal
+    zero line is the pooled centroid, and a marker sits at the descriptive single-break location.
+    The legend carries each class's separation-scaled net trend with its interval and whether it
+    is directional, so the picture and the test agree.
+
+    Parameters
+    ----------
+    signed : pandas.DataFrame
+        The ``signed_trajectory_<axis>`` table (``ref_class``, ``position``, ``signed``,
+        ``band_lo``, ``band_hi``).
+    directional : pandas.DataFrame
+        The per-class ``directional_<axis>`` summary (``net_trend``, its interval, ``reject``,
+        ``break_position``).
+    meta : dict
+        The run's manifest metrics, carrying ``axis``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The single-panel figure.
+    """
+    classes = sorted(int(c) for c in signed["ref_class"].unique())
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    summary = directional.set_index("ref_class")
+    nice = _NICE_AXIS.get(str(meta.get("axis")), str(meta.get("axis")))
+
+    with style.house_style():
+        fig, ax = plt.subplots(figsize=(7.6, 5.0))
+        ax.axhline(0.0, color=style.REFERENCE_COLOUR, ls="-", lw=0.8, zorder=1)
+        for c in classes:
+            path = signed[signed["ref_class"] == c].sort_values("position")
+            pos = path["position"].to_numpy(dtype=float)
+            s = path["signed"].to_numpy(dtype=float)
+            colour = colours[c]
+            row = summary.loc[c]
+            ax.fill_between(
+                pos,
+                path["band_lo"].to_numpy(dtype=float),
+                path["band_hi"].to_numpy(dtype=float),
+                color=colour,
+                alpha=0.14,
+                lw=0,
+                zorder=2,
+            )
+            name = str(row["class_name"]).split()[0]
+            verdict = "directional" if bool(row["reject"]) else "ns"
+            label = (
+                f"{name}: net {row['net_trend']:+.1f} "
+                f"[{row['net_trend_lo']:+.1f}, {row['net_trend_hi']:+.1f}], {verdict}"
+            )
+            ax.plot(pos, s, color=colour, lw=1.6, zorder=4, label=label)
+            brk = float(row["break_position"])
+            if np.isfinite(brk):
+                ax.axvline(brk, color=colour, ls=":", lw=0.9, alpha=0.7, zorder=3)
+        ax.set_xlabel(f"{nice[0].upper()}{nice[1:]}")
+        ax.set_ylabel("Signed displacement along net direction (standardised)")
+        ax.legend(loc="best", fontsize=6.6)
+        style.panel_title(ax, "A", f"Directional drift of each class along {nice}")
+        ax.text(
+            0.5,
+            -0.15,
+            "dotted line: descriptive single-break location (the bridge supLM confidence set "
+            "saturates at full n)",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=6.4,
+            color="#555",
+        )
     return fig

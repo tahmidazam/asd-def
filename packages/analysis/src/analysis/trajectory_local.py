@@ -372,6 +372,20 @@ class BootstrapTube:
         The number of bootstrap replicates.
     clustered : bool
         Whether families (``True``) or probands (``False``) were resampled.
+    signed_slope : numpy.ndarray or None
+        The directional draws: per replicate, each class's signed net-projected slope (the
+        directional statistic of :func:`directional_statistic`), shape ``(n_boot, n_classes)``.
+        ``None`` when the tube was built without frozen net directions.
+    net_trend : numpy.ndarray or None
+        Per replicate, each class's separation-scaled net-trend displacement over the focal span,
+        shape ``(n_boot, n_classes)``; ``None`` as above.
+    signed_trajectory : numpy.ndarray or None
+        Per replicate, each class's one-dimensional signed trajectory projected onto its frozen
+        net direction, shape ``(n_boot, n_classes, n_focal)``; ``None`` as above. The band of this
+        is what the directional figure draws.
+    break_position : numpy.ndarray or None
+        Per replicate, each class's single-break location on the signed trajectory, shape
+        ``(n_boot, n_classes)``; ``None`` as above.
     """
 
     quantiles: tuple[float, ...]
@@ -381,6 +395,10 @@ class BootstrapTube:
     feature_displacement: np.ndarray
     n_boot: int
     clustered: bool
+    signed_slope: np.ndarray | None = None
+    net_trend: np.ndarray | None = None
+    signed_trajectory: np.ndarray | None = None
+    break_position: np.ndarray | None = None
 
 
 def _family_rows(families: np.ndarray) -> tuple[list[np.ndarray], np.ndarray]:
@@ -417,6 +435,7 @@ def clustered_bootstrap_tube(
     seed: int,
     clustered: bool = True,
     quantiles: tuple[float, ...] = (2.5, 50.0, 97.5),
+    net_directions: np.ndarray | None = None,
 ) -> BootstrapTube:
     """Bootstrap the displacement trajectory by resampling families (or probands).
 
@@ -427,6 +446,14 @@ def clustered_bootstrap_tube(
     reported focal point. The per-focal-point quantiles of those are the tube. Setting
     ``clustered=False`` resamples individual probands instead, the independent-bootstrap
     comparison that shows the family clustering is real rather than cosmetic.
+
+    When ``net_directions`` is given (each class's frozen unit direction from
+    :func:`directional_statistic`), each replicate also records the directional draws: the signed
+    net-projected slope, the separation-scaled net-trend displacement, the one-dimensional signed
+    trajectory, and the single-break location. Their per-class spread is the clustered-bootstrap
+    null the DIREC directional test reads against; freezing the direction at the observed value
+    keeps the projected slope a fixed linear functional, so it is signed and its interval can
+    honestly cover zero.
 
     Parameters
     ----------
@@ -450,6 +477,9 @@ def clustered_bootstrap_tube(
         Resample families (default) or individual probands.
     quantiles : tuple of float, optional
         The bootstrap quantiles kept in each band.
+    net_directions : numpy.ndarray, optional
+        Each class's frozen unit net direction, shape ``(n_classes, n_features)``. When given, the
+        directional draws are recorded; when ``None`` they are left off the tube.
 
     Returns
     -------
@@ -477,6 +507,13 @@ def clustered_bootstrap_tube(
     grain_draws = {name: np.empty((n_boot, n_classes, n_focal)) for name in grains}
     maha_draws = np.empty((n_boot, n_classes, n_focal))
     feature_draws = np.empty((n_boot, n_classes, n_features))
+    directional = net_directions is not None
+    focal_arr = np.asarray(focal_points, dtype=float)
+    span = float(focal_arr.max() - focal_arr.min()) if n_focal else 0.0
+    signed_draws = np.empty((n_boot, n_classes)) if directional else None
+    trend_draws = np.empty((n_boot, n_classes)) if directional else None
+    signed_traj_draws = np.empty((n_boot, n_classes, n_focal)) if directional else None
+    break_draws = np.empty((n_boot, n_classes)) if directional else None
 
     for b in range(n_boot):
         if clustered:
@@ -488,6 +525,7 @@ def clustered_bootstrap_tube(
         rb = responsibilities[rows]
         wb = focal_weights[rows]
         pooledb = pooled_centroids(xb, rb)
+        traj_std = np.empty((n_classes, n_focal, n_features)) if directional else None
         for j in range(n_focal):
             centroids = local_centroids(xb, rb, wb[:, j])
             disp = centroids - pooledb
@@ -499,8 +537,22 @@ def clustered_bootstrap_tube(
             maha_draws[b, :, j] = [
                 mahalanobis_magnitude(disp[k], precision) for k in range(n_classes)
             ]
+            std_disp = disp / pooled_sd
+            if traj_std is not None:
+                traj_std[:, j, :] = std_disp
             if j == focal_ref:
-                feature_draws[b, :, :] = disp / pooled_sd
+                feature_draws[b, :, :] = std_disp
+        if directional:
+            assert traj_std is not None and net_directions is not None
+            assert signed_draws is not None and trend_draws is not None
+            assert signed_traj_draws is not None and break_draws is not None
+            slope = slope_vectors(traj_std, focal_arr)
+            signed = np.nansum(slope * net_directions, axis=1)
+            traj_1d = project_onto(traj_std, net_directions)
+            signed_draws[b] = signed
+            trend_draws[b] = signed * span / separation_scale
+            signed_traj_draws[b] = traj_1d
+            break_draws[b] = [single_break(focal_arr, traj_1d[k]) for k in range(n_classes)]
 
     grain_bands = {
         name: np.stack([np.nanpercentile(draws, q, axis=0) for q in quantiles])
@@ -515,6 +567,10 @@ def clustered_bootstrap_tube(
         feature_displacement=feature_draws,
         n_boot=n_boot,
         clustered=clustered,
+        signed_slope=signed_draws,
+        net_trend=trend_draws,
+        signed_trajectory=signed_traj_draws,
+        break_position=break_draws,
     )
 
 
@@ -625,3 +681,362 @@ def category_grains(columns: list[str], category_map: dict[str, str]) -> dict[st
     for name in sorted(by_category):
         grains[f"category:{name}"] = np.asarray(by_category[name], dtype=int)
     return grains
+
+
+# =============================================================================================
+# DIREC: the directionality of the drift (plan sections 7e, 12b; hypotheses.md DIREC).
+#
+# MAGN asks how far a class drifts; DIREC asks whether that drift has a systematic trend along
+# the axis, as opposed to a non-directional excursion. The distinction matters because the local
+# centroid is nearest the pooled centroid at the axis interior, where the kernel window is most
+# balanced, so the magnitude |d_k(f)| is mechanically U-shaped and cannot answer direction. The
+# directional statistic is therefore built on the signed displacement and its slope, never on the
+# magnitude norm.
+#
+# The primitive is the per-feature ordinary-least-squares slope of the standardised displacement
+# d_k(f) / sigma against the axis position f, a slope vector b_k. Reducing b_k to a scalar by its
+# Euclidean norm would test direction, but the norm is positively biased (a class with no trend
+# still returns a positive norm from noise), so it cannot honestly cover zero. Instead the slope
+# is projected onto the class's net direction, the unit vector of its mean standardised
+# displacement across the focal grid. On an evenly spaced focal grid the slope contrast and the
+# mean contrast are orthogonal, so under no drift the projected slope has zero expectation: it is
+# a signed, unbiased directional statistic whose clustered-bootstrap interval can cover zero.
+# =============================================================================================
+
+
+def slope_vectors(traj_std: np.ndarray, focal_points: np.ndarray) -> np.ndarray:
+    r"""Return each class's per-feature ordinary-least-squares slope against the axis.
+
+    For the standardised displacement trajectory $D_k(f) = d_k(f) / \sigma$, the slope of feature
+    $m$ is $\sum_j (f_j - \bar f)\,D_k(f_j)[m] / \sum_j (f_j - \bar f)^2$, the univariate
+    least-squares slope of that feature's displacement on the axis position. The focal grid is
+    evenly spaced in axis units (:func:`analysis.localise.focal_grid`), so an equal weight per
+    focal point is an honest per-axis-unit trend on an irregularly sampled axis. A class is
+    regressed only over the focal points where its local centroid is defined; a class defined at
+    fewer than two focal points has an all-not-a-number slope.
+
+    Parameters
+    ----------
+    traj_std : numpy.ndarray
+        The standardised displacement trajectory, shape ``(n_classes, n_focal, n_features)``.
+    focal_points : numpy.ndarray
+        The axis positions the trajectory was read at, shape ``(n_focal,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The per-class slope vector $b_k$, shape ``(n_classes, n_features)``.
+    """
+    focal = np.asarray(focal_points, dtype=float)
+    n_classes, _, n_features = traj_std.shape
+    out = np.full((n_classes, n_features), np.nan)
+    for k in range(n_classes):
+        block = traj_std[k]
+        valid = np.isfinite(block).all(axis=1)
+        if valid.sum() < 2:
+            continue
+        centred = focal[valid] - focal[valid].mean()
+        denom = float((centred**2).sum())
+        if denom <= 0.0:
+            continue
+        out[k] = (centred @ block[valid]) / denom
+    return out
+
+
+def net_directions(traj_std: np.ndarray) -> np.ndarray:
+    r"""Return each class's unit net direction, the direction of its mean displacement.
+
+    The net direction $\hat u_k$ is the unit vector of the mean standardised displacement across
+    the focal grid, $\overline{D_k} / \lVert \overline{D_k} \rVert$. It is the axis the signed
+    directional statistic projects onto. A class whose mean displacement is negligible (a
+    symmetric excursion that cancels, or no drift) has an ill-defined direction and is given the
+    zero vector, so its projected slope is zero rather than a projection onto noise.
+
+    Parameters
+    ----------
+    traj_std : numpy.ndarray
+        The standardised displacement trajectory, shape ``(n_classes, n_focal, n_features)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The per-class unit net direction, shape ``(n_classes, n_features)``.
+    """
+    mean_disp = np.nan_to_num(np.nanmean(traj_std, axis=1))
+    norms = np.linalg.norm(mean_disp, axis=1, keepdims=True)
+    safe = np.where(norms > _WEIGHT_FLOOR, norms, 1.0)
+    unit = mean_disp / safe
+    unit[norms[:, 0] <= _WEIGHT_FLOOR] = 0.0
+    return unit
+
+
+def project_onto(traj_std: np.ndarray, directions: np.ndarray) -> np.ndarray:
+    r"""Return each class's one-dimensional signed trajectory along its net direction.
+
+    The projection $s_k(f) = \langle D_k(f), \hat u_k \rangle$ of the standardised displacement
+    onto the class's frozen net direction, a signed scalar per focal point. This is the
+    one-dimensional signed trajectory the directional figure draws and the changepoint read
+    localises a break on; positive values sit on the net-drift side of the pooled centroid.
+
+    Parameters
+    ----------
+    traj_std : numpy.ndarray
+        The standardised displacement trajectory, shape ``(n_classes, n_focal, n_features)``.
+    directions : numpy.ndarray
+        The per-class unit net direction, shape ``(n_classes, n_features)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The signed trajectory $s_k(f)$, shape ``(n_classes, n_focal)``.
+    """
+    return np.nansum(traj_std * directions[:, None, :], axis=2)
+
+
+def _segment_sse(positions: np.ndarray, values: np.ndarray) -> float:
+    """Return the residual sum of squares of a least-squares line through a segment."""
+    if positions.shape[0] < 2:
+        return 0.0
+    slope, intercept = np.polyfit(positions, values, 1)
+    residual = values - (slope * positions + intercept)
+    return float(residual @ residual)
+
+
+def single_break(positions: np.ndarray, series: np.ndarray, *, min_segment: int = 3) -> float:
+    r"""Return the single-break location of a one-dimensional signed trajectory.
+
+    A descriptive changepoint read: the axis position that best splits the signed trajectory into
+    two independent least-squares segments, minimising the combined residual sum of squares. The
+    break is reported at the midpoint of the two focal points it falls between. It is deliberately
+    two independent lines (a discontinuity is allowed), so a level shift such as a DSM-5 (2013)
+    boundary on the era axis is localised, not smoothed over. It is labelled descriptive: the
+    bridge supremum-LM confidence set saturates at the full sample size, so the break location is
+    read with its bootstrap spread rather than a resolved confidence set.
+
+    Parameters
+    ----------
+    positions : numpy.ndarray
+        The focal positions, shape ``(n_focal,)``.
+    series : numpy.ndarray
+        The one-dimensional signed trajectory, shape ``(n_focal,)``.
+    min_segment : int, optional
+        The fewest focal points each segment must hold.
+
+    Returns
+    -------
+    float
+        The break location in axis units, or not-a-number when the series is too short or flat.
+    """
+    positions = np.asarray(positions, dtype=float)
+    series = np.asarray(series, dtype=float)
+    finite = np.isfinite(positions) & np.isfinite(series)
+    positions = positions[finite]
+    series = series[finite]
+    n = positions.shape[0]
+    if n < 2 * min_segment:
+        return float("nan")
+    best_sse = np.inf
+    best_at = float("nan")
+    for i in range(min_segment - 1, n - min_segment):
+        sse = _segment_sse(positions[: i + 1], series[: i + 1]) + _segment_sse(
+            positions[i + 1 :], series[i + 1 :]
+        )
+        if sse < best_sse:
+            best_sse = sse
+            best_at = 0.5 * (positions[i] + positions[i + 1])
+    return best_at
+
+
+@dataclass
+class DirectionalResult:
+    r"""The observed per-class directional statistic of a displacement trajectory.
+
+    Attributes
+    ----------
+    slope : numpy.ndarray
+        The per-feature slope vector $b_k$, shape ``(n_classes, n_features)``.
+    net_direction : numpy.ndarray
+        The per-class unit net direction $\\hat u_k$, shape ``(n_classes, n_features)``.
+    signed_slope : numpy.ndarray
+        The signed net-projected slope $\\langle b_k, \\hat u_k\\rangle$, in standardised
+        displacement per axis unit, shape ``(n_classes,)``. The directional statistic.
+    net_trend : numpy.ndarray
+        The separation-scaled net-trend displacement, the signed slope times the focal span over
+        the between-class separation, shape ``(n_classes,)``; the interpretable effect size (how
+        far, in separation units, the linear trend carries the class across the axis).
+    signed_trajectory : numpy.ndarray
+        The one-dimensional signed trajectory $s_k(f)$, shape ``(n_classes, n_focal)``.
+    slope_norm : numpy.ndarray
+        The Euclidean norm of the slope vector, shape ``(n_classes,)``; reported for context and
+        known to be positively biased, so not the test statistic.
+    break_position : numpy.ndarray
+        The single-break location on each signed trajectory, shape ``(n_classes,)``.
+    span : float
+        The focal span (maximum minus minimum focal position), in axis units.
+    focal_points : numpy.ndarray
+        The focal positions, shape ``(n_focal,)``.
+    """
+
+    slope: np.ndarray
+    net_direction: np.ndarray
+    signed_slope: np.ndarray
+    net_trend: np.ndarray
+    signed_trajectory: np.ndarray
+    slope_norm: np.ndarray
+    break_position: np.ndarray
+    span: float
+    focal_points: np.ndarray
+
+
+def directional_statistic(
+    displacement: np.ndarray,
+    pooled_sd: np.ndarray,
+    focal_points: np.ndarray,
+    separation_scale: float,
+) -> DirectionalResult:
+    r"""Compute the observed per-class directional statistic of a displacement trajectory.
+
+    Standardises the displacement, fits the per-feature slope against the axis, projects it onto
+    the class's net direction to get the signed directional statistic, and scales it to a
+    separation-unit net-trend effect size. Also returns the one-dimensional signed trajectory, the
+    (biased) slope norm, and the single-break changepoint location. Pure and cheap: it consumes
+    the trajectory :func:`observed_trajectory` already computed and refits nothing.
+
+    Parameters
+    ----------
+    displacement : numpy.ndarray
+        The per-feature displacement $d_k(f)$, shape ``(n_classes, n_focal, n_features)``
+        (:attr:`ObservedTrajectory.displacement`).
+    pooled_sd : numpy.ndarray
+        The per-feature pooled standard deviation, shape ``(n_features,)``.
+    focal_points : numpy.ndarray
+        The focal positions, shape ``(n_focal,)``.
+    separation_scale : float
+        The between-class separation the net trend is divided by.
+
+    Returns
+    -------
+    DirectionalResult
+        The observed directional statistic and its parts.
+    """
+    focal = np.asarray(focal_points, dtype=float)
+    traj_std = displacement / pooled_sd
+    slope = slope_vectors(traj_std, focal)
+    unit = net_directions(traj_std)
+    signed = np.nansum(slope * unit, axis=1)
+    span = float(focal.max() - focal.min()) if focal.size else 0.0
+    net_trend = signed * span / separation_scale
+    signed_traj = project_onto(traj_std, unit)
+    slope_norm = np.sqrt(np.nansum(slope**2, axis=1))
+    breaks = np.array([single_break(focal, signed_traj[k]) for k in range(traj_std.shape[0])])
+    return DirectionalResult(
+        slope=slope,
+        net_direction=unit,
+        signed_slope=signed,
+        net_trend=net_trend,
+        signed_trajectory=signed_traj,
+        slope_norm=slope_norm,
+        break_position=breaks,
+        span=span,
+        focal_points=focal,
+    )
+
+
+@dataclass
+class DirectionalInference:
+    """The per-class directional test: effect size, clustered-bootstrap interval, and FDR.
+
+    Attributes
+    ----------
+    net_trend : numpy.ndarray
+        The observed separation-scaled net-trend displacement per class, shape ``(n_classes,)``.
+    net_trend_lo, net_trend_hi : numpy.ndarray
+        The clustered-bootstrap interval of the net trend, shape ``(n_classes,)``.
+    signed_slope : numpy.ndarray
+        The observed signed net-projected slope per class, shape ``(n_classes,)``.
+    signed_slope_lo, signed_slope_hi : numpy.ndarray
+        The clustered-bootstrap interval of the signed slope, shape ``(n_classes,)``.
+    p_value : numpy.ndarray
+        The two-sided bootstrap $p$-value that the signed slope differs from zero, shape
+        ``(n_classes,)``.
+    reject : numpy.ndarray
+        The Benjamini-Hochberg decision across the classes at level ``q``, shape ``(n_classes,)``;
+        a rejected class is directional along this axis.
+    break_position : numpy.ndarray
+        The observed single-break location per class, shape ``(n_classes,)``.
+    break_lo, break_hi : numpy.ndarray
+        The bootstrap spread of the break location, shape ``(n_classes,)``; descriptive.
+    """
+
+    net_trend: np.ndarray
+    net_trend_lo: np.ndarray
+    net_trend_hi: np.ndarray
+    signed_slope: np.ndarray
+    signed_slope_lo: np.ndarray
+    signed_slope_hi: np.ndarray
+    p_value: np.ndarray
+    reject: np.ndarray
+    break_position: np.ndarray
+    break_lo: np.ndarray
+    break_hi: np.ndarray
+
+
+def directional_inference(
+    observed: DirectionalResult, tube: BootstrapTube, *, q: float = 0.05
+) -> DirectionalInference:
+    r"""Test each class's directional statistic against the clustered-bootstrap null.
+
+    The signed net-projected slope is a signed scalar, so its clustered-bootstrap distribution
+    (frozen net direction, families resampled) gives a two-sided add-one $p$-value that it differs
+    from zero, floored at one over the replicate count plus one. Benjamini-Hochberg control is
+    applied across the classes at level ``q``; a rejected class is directional along the axis. The
+    net-trend and
+    signed-slope intervals are the bootstrap percentiles, and the break location carries its own
+    bootstrap spread. The clustered bootstrap, not the bare slope, calls significance, because the
+    slope norm is positively biased.
+
+    Parameters
+    ----------
+    observed : DirectionalResult
+        The observed directional statistic (:func:`directional_statistic`).
+    tube : BootstrapTube
+        The clustered-bootstrap tube built with the frozen net directions, carrying the
+        directional draws.
+    q : float, optional
+        The false-discovery-rate level across the classes.
+
+    Returns
+    -------
+    DirectionalInference
+        The per-class effect size, interval, $p$-value, FDR decision, and break spread.
+    """
+    if tube.signed_slope is None or tube.net_trend is None:
+        raise ValueError(
+            "the tube carries no directional draws; pass net_directions when building it"
+        )
+    signed_draws = tube.signed_slope
+    n_boot = signed_draws.shape[0]
+    frac_positive = np.mean(signed_draws > 0.0, axis=0)
+    tail = np.minimum(frac_positive, 1.0 - frac_positive)
+    p_value = np.clip(2.0 * tail, 1.0 / (n_boot + 1), 1.0)
+    reject = invariance.benjamini_hochberg(p_value, q)
+    break_draws = tube.break_position
+    if break_draws is not None:
+        break_lo = np.nanpercentile(break_draws, 2.5, axis=0)
+        break_hi = np.nanpercentile(break_draws, 97.5, axis=0)
+    else:
+        break_lo = np.full_like(observed.break_position, np.nan)
+        break_hi = np.full_like(observed.break_position, np.nan)
+    return DirectionalInference(
+        net_trend=observed.net_trend,
+        net_trend_lo=np.nanpercentile(tube.net_trend, 2.5, axis=0),
+        net_trend_hi=np.nanpercentile(tube.net_trend, 97.5, axis=0),
+        signed_slope=observed.signed_slope,
+        signed_slope_lo=np.nanpercentile(signed_draws, 2.5, axis=0),
+        signed_slope_hi=np.nanpercentile(signed_draws, 97.5, axis=0),
+        p_value=p_value,
+        reject=reject,
+        break_position=observed.break_position,
+        break_lo=break_lo,
+        break_hi=break_hi,
+    )

@@ -1,6 +1,6 @@
 """Correctness gates for the local class-profile displacement (plan section 7e recast).
 
-Five gates, all on synthetic data (governance: no participant data in tests):
+All on synthetic data (governance: no participant data in tests). The magnitude and tube gates:
 
 1. the frozen-responsibility identity: a whole-cohort window reproduces the pooled class means;
 2. a planted in-plane drift: the path moves in the planted direction, the tube excludes zero at
@@ -11,6 +11,14 @@ Five gates, all on synthetic data (governance: no participant data in tests):
 4. no drift: the per-feature FDR sits near nominal and the path stays inside its tube;
 5. the clustered bootstrap actually clusters: strongly within-family-correlated data yields a
    wider tube than an independent proband bootstrap.
+
+The DIREC directionality gates (plan sections 7e, 12b) then separate direction from magnitude:
+
+6. a monotone drift is flagged directional (its net-trend interval excludes zero);
+7. a symmetric excursion is a large magnitude but is NOT directional (the key gate);
+8. no drift rejects the directional test at about the nominal rate;
+9. the family bootstrap widens the slope interval over an iid one under within-family correlation;
+10. a step drift's single-break read localises near the planted boundary (the DSM-5 read).
 """
 
 from __future__ import annotations
@@ -104,6 +112,7 @@ class _World:
         seed: int,
         *,
         direction: str | None,
+        shape: str = "step",
         n_per: int = 260,
         n_features: int = 12,
         n_classes: int = 4,
@@ -112,6 +121,7 @@ class _World:
         drift_class: int = 1,
         family_size: int = 1,
         family_scale: float = 0.0,
+        shared_axis: bool = False,
     ) -> None:
         rng = np.random.default_rng(seed)
         n = n_per * n_classes
@@ -122,11 +132,18 @@ class _World:
         # Families: consecutive probands share a family, and (when family_scale > 0) a shared
         # family-level offset, so members are correlated within a family.
         families = np.arange(n) // family_size
+        n_families = int(families.max()) + 1
         if family_scale > 0.0:
-            offsets = rng.normal(0.0, family_scale, (families.max() + 1, n_features))
+            offsets = rng.normal(0.0, family_scale, (n_families, n_features))
             x = x + offsets[families]
 
-        axis = rng.uniform(0.0, 1.0, n)
+        # ``shared_axis`` gives every member of a family the same axis value (siblings diagnosed
+        # in the same era), the within-family correlation that reaches the slope: a common-mode
+        # offset alone cancels in the local-minus-pooled displacement and its slope.
+        if shared_axis:
+            axis = rng.uniform(0.0, 1.0, n_families)[families]
+        else:
+            axis = rng.uniform(0.0, 1.0, n)
 
         # The embedding is a fixed transform, fitted once on the pooled classes (as in the real
         # pipeline), so it is fitted here on the pre-drift data and never refitted. The planted
@@ -150,9 +167,20 @@ class _World:
             unit = np.zeros(n_features)
         else:  # pragma: no cover
             raise ValueError(direction)
-        moved = (z == drift_class) & (axis >= break_at)
+        # The drift shape along the axis: a step at ``break_at`` (the default, used by the
+        # magnitude gates), a monotone ramp, or a symmetric excursion (down then back, zero net
+        # trend but a large peak magnitude), which is how DIREC must separate direction from size.
+        if shape == "step":
+            factor = (axis >= break_at).astype(float)
+        elif shape == "monotone":
+            factor = axis
+        elif shape == "symmetric":
+            factor = -(1.0 - np.abs(2.0 * axis - 1.0))
+        else:  # pragma: no cover
+            raise ValueError(shape)
+        moved = z == drift_class
         x = x.copy()
-        x[moved] += delta * unit * pooled_sd_pre
+        x[moved] += (delta * factor[moved])[:, None] * unit * pooled_sd_pre
 
         # The pooled spread, reference, and precision are read on the observed (drifted) data; the
         # embedding stays the fixed transform above.
@@ -188,7 +216,15 @@ class _World:
             plane=self.plane,
         )
 
-    def tube(self, *, n_boot: int, seed: int, clustered: bool, focal_ref: int) -> tl.BootstrapTube:
+    def tube(
+        self,
+        *,
+        n_boot: int,
+        seed: int,
+        clustered: bool,
+        focal_ref: int,
+        net_directions: np.ndarray | None = None,
+    ) -> tl.BootstrapTube:
         return tl.clustered_bootstrap_tube(
             self.x,
             self.responsibilities,
@@ -205,7 +241,24 @@ class _World:
             n_boot=n_boot,
             seed=seed,
             clustered=clustered,
+            net_directions=net_directions,
         )
+
+    def directional(
+        self, obs: tl.ObservedTrajectory
+    ) -> tuple[tl.DirectionalResult, tl.DirectionalInference]:
+        """Return the observed directional statistic and its clustered-bootstrap inference."""
+        result = tl.directional_statistic(
+            obs.displacement, self.pooled_sd, self.focal_points, self.separation
+        )
+        tube = self.tube(
+            n_boot=250,
+            seed=0,
+            clustered=True,
+            focal_ref=obs.focal_ref,
+            net_directions=result.net_direction,
+        )
+        return result, tl.directional_inference(result, tube)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -320,4 +373,117 @@ def test_family_bootstrap_is_wider_than_iid_under_within_family_correlation():
     iid_spread = centroid_spread(iid)
     assert family_spread > 1.3 * iid_spread, (
         f"family bootstrap not wider (family={family_spread:.3f}, iid={iid_spread:.3f})"
+    )
+
+
+# ---------------------------------------------------------------------------------------------
+# DIREC gates: directionality of the drift (plan sections 7e, 12b; hypotheses.md DIREC).
+#
+# Five gates, all synthetic. The first is the whole point: a large but non-directional excursion
+# must NOT be flagged, so DIREC separates direction from magnitude (MAGN).
+# ---------------------------------------------------------------------------------------------
+
+
+def test_monotone_drift_is_flagged_directional():
+    """A monotone drift: a large net trend whose bootstrap interval excludes zero, FDR-rejected."""
+    world = _World(11, direction="in-plane", shape="monotone")
+    obs = world.observed()
+    result, inference = world.directional(obs)
+    c = world.drift_class
+
+    # The net-trend interval sits entirely off zero, and the class is directional under FDR.
+    lo, hi = inference.net_trend_lo[c], inference.net_trend_hi[c]
+    assert lo * hi > 0.0, f"net-trend interval spans zero ({lo:.3f}, {hi:.3f})"
+    assert abs(result.net_trend[c]) > 1.0, f"net trend too small ({result.net_trend[c]:.3f})"
+    assert inference.reject[c], "monotone drift not flagged directional"
+    # The drift class's net trend dwarfs the static classes': the direction is concentrated where
+    # it was planted. (Which static classes clear FDR is left to the no-drift gate, since once a
+    # strong true positive sets a low p-floor, Benjamini-Hochberg legitimately admits a static
+    # class at about the nominal rate.)
+    others = [k for k in range(world.n_classes) if k != c]
+    assert abs(result.net_trend[c]) > 4.0 * max(abs(result.net_trend[k]) for k in others), (
+        "drift-class net trend not concentrated"
+    )
+
+
+def test_symmetric_excursion_is_large_but_not_directional():
+    """The key gate: a symmetric excursion is a large MAGN magnitude with no directional trend."""
+    world = _World(12, direction="in-plane", shape="symmetric")
+    obs = world.observed()
+    result, inference = world.directional(obs)
+    c = world.drift_class
+
+    # MAGN is large: the peak whole-class magnitude is well above the no-drift floor.
+    peak_magnitude = float(np.nanmax(obs.grain_magnitude["class"][c]))
+    assert peak_magnitude > 0.3, (
+        f"excursion magnitude too small to test the gate ({peak_magnitude:.3f})"
+    )
+    # DIREC is null: the net trend is near zero and its interval covers zero, so the excursion is
+    # not mistaken for direction.
+    lo, hi = inference.net_trend_lo[c], inference.net_trend_hi[c]
+    assert lo <= 0.0 <= hi, f"symmetric excursion interval excludes zero ({lo:.3f}, {hi:.3f})"
+    assert not inference.reject[c], "symmetric excursion wrongly flagged directional"
+
+
+def test_no_drift_directional_false_positive_near_nominal():
+    """With no drift the directional test rejects at about the nominal rate across seeds."""
+    rejections = 0
+    total = 0
+    for seed in range(24):
+        world = _World(100 + seed, direction=None, shape="monotone")
+        obs = world.observed()
+        _result, inference = world.directional(obs)
+        rejections += int(inference.reject.sum())
+        total += inference.reject.size
+    rate = rejections / total
+    assert rate < 0.12, f"directional test over-rejects under no drift ({rate:.3f})"
+
+
+def test_family_bootstrap_widens_slope_ci_over_iid():
+    """Within-family correlation on the axis widens the family slope interval over an iid one."""
+    world = _World(
+        13,
+        direction="in-plane",
+        shape="monotone",
+        family_size=8,
+        family_scale=3.0,
+        shared_axis=True,
+    )
+    obs = world.observed()
+    result = tl.directional_statistic(
+        obs.displacement, world.pooled_sd, world.focal_points, world.separation
+    )
+
+    def slope_spread(clustered: bool) -> float:
+        tube = world.tube(
+            n_boot=250,
+            seed=3,
+            clustered=clustered,
+            focal_ref=obs.focal_ref,
+            net_directions=result.net_direction,
+        )
+        assert tube.signed_slope is not None
+        return float(np.std(tube.signed_slope[:, world.drift_class]))
+
+    family_spread = slope_spread(True)
+    iid_spread = slope_spread(False)
+    assert family_spread > 1.3 * iid_spread, (
+        f"family slope interval not wider (family={family_spread:.4f}, iid={iid_spread:.4f})"
+    )
+
+
+def test_step_drift_localises_the_changepoint():
+    """A step drift's single-break read localises near the planted boundary (the DSM-5 read)."""
+    world = _World(14, direction="in-plane", shape="step", break_at=0.5)
+    obs = world.observed()
+    result, inference = world.directional(obs)
+    c = world.drift_class
+
+    # The observed break sits near the planted 0.5, and its bootstrap spread brackets it.
+    assert abs(result.break_position[c] - 0.5) < 0.12, (
+        f"break off the planted boundary ({result.break_position[c]:.3f})"
+    )
+    assert inference.break_lo[c] <= 0.5 <= inference.break_hi[c], (
+        f"break spread misses the boundary ([{inference.break_lo[c]:.3f}, "
+        f"{inference.break_hi[c]:.3f}])"
     )

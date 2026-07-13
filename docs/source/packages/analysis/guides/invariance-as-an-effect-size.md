@@ -121,6 +121,35 @@ developmental class; both timing axes clear the control mean (the dotted line), 
 the noise floor a random ordering gives and larger than the sex and deprivation controls.
 :::
 
+## Directionality (DIREC)
+
+The magnitude answers how far a class drifts; it does not answer whether the drift has a systematic
+trend along the axis. That distinction matters, because the local centroid sits nearest the pooled
+centroid at the axis interior, where the kernel window is most balanced, so the magnitude is
+mechanically U-shaped and cannot read direction. The directional statistic is therefore built on the
+signed displacement, never on the magnitude norm.
+
+For each class the standardised displacement $d_k(f)/\sigma$ is regressed on the axis position $f$,
+one ordinary-least-squares slope per feature, giving a slope vector $b_k$. The focal grid is evenly
+spaced in axis units, so an equal weight per focal point is an honest per-axis-unit trend on an
+irregularly sampled axis. Reducing $b_k$ to its Euclidean norm would read direction but is positively
+biased, so the slope is instead projected onto the class's net direction, the unit vector of its mean
+displacement across the grid. On an evenly spaced grid the slope contrast and the mean contrast are
+orthogonal, so under no drift this projected slope has zero expectation: a signed, unbiased statistic
+whose clustered-bootstrap interval can honestly cover zero. Scaled by the focal span over the
+between-class separation, it is the net-trend effect size, how far in separation units the linear
+trend carries the class across the axis.
+
+Significance comes from the family-clustered bootstrap, not the bare slope, because of that bias: the
+net direction is frozen at the observed value and the families are resampled, so the projected slope
+stays a fixed linear functional and its two-sided bootstrap $p$-value is calibrated. The decision is
+Benjamini-Hochberg controlled across the four classes within an axis, and across the four classes and
+both axes when the two runs are read together. A secondary, descriptive changepoint read fits a
+single break to the one-dimensional signed trajectory (two independent least-squares segments, so a
+level shift such as the DSM-5 (2013) boundary on diagnosis year is localised rather than smoothed),
+reported with its bootstrap spread; it is labelled descriptive because the bridge supremum-LM
+confidence set saturates at the full sample size.
+
 ## Corroboration
 
 Two corroborating reads sit beside the effect size. The covariance-aware Mahalanobis magnitude uses
@@ -132,8 +161,8 @@ dropped.
 
 ## The correctness gates
 
-The stage underwrites a scientific claim, so five gates, on synthetic data, guard it before any real
-reading is trusted:
+The stage underwrites a scientific claim, so gates on synthetic data guard it before any real
+reading is trusted. The magnitude and tube gates:
 
 1. a whole-cohort window reproduces the pooled fit's class means to machine precision, the frozen-
    responsibility identity;
@@ -145,6 +174,16 @@ reading is trusted:
    nominal, so the tube is calibrated;
 5. strongly within-family-correlated data yields a wider tube under family resampling than under an
    independent-proband bootstrap, so the family clustering is real rather than cosmetic.
+
+The DIREC directionality gates then separate direction from magnitude:
+
+6. a planted monotone drift is flagged directional, its net-trend interval excluding zero;
+7. a symmetric excursion (down then back) has a large magnitude but a net trend whose interval
+   covers zero, so it is not mistaken for direction, the gate the whole read exists for;
+8. with no drift the directional test rejects at about the nominal rate across seeds;
+9. within-family correlation on the axis widens the slope interval under family resampling over an
+   independent-proband one, so the clustered bootstrap is doing the work significance rests on;
+10. a planted step drift's single-break read localises near the planted boundary.
 
 ## Running it
 
@@ -162,8 +201,13 @@ table. Every output is class or feature level, so nothing per-proband leaves the
 skips the control panel, `--n-boot` sets the bootstrap replicates (500 by default), and the run hash
 folds in the reference fit, the axis, the bandwidth, and the bootstrap settings.
 
+It also writes the DIREC tables: the per-class directional summary (the net-trend effect size with
+its interval, the two-sided bootstrap $p$-value, the Benjamini-Hochberg decision, and the descriptive
+break with its spread) and the one-dimensional signed trajectory with its band.
+
 The figures are built with `uv run figures local-trajectory --axis <axis>` (the combined plane),
-`uv run figures local-panels --axis <axis>` (the per-class panels), and `uv run figures
+`uv run figures local-panels --axis <axis>` (the per-class panels), `uv run figures
+local-directional --axis <axis>` (the signed directional trajectories), and `uv run figures
 local-specificity` (the control-panel small-multiple, which reads both timing axes).
 
 ## Reading the result
@@ -182,6 +226,17 @@ high-dimensional and mostly out of the between-class discriminant plane. The sho
 the trajectory figures are not the size of the effect; the full-dimensional magnitude is. In
 root-mean-square terms the diagnosis-year magnitude is about a fifth of a class gap, which matches
 the movement the refit-based drift stage measured on the hard bins, so the two methods triangulate.
+
+The drift is also directional. Along age at diagnosis all four classes carry a net trend whose
+interval excludes zero, in the same sense, with the developmental class moving furthest; the drift is
+monotone, not a symmetric excursion. Along diagnosis year the picture is a split: the Broadly affected
+and Social or behavioral classes trend one way while the Mixed ASD with developmental delay class
+trends the other, and the Moderate challenges class shows a large endpoint magnitude but no
+directional trend (its net-trend interval covers zero). So the Moderate era movement is a
+non-directional excursion, exactly the case the magnitude alone cannot tell from a trend. The
+descriptive single-break locations on diagnosis year cluster around 2017, a few years after the
+DSM-5 boundary of 2013, consistent with the score-test break estimates; they are read with their
+bootstrap spread, not as a resolved changepoint, because the bridge confidence set saturates.
 
 Whether this recast is re-registered as the primary invariance read, and how it sits beside the
 frozen refit null of the pre-registration, is a decision recorded in the progress log rather than

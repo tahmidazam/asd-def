@@ -3060,6 +3060,7 @@ def invariance_trajectory(
         "names": name_source,
         "axis": axis,
         "quantity": "local-centroid-displacement;frozen-responsibilities",
+        "directional": "signed-net-projected-slope;single-break;v1",
         "bandwidth": bandwidth,
         "n_points": n_points,
         "n_boot": n_boot,
@@ -3089,6 +3090,12 @@ def invariance_trajectory(
                 precision=precision,
                 plane=plane,
             )
+            # DIREC: the observed directional statistic (signed net-projected slope). Its net
+            # directions are frozen here and handed to the bootstrap, so the projected slope stays
+            # a fixed linear functional and its clustered-bootstrap interval can cover zero.
+            directional = tl.directional_statistic(
+                observed.displacement, pooled_sd, focal_points, separation_scale
+            )
             tube = tl.clustered_bootstrap_tube(
                 x_cov,
                 resp_cov,
@@ -3104,9 +3111,11 @@ def invariance_trajectory(
                 focal_ref=observed.focal_ref,
                 n_boot=n_boot,
                 seed=seed,
+                net_directions=directional.net_direction,
             )
             observed_endpoint = observed.displacement[:, observed.focal_ref] / pooled_sd
             inference = tl.per_feature_inference(observed_endpoint, tube.feature_displacement, q=q)
+            directional_inf = tl.directional_inference(directional, tube, q=q)
 
             # The fixed anchors and member ellipses of the pooled classes, in the embedding.
             anchor_ld = trajectory_mod.project(
@@ -3126,6 +3135,15 @@ def invariance_trajectory(
                 inference=inference,
                 anchor_ld=anchor_ld,
                 member_cov=member_cov,
+            )
+            _write_directional_artefacts(
+                ctx,
+                axis=axis,
+                name_of=name_of,
+                observed=observed,
+                directional=directional,
+                directional_inf=directional_inf,
+                tube=tube,
             )
 
             specificity_rows: list[dict] = []
@@ -3195,6 +3213,19 @@ def invariance_trajectory(
             "n_features_tested": int(inference.reject.size),
             "control_bandwidths": control_bandwidths,
             "score_test_corroboration": corroboration,
+            "directional": {
+                "net_trend_by_class": [round(float(v), 4) for v in directional_inf.net_trend],
+                "net_trend_ci": [
+                    [round(float(lo), 4), round(float(hi), 4)]
+                    for lo, hi in zip(
+                        directional_inf.net_trend_lo, directional_inf.net_trend_hi, strict=True
+                    )
+                ],
+                "p_value_by_class": [round(float(v), 4) for v in directional_inf.p_value],
+                "reject_by_class": [bool(v) for v in directional_inf.reject],
+                "n_directional": int(directional_inf.reject.sum()),
+                "break_by_class": [round(float(v), 4) for v in directional_inf.break_position],
+            },
             "resources": resources.to_dict(),
         }
     typer.echo(f"invariance-trajectory {axis}: run {cache.short_hash(ctx.run_hash)}")
@@ -3211,6 +3242,15 @@ def invariance_trajectory(
     )
     typer.echo(
         f"  {n_reject}/{inference.reject.size} per-feature displacements survive FDR (q={q})"
+    )
+    typer.echo(
+        "  directional (net trend, sep units): "
+        + ", ".join(
+            f"{name_of.get(c, c)} {directional_inf.net_trend[c]:+.2f} "
+            f"[{directional_inf.net_trend_lo[c]:+.2f},{directional_inf.net_trend_hi[c]:+.2f}] "
+            f"{'DIRECTIONAL' if directional_inf.reject[c] else 'ns'}"
+            for c in range(n_classes)
+        )
     )
 
 
@@ -3344,6 +3384,77 @@ def _write_local_trajectory_artefacts(
             }
         )
     cache.save_frame(pd.DataFrame(capture_rows), ctx.path(f"capture_{axis}.parquet"))
+
+
+def _write_directional_artefacts(
+    ctx,
+    *,
+    axis: str,
+    name_of: dict,
+    observed,
+    directional,
+    directional_inf,
+    tube,
+) -> None:
+    """Write the DIREC tables of a local-trajectory run (plan sections 7e, 12b).
+
+    Two aggregate artefacts: the per-class directional summary (the separation-scaled net-trend
+    effect size with its clustered-bootstrap interval, the signed-slope interval, the two-sided
+    bootstrap ``p``, the Benjamini-Hochberg decision across the four classes, the biased slope
+    norm for context, and the descriptive single-break location with its bootstrap spread); and
+    the per-class one-dimensional signed trajectory with its bootstrap band, the figure's series.
+    """
+    import numpy as np
+    import pandas as pd
+
+    n_classes = observed.displacement.shape[0]
+
+    directional_rows: list[dict] = []
+    for c in range(n_classes):
+        directional_rows.append(
+            {
+                "ref_class": c,
+                "class_name": name_of.get(c, str(c)),
+                "net_trend": float(directional_inf.net_trend[c]),
+                "net_trend_lo": float(directional_inf.net_trend_lo[c]),
+                "net_trend_hi": float(directional_inf.net_trend_hi[c]),
+                "signed_slope": float(directional_inf.signed_slope[c]),
+                "signed_slope_lo": float(directional_inf.signed_slope_lo[c]),
+                "signed_slope_hi": float(directional_inf.signed_slope_hi[c]),
+                "slope_norm": float(directional.slope_norm[c]),
+                "p_value": float(directional_inf.p_value[c]),
+                "reject": bool(directional_inf.reject[c]),
+                "break_position": float(directional_inf.break_position[c]),
+                "break_lo": float(directional_inf.break_lo[c]),
+                "break_hi": float(directional_inf.break_hi[c]),
+            }
+        )
+    cache.save_frame(pd.DataFrame(directional_rows), ctx.path(f"directional_{axis}.parquet"))
+
+    # The one-dimensional signed trajectory per class: the observed projection onto the frozen net
+    # direction, with the clustered-bootstrap band (2.5 and 97.5 percentiles of the resampled
+    # projection). This is what the DIREC figure draws.
+    if tube.signed_trajectory is not None:
+        band_lo = np.nanpercentile(tube.signed_trajectory, 2.5, axis=0)
+        band_hi = np.nanpercentile(tube.signed_trajectory, 97.5, axis=0)
+    else:  # pragma: no cover - the CLI always passes net directions
+        band_lo = np.full_like(observed.grain_magnitude["class"], np.nan)
+        band_hi = band_lo
+    signed_rows: list[dict] = []
+    for c in range(n_classes):
+        for j, position in enumerate(observed.focal_points):
+            signed_rows.append(
+                {
+                    "ref_class": c,
+                    "class_name": name_of.get(c, str(c)),
+                    "focal_index": j,
+                    "position": float(position),
+                    "signed": float(directional.signed_trajectory[c, j]),
+                    "band_lo": float(band_lo[c, j]),
+                    "band_hi": float(band_hi[c, j]),
+                }
+            )
+    cache.save_frame(pd.DataFrame(signed_rows), ctx.path(f"signed_trajectory_{axis}.parquet"))
 
 
 def _member_covariance(embedding, ref_labels, measurement_data, n_classes):

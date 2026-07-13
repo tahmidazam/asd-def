@@ -322,6 +322,24 @@ def load_local_specificity(run_directory: Path) -> pd.DataFrame:
     return cache.load_frame(run_directory / f"specificity_{axis}.parquet")
 
 
+def load_local_directional(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Load an ``invariance-trajectory`` run's DIREC tables and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(signed, directional, meta)``: the ``signed_trajectory_<axis>`` table (per class per
+        focal point, the one-dimensional signed trajectory with its bootstrap band), the per-class
+        ``directional_<axis>`` summary (net trend, interval, ``p``, FDR decision, break), and the
+        manifest metrics (``axis``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    signed = cache.load_frame(run_directory / f"signed_trajectory_{axis}.parquet")
+    directional = cache.load_frame(run_directory / f"directional_{axis}.parquet")
+    return signed, directional, manifest.get("metrics", {})
+
+
 def class_names(root: Path, axis: str) -> dict[int, str]:
     """Return the reference-class id to name map for an axis, from its `trajectory` run.
 

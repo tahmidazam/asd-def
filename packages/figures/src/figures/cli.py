@@ -27,7 +27,12 @@ from figures.selection import selection_figure
 from figures.stability import stability_figure
 from figures.sweep import sweep_trajectory_figure
 from figures.trajectory import trajectory_figure
-from figures.trajectory_local import panels_figure, plane_figure, specificity_figure
+from figures.trajectory_local import (
+    directional_figure,
+    panels_figure,
+    plane_figure,
+    specificity_figure,
+)
 
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
 
@@ -251,6 +256,28 @@ def local_specificity(
     merged = pd.concat(frames, ignore_index=True)
     figure = specificity_figure(merged, {"timing_axes": ["era", "age_at_diagnosis"]})
     _write(root, "invariance-trajectory", source_dir, figure, name or "local_specificity", fmt)
+
+
+@app.command(name="local-directional")
+def local_directional(
+    axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the DIREC figure: each class's signed trajectory along the axis, with its break."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
+    signed, directional, meta = data.load_local_directional(run_directory)
+    figure = directional_figure(signed, directional, {**meta, "axis": axis})
+    _write(
+        root,
+        "invariance-trajectory",
+        run_directory,
+        figure,
+        name or f"local_directional_{axis}",
+        fmt,
+    )
 
 
 @app.command()
