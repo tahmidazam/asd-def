@@ -79,6 +79,10 @@ FIGURES: tuple[FigureSpec, ...] = (
     ),
     # The specificity small-multiple pools both timing axes and is written under the era run.
     FigureSpec("local-specificity", "invariance-trajectory", "local_specificity", "era"),
+    FigureSpec(
+        "invariance-age", "invariance", "invariance_process_age_at_diagnosis", "age_at_diagnosis"
+    ),
+    FigureSpec("invariance-era", "invariance", "invariance_process_era", "era"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}

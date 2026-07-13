@@ -102,6 +102,40 @@ the fluctuation process of the strongest-drifting category block, which `uv run 
 The run hash folds in the reference fit, the axis, the focal-block specification, the number of
 simulations and the seed, so each configuration caches as its own run.
 
+## The fluctuation process
+
+The figure draws the squared norm $\lVert B(t) \rVert^2$ of the strongest-drifting category block
+against the axis, with the pointwise envelope of the simulated bridge null shaded beneath (note the
+logarithmic vertical axis). Both curves are arches, pinned to zero at each end: the cumulative
+score starts at zero over no probands and returns to zero over all of them, because the full-sample
+score vanishes at the fit. The null band traces the bridge variance $t(1-t)$, widest in the middle
+where a process tied at both ends has the most room to wander. A class that were stable would sit
+inside that band; the observed curve instead climbs an order of magnitude above it across the whole
+axis, the signature of a pervasive drift rather than a single sharp break.
+
+:::{figure} /_figures/invariance_process_age_at_diagnosis.png
+:alt: Squared fluctuation process against age at diagnosis, far above the simulated bridge null band
+:width: 100%
+:align: center
+
+Age at diagnosis, the strongest class-by-category block (Social or behavioral, social and
+communication features). The observed process (orange) sits well above the bridge null band (grey)
+from early childhood on, and peaks near the median age at diagnosis. The peak is labelled a break,
+but its breadth and wide confidence set mark it as a diffuse, continuous drift; the peak of a
+smoothly drifting process falls at the axis median by construction, not at a change point.
+:::
+
+:::{figure} /_figures/invariance_process_era.png
+:alt: Squared fluctuation process against diagnosis year, far above the simulated bridge null band
+:width: 100%
+:align: center
+
+Diagnostic era, the same block. The excursion above the null band grows through the 2010s, with the
+social and communication scores trending upward with diagnosis year (a positive directional slope).
+The break near 2016 is again close to the median diagnosis year, so it reads as the centre of a
+continuous change over the era rather than an abrupt one.
+:::
+
 ## Reading the result
 
 The test consumes the marginal (measurement-only) reference, so its estimand matches the kernel
@@ -113,6 +147,15 @@ classes and categories drift most, and where. Second, confirm against a permuted
 ordering under which there is no drift; the $p$-values there are uniform and nothing survives the
 false-discovery-rate step, which is what separates genuine axis-associated drift from the
 large-sample tendency to reject.
+
+Read the break against the axis median rather than as an event. The maxLM statistic borrows its
+name from change-point testing, where the peak locates an abrupt shift, but it also has power
+against smooth drift, and for a smoothly drifting parameter the peak falls at the axis median by
+construction. So a break that sits at the median, with a wide confidence set and a significant
+Cramer-von Mises statistic, is continuous drift, not a discontinuity; the informative signal is how
+far the break departs from the median (where the drift concentrates) and the sign of the
+directional slope (which way it goes). The whole trajectory is traced directly, rather than tested,
+by the kernel sweep and the pairwise-drift arms.
 
 The relationship of this test to the frozen refit null of the pre-registration, whether it
 supplements or replaces it and any re-pre-registration, is a decision recorded in the progress log
