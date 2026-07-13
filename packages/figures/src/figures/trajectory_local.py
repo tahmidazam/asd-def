@@ -20,7 +20,11 @@ Three figures:
   non-zero;
 - :func:`directional_figure` (DIREC, plan 12b) draws each class's one-dimensional signed
   trajectory, the projection onto its net direction, with the clustered-bootstrap band and the
-  descriptive single-break location, so a monotone trend and a boundary discontinuity are visible.
+  descriptive single-break location, so a monotone trend and a boundary discontinuity are visible;
+- :func:`referent_figure` (ATTR-REF, era only) draws, per class, the size-fair current-state and
+  retrospective root-mean-square drift intensity with the per-instrument underlay, so the
+  measurement-timing signature (current-dominant) and the diagnosed-population signature
+  (retrospective-dominant) are read off the two-way split.
 """
 
 from __future__ import annotations
@@ -43,6 +47,14 @@ from figures.trajectory import (
 
 _LETTERS = ("A", "B", "C", "D")
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
+_NICE_REFERENT = {"current_state": "current state", "retrospective": "retrospective"}
+_NICE_INSTRUMENT = {
+    "rbsr": "RBS-R",
+    "cbcl_6_18": "CBCL 6-18",
+    "scq": "SCQ (Lifetime)",
+    "background_history_child": "milestones / history",
+    "background_history_sibling": "sibling history",
+}
 _NICE_CONTROL = {
     "household_income": "household income",
     "area_deprivation": "area deprivation",
@@ -399,6 +411,121 @@ def directional_figure(signed: pd.DataFrame, directional: pd.DataFrame, meta: di
             transform=ax.transAxes,
             ha="center",
             va="top",
+            fontsize=6.4,
+            color="#555",
+        )
+    return fig
+
+
+def referent_figure(grains: pd.DataFrame, contrast: pd.DataFrame, meta: dict) -> Figure:
+    """Build the ATTR-REF figure: per-class current-versus-retrospective drift intensity.
+
+    One panel per class. Two bars give the size-fair root-mean-square displacement intensity of the
+    current-state referent (RBS-R, CBCL 6-18) and the retrospective referent (SCQ Lifetime,
+    developmental milestones and history); the per-instrument intensities are overlaid as points,
+    the transparent underlay showing which instrument carries each referent's drift. The panel
+    title reads the current-minus-retrospective contrast with its clustered-bootstrap interval and
+    the mechanism it implies: a current-dominant class carries the measurement-timing signature, a
+    retrospective-dominant class the diagnosed-population signature.
+
+    Parameters
+    ----------
+    grains : pandas.DataFrame
+        The ``referent_<axis>`` table (per class per grain: ``grain_kind``, ``grain``,
+        ``referent``, ``rms``, ``share``, ``n_features``).
+    contrast : pandas.DataFrame
+        The per-class ``referent_contrast_<axis>`` summary (``contrast``, ``ci_low``, ``ci_high``,
+        ``reject``, ``mechanism``).
+    meta : dict
+        The run's manifest metrics, carrying ``axis``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The 2 by 2 figure, one panel per class.
+    """
+    order = ("current_state", "retrospective")
+    colours = {"current_state": style.PALETTE[3], "retrospective": style.PALETTE[0]}
+    summary = contrast.set_index("ref_class")
+    classes = sorted(int(c) for c in contrast["ref_class"])
+    referent_rows = grains[grains["grain_kind"] == "referent"]
+    instrument_rows = grains[grains["grain_kind"] == "instrument"]
+    nice = _NICE_AXIS.get(str(meta.get("axis")), str(meta.get("axis")))
+    rms_ceiling = float(grains["rms"].max()) if len(grains) else 1.0
+
+    with style.house_style():
+        fig, axes = plt.subplots(2, 2, figsize=(9.0, 7.6), sharey=True)
+        for panel, (letter, ax) in enumerate(zip(_LETTERS, axes.flat, strict=False)):
+            if panel >= len(classes):
+                ax.axis("off")
+                continue
+            c = classes[panel]
+            ref_c = referent_rows[referent_rows["ref_class"] == c].set_index("grain")
+            for i, referent in enumerate(order):
+                if referent not in ref_c.index:
+                    continue
+                ax.bar(
+                    i,
+                    float(ref_c.loc[referent, "rms"]),
+                    width=0.6,
+                    color=colours[referent],
+                    edgecolor="black",
+                    linewidth=0.5,
+                    zorder=2,
+                )
+                inst = instrument_rows[
+                    (instrument_rows["ref_class"] == c) & (instrument_rows["referent"] == referent)
+                ]
+                jitter = np.linspace(-0.16, 0.16, len(inst)) if len(inst) else np.array([])
+                ax.scatter(
+                    i + jitter,
+                    inst["rms"].to_numpy(dtype=float),
+                    s=22,
+                    color="#333",
+                    zorder=3,
+                )
+                for xj, (_, row) in zip(jitter, inst.iterrows(), strict=False):
+                    ax.annotate(
+                        _NICE_INSTRUMENT.get(str(row["grain"]), str(row["grain"])),
+                        (i + xj, float(row["rms"])),
+                        textcoords="offset points",
+                        xytext=(0, 5),
+                        ha="center",
+                        fontsize=5.6,
+                        color="#333",
+                        rotation=90,
+                    )
+            row = summary.loc[c]
+            mechanism = str(row["mechanism"])
+            star = " *" if bool(row["reject"]) else ""
+            name = str(row["class_name"]).split()[0]
+            style.panel_title(ax, letter, name)
+            ax.text(
+                0.5,
+                0.97,
+                f"current - retrospective {row['contrast']:+.2f} "
+                f"[{row['ci_low']:+.2f}, {row['ci_high']:+.2f}], {mechanism}{star}",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=6.6,
+                color=colours["current_state"]
+                if mechanism == "timing"
+                else colours["retrospective"],
+            )
+            ax.set_xticks(range(len(order)))
+            ax.set_xticklabels([_NICE_REFERENT[r] for r in order], fontsize=8)
+            ax.set_ylim(0.0, rms_ceiling * 1.5)
+        for ax in axes[:, 0]:
+            ax.set_ylabel("Per-feature RMS displacement (standardised)")
+        fig.suptitle(f"Referent decomposition of the {nice} drift", fontsize=11, y=0.98)
+        fig.text(
+            0.5,
+            0.005,
+            "bars: size-fair per-referent RMS; points: per-instrument RMS underlay; "
+            "* current-minus-retrospective contrast rejects (BH q=0.05)",
+            ha="center",
+            va="bottom",
             fontsize=6.4,
             color="#555",
         )

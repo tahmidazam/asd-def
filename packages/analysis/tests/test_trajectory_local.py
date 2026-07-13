@@ -19,6 +19,18 @@ The DIREC directionality gates (plan sections 7e, 12b) then separate direction f
 8. no drift rejects the directional test at about the nominal rate;
 9. the family bootstrap widens the slope interval over an iid one under within-family correlation;
 10. a step drift's single-break read localises near the planted boundary (the DSM-5 read).
+
+The ATTR-REF referent gates (plan sections 6, 7e, 12b; hypotheses.md ATTR-REF) then split the
+era drift by the temporal referent of the instrument carrying each feature:
+
+11. a drift planted in the current-state columns gives a positive current-minus-retrospective
+    contrast that rejects (the measurement-timing signature);
+12. a drift planted in the retrospective columns gives a negative contrast (the population
+    signature);
+13. a uniform per-feature drift across referents of unequal size is called a concentration only
+    at about the nominal rate (the size-fair null the RMS statistic must hold);
+14. an unmapped feature makes the referent-grain resolution fail loudly;
+15. the additive sum-of-squares share sums to one over the disjoint referent grains.
 """
 
 from __future__ import annotations
@@ -122,6 +134,7 @@ class _World:
         family_size: int = 1,
         family_scale: float = 0.0,
         shared_axis: bool = False,
+        drift_columns: list[int] | None = None,
     ) -> None:
         rng = np.random.default_rng(seed)
         n = n_per * n_classes
@@ -163,6 +176,18 @@ class _World:
             raw = rng.normal(0.0, 1.0, n_features)
             unit = raw - self.plane @ (self.plane.T @ raw)
             unit = unit / np.linalg.norm(unit)
+        elif direction == "columns":
+            # Plant the drift in a chosen set of feature columns (a referent grain), so the
+            # standardised displacement concentrates there and the referent contrast can read it.
+            if drift_columns is None:  # pragma: no cover
+                raise ValueError("the 'columns' direction needs drift_columns")
+            unit = np.zeros(n_features)
+            unit[list(drift_columns)] = 1.0
+            unit = unit / np.linalg.norm(unit)
+        elif direction == "uniform":
+            # Equal per-feature intensity across every column: the size-fair null the RMS
+            # contrast must call as no referent concentration, whatever the grain sizes.
+            unit = np.ones(n_features) / np.sqrt(n_features)
         elif direction is None:
             unit = np.zeros(n_features)
         else:  # pragma: no cover
@@ -557,3 +582,122 @@ def test_control_comparison_no_drift_p_value_near_nominal():
         rejections += int(comparison.p_value < 0.05)
     rate = rejections / total
     assert rate < 0.2, f"paired test over-rejects under no drift ({rate:.3f})"
+
+
+# ---------------------------------------------------------------------------------------------
+# ATTR-REF gates: the referent decomposition of the drift (plan sections 6, 7e, 12b;
+# hypotheses.md ATTR-REF). The columns split into an unequal current-state grain (48 features) and
+# a retrospective grain (12 features), a 4-to-1 ratio matching the real 193-vs-45 split, so the
+# size-fair RMS statistic is exercised against grains of very different size.
+# ---------------------------------------------------------------------------------------------
+
+_REF_N_FEATURES = 60
+_CURRENT_COLS = np.arange(0, 48)
+_RETROSPECTIVE_COLS = np.arange(48, 60)
+
+
+def _referent_contrast_from_world(world: _World, *, n_boot: int = 250) -> tl.ReferentContrast:
+    """Run the drift-then-referent-contrast pipeline on a world (feature draws from the tube)."""
+    obs = world.observed()
+    tube = world.tube(n_boot=n_boot, seed=0, clustered=True, focal_ref=obs.focal_ref)
+    observed_endpoint = obs.displacement[:, obs.focal_ref] / world.pooled_sd
+    return tl.referent_contrast(
+        tube.feature_displacement, observed_endpoint, _CURRENT_COLS, _RETROSPECTIVE_COLS
+    )
+
+
+def test_current_referent_drift_is_positive_and_rejects():
+    """Drift in the current-state columns: a positive contrast that rejects (timing signature)."""
+    world = _World(
+        30,
+        direction="columns",
+        shape="monotone",
+        n_features=_REF_N_FEATURES,
+        drift_columns=list(_CURRENT_COLS),
+    )
+    result = _referent_contrast_from_world(world)
+    c = world.drift_class
+
+    assert result.contrast[c] > 0.0, (
+        f"current-referent drift not positive ({result.contrast[c]:.3f})"
+    )
+    assert result.rms_current[c] > result.rms_retrospective[c], "current RMS not the larger"
+    assert result.ci_low[c] > 0.0, f"contrast interval touches zero (lo={result.ci_low[c]:.3f})"
+    assert result.reject[c], "current-referent drift not rejected by FDR"
+    # The share concentrates in the current grain despite it holding four times as many features.
+    assert result.share_current[c] > result.share_retrospective[c]
+
+
+def test_retrospective_referent_drift_is_negative():
+    """Drift in the retrospective columns: a negative contrast (population signature)."""
+    world = _World(
+        31,
+        direction="columns",
+        shape="monotone",
+        n_features=_REF_N_FEATURES,
+        drift_columns=list(_RETROSPECTIVE_COLS),
+    )
+    result = _referent_contrast_from_world(world)
+    c = world.drift_class
+
+    assert result.contrast[c] < 0.0, f"retrospective drift not negative ({result.contrast[c]:.3f})"
+    assert result.rms_retrospective[c] > result.rms_current[c], "retrospective RMS not the larger"
+    assert result.ci_high[c] < 0.0, f"contrast interval touches zero (hi={result.ci_high[c]:.3f})"
+    assert result.reject[c], "retrospective drift not rejected by FDR"
+
+
+def test_uniform_drift_holds_the_size_fair_null():
+    """Equal per-feature drift over unequal grains: no referent concentration, near-nominal rate.
+
+    The size-fair claim is a null-holds statement about the statistic, not about a single sample:
+    the family bootstrap resamples probands, not features, so a single realisation's finite-feature
+    scatter can tip a tight interval off zero even when the per-feature intensity is genuinely
+    equal. So this mirrors the DIREC no-drift gate: over many seeds the uniform drift is called a
+    referent concentration only at about the nominal rate, and its interval covers zero on most
+    seeds, even though the current grain holds four times as many features as the retrospective
+    one. A raw sum-of-squares (not size-fair) would fail this, always favouring the larger grain.
+    """
+    rejections = 0
+    covers = 0
+    seeds = range(24)
+    for seed in seeds:
+        world = _World(
+            400 + seed,
+            direction="uniform",
+            shape="monotone",
+            n_features=_REF_N_FEATURES,
+            delta=3.0,
+        )
+        result = _referent_contrast_from_world(world, n_boot=200)
+        c = world.drift_class
+        rejections += int(result.reject[c])
+        covers += int(result.ci_low[c] <= 0.0 <= result.ci_high[c])
+    reject_rate = rejections / len(seeds)
+    covers_rate = covers / len(seeds)
+    assert reject_rate < 0.15, f"uniform drift over-called a referent concentration ({reject_rate})"
+    assert covers_rate > 0.8, f"uniform-drift interval misses zero too often ({covers_rate})"
+
+
+def test_referent_grains_fail_loudly_on_unmapped_feature():
+    """An unmapped feature (or an instrument with no referent) raises, mirroring reconcile()."""
+    columns = ["a", "b"]
+    instrument_map = {"a": "rbsr"}
+    referent_map = {"rbsr": "current_state"}
+    with pytest.raises(ValueError, match="instrument"):
+        tl.referent_grains(columns, instrument_map, referent_map)
+
+    with pytest.raises(ValueError, match="referent"):
+        tl.referent_grains(["a"], {"a": "scq"}, {})
+
+
+def test_additive_share_sums_to_one_over_disjoint_referents():
+    """The additive sum-of-squares share sums to one over the disjoint referent grains."""
+    rng = np.random.default_rng(40)
+    n_classes, n_features = 3, 10
+    observed = rng.normal(1.0, 1.0, (n_classes, n_features))
+    feature_draws = rng.normal(1.0, 1.0, (60, n_classes, n_features))
+    current_cols = np.arange(0, 6)
+    retrospective_cols = np.arange(6, 10)
+
+    result = tl.referent_contrast(feature_draws, observed, current_cols, retrospective_cols)
+    assert np.allclose(result.share_current + result.share_retrospective, 1.0)

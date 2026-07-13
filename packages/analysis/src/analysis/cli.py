@@ -3604,6 +3604,11 @@ def invariance_trajectory(
         "controls": control_names,
         "category_map": cache.file_digest(config.author_category_map(root)),
     }
+    # ATTR-REF is an era-only decomposition (hypotheses.md). Fold the pre-registered instrument-to-
+    # referent map into the era run hash, the same way the category map is digested, so editing the
+    # referent assignment invalidates the cache; the age run is left untouched.
+    if axis == "era":
+        params["referent_map"] = _referent_map_digest(features.INSTRUMENT_REFERENT)
     with run_context("invariance-trajectory", params, root=root, force=force) as ctx:
         if ctx.cache_hit:
             cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
@@ -3680,6 +3685,33 @@ def invariance_trajectory(
                 directional_inf=directional_inf,
                 tube=tube,
             )
+
+            # ATTR-REF: split the era drift by the temporal referent of the instrument carrying
+            # each feature. Computed in-stage from the live tube, because the raw bootstrap draws
+            # are not persisted; era only (the age variant is deliberately not built).
+            referent = None
+            if axis == "era":
+                instrument_of = features.instrument_map(root, dataset, version, columns)
+                referent_grain_cols = tl.referent_grains(
+                    columns, instrument_of, features.INSTRUMENT_REFERENT
+                )
+                referent = tl.referent_contrast(
+                    tube.feature_displacement,
+                    observed_endpoint,
+                    referent_grain_cols["referent:current_state"],
+                    referent_grain_cols["referent:retrospective"],
+                    q=q,
+                )
+                _write_referent_artefacts(
+                    ctx,
+                    axis=axis,
+                    name_of=name_of,
+                    observed_endpoint=observed_endpoint,
+                    inference=inference,
+                    grains=referent_grain_cols,
+                    referent=referent,
+                    referent_map=features.INSTRUMENT_REFERENT,
+                )
 
             specificity_rows: list[dict] = []
             primary_endpoint = observed.grain_magnitude["class"][:, observed.focal_ref]
@@ -3818,6 +3850,26 @@ def invariance_trajectory(
             },
             "resources": resources.to_dict(),
         }
+        if referent is not None:
+            ctx.metrics["referent_contrast"] = {
+                "scq_referent": features.INSTRUMENT_REFERENT["scq"],
+                "contrast_by_class": [round(float(v), 4) for v in referent.contrast],
+                "contrast_ci": [
+                    [round(float(lo), 4), round(float(hi), 4)]
+                    for lo, hi in zip(referent.ci_low, referent.ci_high, strict=True)
+                ],
+                "p_value_by_class": [round(float(v), 4) for v in referent.p_value],
+                "reject_by_class": [bool(v) for v in referent.reject],
+                "n_referent_reject": int(referent.reject.sum()),
+                "rms_current_by_class": [round(float(v), 4) for v in referent.rms_current],
+                "rms_retrospective_by_class": [
+                    round(float(v), 4) for v in referent.rms_retrospective
+                ],
+                "share_current_by_class": [round(float(v), 4) for v in referent.share_current],
+                "mechanism_by_class": [
+                    "timing" if v > 0.0 else "population" for v in referent.contrast
+                ],
+            }
     typer.echo(f"invariance-trajectory {axis}: run {cache.short_hash(ctx.run_hash)}")
     typer.echo(
         f"  coverage {n_covered}/{n_reference} ({n_covered / n_reference:.1%}); "
@@ -3851,6 +3903,110 @@ def invariance_trajectory(
                 for row in specificity_tests
             )
         )
+    if referent is not None:
+        typer.echo(
+            f"  referent (current-minus-retrospective RMS, sep-standardised, BH q={q:.2f}): "
+            + ", ".join(
+                f"{name_of.get(c, c)} {referent.contrast[c]:+.3f} "
+                f"[{referent.ci_low[c]:+.3f},{referent.ci_high[c]:+.3f}] "
+                f"{'timing' if referent.contrast[c] > 0 else 'population'}"
+                f"{'*' if referent.reject[c] else ''}"
+                for c in range(n_classes)
+            )
+        )
+
+
+def _referent_map_digest(referent_map: dict[str, str]) -> str:
+    """Return a stable digest of the pre-registered instrument-to-referent map.
+
+    Folded into the era run hash so that editing a referent assignment invalidates the cache, the
+    same role :func:`analysis.cache.file_digest` plays for the on-disk category map.
+    """
+    import hashlib
+    import json
+
+    canonical = json.dumps(referent_map, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _write_referent_artefacts(
+    ctx,
+    *,
+    axis: str,
+    name_of: dict,
+    observed_endpoint,
+    inference,
+    grains: dict,
+    referent,
+    referent_map: dict,
+) -> None:
+    """Write the ATTR-REF tables of an era local-trajectory run (hypotheses.md ATTR-REF).
+
+    Two aggregate artefacts. ``referent_<axis>.parquet`` is the per-class-by-grain descriptive
+    decomposition: for each referent (the two-way headline) and each instrument (the transparent
+    underlay), the size-fair root-mean-square displacement intensity, the additive sum-of-squares
+    share, and the count of features surviving the per-feature FDR. ``referent_contrast_<axis>``
+    is the per-class current-minus-retrospective contrast test: the observed contrast with its
+    clustered-bootstrap interval, the two-sided bootstrap ``p``, the Benjamini-Hochberg decision
+    across the four classes, and the mechanism reading. Nothing is per proband.
+    """
+    import numpy as np
+    import pandas as pd
+
+    n_classes = observed_endpoint.shape[0]
+    z = observed_endpoint
+    total_ss = np.nansum(z**2, axis=1)
+
+    def grain_rows(kind: str) -> list[dict]:
+        rows: list[dict] = []
+        prefix = f"{kind}:"
+        for grain, cols in grains.items():
+            if not grain.startswith(prefix):
+                continue
+            name = grain[len(prefix) :]
+            for c in range(n_classes):
+                sub = z[c, cols]
+                ss = float(np.nansum(sub**2))
+                rows.append(
+                    {
+                        "axis": axis,
+                        "grain_kind": kind,
+                        "grain": name,
+                        "referent": referent_map.get(name, name) if kind == "instrument" else name,
+                        "ref_class": c,
+                        "class_name": name_of.get(c, str(c)),
+                        "n_features": int(len(cols)),
+                        "rms": float(np.sqrt(np.nanmean(sub**2))),
+                        "sum_of_squares": ss,
+                        "share": float(ss / total_ss[c]) if total_ss[c] > 0 else float("nan"),
+                        "n_feature_reject": int(inference.reject[c, cols].sum()),
+                    }
+                )
+        return rows
+
+    referent_rows = grain_rows("referent") + grain_rows("instrument")
+    cache.save_frame(pd.DataFrame(referent_rows), ctx.path(f"referent_{axis}.parquet"))
+
+    contrast_rows: list[dict] = []
+    for c in range(n_classes):
+        contrast_rows.append(
+            {
+                "axis": axis,
+                "ref_class": c,
+                "class_name": name_of.get(c, str(c)),
+                "contrast": float(referent.contrast[c]),
+                "ci_low": float(referent.ci_low[c]),
+                "ci_high": float(referent.ci_high[c]),
+                "p_value": float(referent.p_value[c]),
+                "reject": bool(referent.reject[c]),
+                "rms_current": float(referent.rms_current[c]),
+                "rms_retrospective": float(referent.rms_retrospective[c]),
+                "share_current": float(referent.share_current[c]),
+                "share_retrospective": float(referent.share_retrospective[c]),
+                "mechanism": "timing" if referent.contrast[c] > 0 else "population",
+            }
+        )
+    cache.save_frame(pd.DataFrame(contrast_rows), ctx.path(f"referent_contrast_{axis}.parquet"))
 
 
 def _write_local_trajectory_artefacts(

@@ -825,6 +825,210 @@ def category_grains(columns: list[str], category_map: dict[str, str]) -> dict[st
 
 
 # =============================================================================================
+# ATTR-REF: the referent decomposition of the era drift (plan sections 6, 7e, 12b;
+# hypotheses.md ATTR-REF).
+#
+# ATTR-DEV asks which symptom category the drift sits in; ATTR-REF asks a different, mechanism-
+# discriminating question: does the drift concentrate in instruments that ask about the child's
+# present state (RBS-R, CBCL 6-18) or in instruments that ask about the developmental history and
+# whether a behaviour was ever present (the SCQ Lifetime form, the developmental milestones)?
+# Concentration in the current-state instruments is the signature of a change in measurement
+# timing; concentration in the retrospective and lifetime instruments is the signature of a
+# genuine change in the diagnosed population. The instruments split into two referents, and each
+# feature carries its instrument's referent.
+#
+# The statistic is the per-class current-minus-retrospective contrast of the per-feature root-
+# mean-square displacement intensity. The mean square, not the raw sum, makes the contrast
+# size-fair: the current-state grain holds many more features than the retrospective grain (193
+# against 45 on the reference set), so a raw sum-of-squares would favour it by feature count
+# alone. Under the null the drift is spread at equal per-feature intensity across referents, so
+# the two grains carry the same root-mean-square and the contrast is zero. The additive sum-of-
+# squares share is reported alongside as a descriptive decomposition (it sums to one over the
+# disjoint referents), but the test reads the size-fair contrast.
+# =============================================================================================
+
+
+def referent_grains(
+    columns: list[str], instrument_map: dict[str, str], referent_map: dict[str, str]
+) -> dict[str, np.ndarray]:
+    """Return the column indices of each referent grain: per instrument and per temporal referent.
+
+    Each feature carries the instrument it comes from (``instrument_map``, derived from the data
+    dictionary) and each instrument carries a pre-registered temporal referent (``referent_map``,
+    ``analysis.features.INSTRUMENT_REFERENT``). The grains are the per-instrument column sets
+    (``"instrument:<name>"``, the transparent underlay) and the per-referent column sets
+    (``"referent:<name>"``, the two-way headline). Resolution fails loudly, mirroring
+    :func:`analysis.features.reconcile`'s no-typing-signal guard: a feature with no instrument, or
+    an instrument with no referent, raises rather than being dropped, so a mapping gap cannot pass
+    silently as an empty grain.
+
+    Parameters
+    ----------
+    columns : list of str
+        The measurement-matrix feature columns, in order.
+    instrument_map : dict of str to str
+        The feature-to-instrument mapping.
+    referent_map : dict of str to str
+        The instrument-to-referent mapping.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        The grain name mapped to its integer column indices.
+
+    Raises
+    ------
+    ValueError
+        When a feature resolves to no instrument, or its instrument to no referent.
+    """
+    by_instrument: dict[str, list[int]] = {}
+    by_referent: dict[str, list[int]] = {}
+    for i, feature in enumerate(columns):
+        instrument = instrument_map.get(str(feature))
+        if instrument is None:
+            raise ValueError(f"no instrument for feature {feature!r}")
+        referent = referent_map.get(instrument)
+        if referent is None:
+            raise ValueError(f"no referent for instrument {instrument!r}")
+        by_instrument.setdefault(instrument, []).append(i)
+        by_referent.setdefault(referent, []).append(i)
+    grains: dict[str, np.ndarray] = {}
+    for name in sorted(by_instrument):
+        grains[f"instrument:{name}"] = np.asarray(by_instrument[name], dtype=int)
+    for name in sorted(by_referent):
+        grains[f"referent:{name}"] = np.asarray(by_referent[name], dtype=int)
+    return grains
+
+
+def _grain_rms(standardised: np.ndarray, columns: np.ndarray) -> np.ndarray:
+    r"""Return the per-feature root-mean-square intensity of a grain, keeping the leading axes.
+
+    The size-fair intensity $\lVert d_k/\sigma \rVert_\text{grain} / \sqrt{n_\text{grain}}$, the
+    quadratic mean of the standardised displacement over the grain's features. Dividing by the
+    square root of the feature count makes grains of different size comparable, unlike the raw norm
+    :func:`grain_magnitude` reports.
+    """
+    return np.sqrt(np.nanmean(standardised[..., columns] ** 2, axis=-1))
+
+
+@dataclass
+class ReferentContrast:
+    r"""The per-class referent decomposition of the drift and its size-fair contrast test.
+
+    Attributes
+    ----------
+    contrast : numpy.ndarray
+        The observed current-minus-retrospective root-mean-square contrast per class, shape
+        ``(n_classes,)``. Positive is current-state-dominant (the measurement-timing signature),
+        negative is retrospective-dominant (the diagnosed-population signature).
+    ci_low, ci_high : numpy.ndarray
+        The clustered-bootstrap interval of the contrast per class, shape ``(n_classes,)``.
+    p_value : numpy.ndarray
+        The two-sided add-one bootstrap $p$-value that the contrast differs from zero, shape
+        ``(n_classes,)``.
+    reject : numpy.ndarray
+        The Benjamini-Hochberg decision across the classes at level ``q``, shape ``(n_classes,)``;
+        a rejected class carries a referent-concentrated drift.
+    rms_current, rms_retrospective : numpy.ndarray
+        The observed size-fair root-mean-square intensity of each referent grain per class, shape
+        ``(n_classes,)``.
+    share_current, share_retrospective : numpy.ndarray
+        The additive sum-of-squares share of each referent per class (descriptive, summing to one
+        over the disjoint referents), shape ``(n_classes,)``.
+    """
+
+    contrast: np.ndarray
+    ci_low: np.ndarray
+    ci_high: np.ndarray
+    p_value: np.ndarray
+    reject: np.ndarray
+    rms_current: np.ndarray
+    rms_retrospective: np.ndarray
+    share_current: np.ndarray
+    share_retrospective: np.ndarray
+
+
+def referent_contrast(
+    feature_draws: np.ndarray,
+    observed_displacement: np.ndarray,
+    current_cols: np.ndarray,
+    retrospective_cols: np.ndarray,
+    *,
+    q: float = 0.05,
+) -> ReferentContrast:
+    r"""Test the per-class current-minus-retrospective drift contrast from the existing tube draws.
+
+    Reads the size-fair root-mean-square intensity of the current-state and retrospective referent
+    grains from the standardised endpoint displacement, forms the current-minus-retrospective
+    contrast per class, and calls significance from the clustered-bootstrap draws the tube already
+    holds (:attr:`BootstrapTube.feature_displacement`, the standardised per-feature displacement at
+    the endpoint over the same family resamples). No new bootstrap loop runs: the draws are already
+    paired (both grains are re-read on the same resample) and family-clustered. The two-sided
+    add-one $p$-value is the fraction of replicate contrasts on the far side of zero, doubled and
+    floored at one over the replicate count plus one, the same construction
+    :func:`per_feature_inference` and :func:`directional_inference` use; Benjamini-Hochberg control
+    is applied across the classes. The additive sum-of-squares share of each referent is returned
+    for the descriptive decomposition, but the size-fair contrast, not the share, is the test.
+
+    Parameters
+    ----------
+    feature_draws : numpy.ndarray
+        The standardised per-feature displacement replicates at the endpoint, shape
+        ``(n_boot, n_classes, n_features)`` (:attr:`BootstrapTube.feature_displacement`).
+    observed_displacement : numpy.ndarray
+        The observed standardised per-feature displacement at the endpoint, shape
+        ``(n_classes, n_features)``.
+    current_cols, retrospective_cols : numpy.ndarray
+        The column indices of the current-state and retrospective referent grains
+        (:func:`referent_grains`).
+    q : float, optional
+        The false-discovery-rate level across the classes.
+
+    Returns
+    -------
+    ReferentContrast
+        The per-class contrast, its interval, $p$-value, and FDR decision, and the per-referent
+        root-mean-square intensities and additive shares.
+    """
+    current_cols = np.asarray(current_cols, dtype=int)
+    retrospective_cols = np.asarray(retrospective_cols, dtype=int)
+
+    rms_current = _grain_rms(observed_displacement, current_cols)
+    rms_retrospective = _grain_rms(observed_displacement, retrospective_cols)
+    contrast = rms_current - rms_retrospective
+
+    ss_current = np.nansum(observed_displacement[:, current_cols] ** 2, axis=1)
+    ss_retrospective = np.nansum(observed_displacement[:, retrospective_cols] ** 2, axis=1)
+    total = ss_current + ss_retrospective
+    safe = np.where(total > 0.0, total, 1.0)
+    share_current = np.where(total > 0.0, ss_current / safe, np.nan)
+    share_retrospective = np.where(total > 0.0, ss_retrospective / safe, np.nan)
+
+    draw_current = _grain_rms(feature_draws, current_cols)
+    draw_retrospective = _grain_rms(feature_draws, retrospective_cols)
+    contrast_draws = draw_current - draw_retrospective
+    n_boot = contrast_draws.shape[0]
+    ci_low = np.nanpercentile(contrast_draws, 2.5, axis=0)
+    ci_high = np.nanpercentile(contrast_draws, 97.5, axis=0)
+    frac_positive = np.mean(contrast_draws > 0.0, axis=0)
+    tail = np.minimum(frac_positive, 1.0 - frac_positive)
+    p_value = np.clip(2.0 * tail, 1.0 / (n_boot + 1), 1.0)
+    reject = invariance.benjamini_hochberg(p_value, q)
+
+    return ReferentContrast(
+        contrast=contrast,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        p_value=p_value,
+        reject=reject,
+        rms_current=rms_current,
+        rms_retrospective=rms_retrospective,
+        share_current=share_current,
+        share_retrospective=share_retrospective,
+    )
+
+
+# =============================================================================================
 # DIREC: the directionality of the drift (plan sections 7e, 12b; hypotheses.md DIREC).
 #
 # MAGN asks how far a class drifts; DIREC asks whether that drift has a systematic trend along

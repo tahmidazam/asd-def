@@ -340,6 +340,24 @@ def load_local_directional(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFr
     return signed, directional, manifest.get("metrics", {})
 
 
+def load_referent(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Load an era ``invariance-trajectory`` run's ATTR-REF tables and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(grains, contrast, meta)``: the ``referent_<axis>`` table (per class per grain, the
+        per-referent and per-instrument root-mean-square intensity, additive share, and FDR count),
+        the per-class ``referent_contrast_<axis>`` table (the current-minus-retrospective contrast
+        with its interval, ``p``, FDR decision, and mechanism), and the manifest metrics (``axis``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    grains = cache.load_frame(run_directory / f"referent_{axis}.parquet")
+    contrast = cache.load_frame(run_directory / f"referent_contrast_{axis}.parquet")
+    return grains, contrast, manifest.get("metrics", {})
+
+
 def load_prevalence(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Load a ``prevalence`` run's proportion-curve and slope tables and its metrics.
 

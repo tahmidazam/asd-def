@@ -21,7 +21,12 @@ from figures.roughness import roughness_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
 from figures.trajectory import trajectory_figure
-from figures.trajectory_local import panels_figure, plane_figure, specificity_figure
+from figures.trajectory_local import (
+    panels_figure,
+    plane_figure,
+    referent_figure,
+    specificity_figure,
+)
 from matplotlib.figure import Figure
 
 _CATEGORIES = [
@@ -655,6 +660,77 @@ def test_local_specificity_figure_orders_axes() -> None:
     ax = fig.get_axes()[0]
     # The two timing axes and the three controls are all drawn.
     assert len(ax.get_xticklabels()) == 5
+
+
+def _referent_tables() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return synthetic ``referent`` and ``referent_contrast`` frames for the ATTR-REF figure."""
+    instruments = {
+        "current_state": {"rbsr": 49, "cbcl_6_18": 144},
+        "retrospective": {"scq": 34, "background_history_child": 11},
+    }
+    grain_rows: list[dict] = []
+    contrast_rows: list[dict] = []
+    for c in range(4):
+        rms_current = 0.06 + 0.02 * c
+        rms_retrospective = 0.15 + 0.05 * c
+        for referent, rms in (("current_state", rms_current), ("retrospective", rms_retrospective)):
+            n = sum(instruments[referent].values())
+            grain_rows.append(
+                {
+                    "axis": "era",
+                    "grain_kind": "referent",
+                    "grain": referent,
+                    "referent": referent,
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "n_features": n,
+                    "rms": rms,
+                    "share": 0.4,
+                    "n_feature_reject": 10,
+                }
+            )
+            for instrument, ni in instruments[referent].items():
+                grain_rows.append(
+                    {
+                        "axis": "era",
+                        "grain_kind": "instrument",
+                        "grain": instrument,
+                        "referent": referent,
+                        "ref_class": c,
+                        "class_name": _CLASS_NAMES[c],
+                        "n_features": ni,
+                        "rms": rms * (0.8 + 0.1 * (instrument == "scq")),
+                        "share": 0.2,
+                        "n_feature_reject": 5,
+                    }
+                )
+        contrast = rms_current - rms_retrospective
+        contrast_rows.append(
+            {
+                "axis": "era",
+                "ref_class": c,
+                "class_name": _CLASS_NAMES[c],
+                "contrast": contrast,
+                "ci_low": contrast - 0.02,
+                "ci_high": contrast + 0.02,
+                "p_value": 0.002,
+                "reject": True,
+                "rms_current": rms_current,
+                "rms_retrospective": rms_retrospective,
+                "share_current": 0.4,
+                "share_retrospective": 0.6,
+                "mechanism": "timing" if contrast > 0 else "population",
+            }
+        )
+    return pd.DataFrame(grain_rows), pd.DataFrame(contrast_rows)
+
+
+def test_local_referent_figure_structure() -> None:
+    grains, contrast = _referent_tables()
+    fig = referent_figure(grains, contrast, {"axis": "era"})
+    assert isinstance(fig, Figure)
+    # One panel per class.
+    assert len([ax for ax in fig.get_axes() if ax.has_data()]) >= 4
 
 
 def _synthetic_prevalence() -> tuple[pd.DataFrame, pd.DataFrame]:

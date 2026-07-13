@@ -309,6 +309,71 @@ def build_typing(
     return reconcile(features, dict_typing, pickle_typing, observed)
 
 
+# The pre-registered temporal referent of each cohort instrument (ATTR-REF, plan section 6;
+# hypotheses.md). A current-state instrument asks about the child's present presentation; a
+# retrospective or lifetime instrument asks about the developmental history or whether a
+# behaviour was ever present. The SPARK SCQ is the Lifetime form (its items are worded "ever
+# ...", "current [reverse]" only for the language items, verified against the data dictionary),
+# so it is retrospective. The developmental-milestone ages and the childhood background history
+# are retrospective by construction; the RBS-R and the CBCL 6-18 rate the child's current
+# behaviour. Concentration of the era drift in the current-state referent is the measurement-
+# timing signature; concentration in the retrospective referent is the diagnosed-population
+# signature (hypotheses.md ATTR-REF).
+INSTRUMENT_REFERENT: dict[str, str] = {
+    "scq": "retrospective",
+    "background_history_child": "retrospective",
+    "background_history_sibling": "retrospective",
+    "rbsr": "current_state",
+    "cbcl_6_18": "current_state",
+}
+
+
+def instrument_map(root: Path, dataset: str, version: str, features: list[str]) -> dict[str, str]:
+    """Return each feature's source instrument, read from the data dictionary.
+
+    Iterates the cohort instruments in ``analysis.config.COHORT_INSTRUMENTS`` order and reads
+    each one's feature names from the ``dscat`` catalogue, the same describe loop
+    :func:`dictionary_typing` uses. A feature is assigned to the first instrument that carries it,
+    so the developmental-milestone columns shared by the child and sibling background-history
+    tables resolve to ``background_history_child`` (the proband's own history, listed first),
+    which the sibling table only duplicates by column name. Resolution fails loudly, mirroring
+    :func:`reconcile`'s no-typing-signal guard: a feature carried by none of the instruments raises
+    rather than being dropped, so a gap in the mapping cannot pass silently.
+
+    Parameters
+    ----------
+    root : Path
+        Repository root.
+    dataset, version : str
+        Dataset and version whose dictionary to read.
+    features : list of str
+        The feature set to map.
+
+    Returns
+    -------
+    dict of str to str
+        Each feature mapped to its source instrument.
+
+    Raises
+    ------
+    ValueError
+        When a feature is carried by none of the cohort instruments.
+    """
+    cat = open_catalogue(root)
+    owner: dict[str, str] = {}
+    for instrument in config.COHORT_INSTRUMENTS:
+        _, rows, _ = queries.describe(cat, instrument, dataset, version, limit=100000, offset=0)
+        for row in rows:
+            owner.setdefault(row["name"], instrument)
+    mapping: dict[str, str] = {}
+    for feature in features:
+        instrument = owner.get(feature)
+        if instrument is None:
+            raise ValueError(f"no instrument signal for feature {feature!r}")
+        mapping[feature] = instrument
+    return mapping
+
+
 def load_category_map(path: Path) -> dict[str, str]:
     """Load the feature-to-category map.
 

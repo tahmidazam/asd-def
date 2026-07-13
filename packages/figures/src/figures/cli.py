@@ -32,6 +32,7 @@ from figures.trajectory_local import (
     directional_figure,
     panels_figure,
     plane_figure,
+    referent_figure,
     specificity_figure,
 )
 
@@ -277,6 +278,28 @@ def local_directional(
         run_directory,
         figure,
         name or f"local_directional_{axis}",
+        fmt,
+    )
+
+
+@app.command(name="local-referent")
+def local_referent(
+    axis: str = typer.Option("era", "--axis", help="Axis: era only (ATTR-REF is era-only)."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the ATTR-REF figure: per-class current-versus-retrospective drift with the underlay."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
+    grains, contrast, meta = data.load_referent(run_directory)
+    figure = referent_figure(grains, contrast, {**meta, "axis": axis})
+    _write(
+        root,
+        "invariance-trajectory",
+        run_directory,
+        figure,
+        name or f"local_referent_{axis}",
         fmt,
     )
 

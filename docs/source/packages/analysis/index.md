@@ -44,7 +44,7 @@ either cohort. Each stage and where its result is reported:
 | `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`Score-based measurement invariance <investigations/score-based-invariance>` |
-| `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube, an in-plane capture fraction, a control-panel specificity check, and the per-class directional net-trend statistic (DIREC) with a descriptive break. | {doc}`Invariance as an effect size <investigations/invariance-as-an-effect-size>` |
+| `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube, an in-plane capture fraction, a control-panel specificity check, the per-class directional net-trend statistic (DIREC) with a descriptive break, and (era only) the current-versus-retrospective referent split (ATTR-REF). | {doc}`Invariance as an effect size <investigations/invariance-as-an-effect-size>`, {doc}`Splitting the era drift by referent <guides/splitting-the-drift-by-referent>` |
 | `prevalence` | Tests whether the frozen class proportions trend along an axis (PREV): a maximum-likelihood three-step correction of a multinomial logit on the frozen posteriors, with a naive hard-label cross-check, per-class one-versus-rest slopes, predicted proportion curves, a family-clustered bootstrap, and (for era) a DSM-5 contrast. | {doc}`Measuring prevalence drift <guides/measuring-prevalence-drift>` |
 | `order` | Tests whether the supported number of classes is stable across strata (ORDER): a warm-started parametric bootstrap likelihood-ratio search anchored at four, read relative to the pooled cohort under the identical procedure, corroborated by the cross-validated elbow and the adjusted Lo-Mendell-Rubin test. | {doc}`Testing the number of classes <guides/testing-the-number-of-classes>` |
 
@@ -128,6 +128,14 @@ mean-absolute, Jensen-Shannon), and the between-class separation they are read a
 
 Opening up a drift into the features that carry it (the centroid-shift decomposition) and the
 probands that changed class (the mover-versus-stayer contrast).
+:::
+
+:::{grid-item-card} Splitting the era drift by referent
+:link: guides/splitting-the-drift-by-referent
+:link-type: doc
+
+The size-fair current-versus-retrospective decomposition of the era drift, discriminating a
+measurement-timing signature from a diagnosed-population one (ATTR-REF).
 :::
 
 :::{grid-item-card} Testing the number of classes
@@ -263,6 +271,7 @@ guides/choosing-the-stratification-bins
 guides/aligning-stratum-classes
 guides/measuring-class-drift
 guides/attributing-class-movement
+guides/splitting-the-drift-by-referent
 guides/measuring-prevalence-drift
 guides/testing-the-number-of-classes
 :::
