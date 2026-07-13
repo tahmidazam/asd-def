@@ -13,6 +13,7 @@ from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
+from figures.prevalence import proportion_curve_figure, stacked_area_figure
 from figures.publish import FigureSpec, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
@@ -654,3 +655,59 @@ def test_local_specificity_figure_orders_axes() -> None:
     ax = fig.get_axes()[0]
     # The two timing axes and the three controls are all drawn.
     assert len(ax.get_xticklabels()) == 5
+
+
+def _synthetic_prevalence() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build ``proportion_curve`` and ``slopes`` frames shaped like a ``prevalence`` run."""
+    positions = np.linspace(2009.0, 2025.0, 8)
+    pooled = (0.25, 0.16, 0.39, 0.20)
+    slopes = (-0.05, -0.08, 0.05, 0.06)
+    curve_rows: list[dict] = []
+    slope_rows: list[dict] = []
+    for c in range(4):
+        centred = positions - positions.mean()
+        proportion = pooled[c] * np.exp(slopes[c] * centred)
+        for pos, prop in zip(positions, proportion, strict=True):
+            curve_rows.append(
+                {
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "position": float(pos),
+                    "corrected": float(prop),
+                    "naive": float(prop) * 0.99,
+                    "band_lo": float(prop) * 0.95,
+                    "band_hi": float(prop) * 1.05,
+                    "pooled": pooled[c],
+                }
+            )
+        slope_rows.append(
+            {
+                "kind": "corrected",
+                "ref_class": c,
+                "class_name": _CLASS_NAMES[c],
+                "slope": slopes[c],
+                "odds_ratio": float(np.exp(slopes[c])),
+                "reject": True,
+            }
+        )
+    return pd.DataFrame(curve_rows), pd.DataFrame(slope_rows)
+
+
+def test_prevalence_panels_figure_structure() -> None:
+    curve, slopes = _synthetic_prevalence()
+    fig = proportion_curve_figure(curve, slopes, {"axis": "era"})
+    assert isinstance(fig, Figure)
+    # One panel per class.
+    assert len(fig.get_axes()) == 4
+
+
+def test_prevalence_stacked_figure_structure() -> None:
+    curve, slopes = _synthetic_prevalence()
+    fig = stacked_area_figure(curve, {"axis": "age_at_diagnosis"})
+    assert isinstance(fig, Figure)
+    ax = fig.get_axes()[0]
+    # The composition axis runs from zero to one, and all four classes appear in the legend.
+    assert ax.get_ylim() == (0.0, 1.0)
+    legend = ax.get_legend()
+    assert legend is not None
+    assert len(legend.get_texts()) == 4

@@ -340,6 +340,24 @@ def load_local_directional(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFr
     return signed, directional, manifest.get("metrics", {})
 
 
+def load_prevalence(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Load a ``prevalence`` run's proportion-curve and slope tables and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(curve, slopes, meta)``: the ``proportion_curve_<axis>`` table (per class per focal
+        point, the corrected and naive predicted proportion with the corrected bootstrap band),
+        the ``slopes_<axis>`` table (the corrected, naive, adjusted, and DSM-5 per-class contrasts),
+        and the manifest metrics (``axis``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    curve = cache.load_frame(run_directory / f"proportion_curve_{axis}.parquet")
+    slopes = cache.load_frame(run_directory / f"slopes_{axis}.parquet")
+    return curve, slopes, manifest.get("metrics", {})
+
+
 def class_names(root: Path, axis: str) -> dict[int, str]:
     """Return the reference-class id to name map for an axis, from its `trajectory` run.
 

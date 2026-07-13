@@ -124,6 +124,9 @@ Stratified analysis
 .. automodule:: analysis.trajectory_local
    :members:
 
+.. automodule:: analysis.prevalence
+   :members:
+
 Localisation and the sweep
 =========================================
 

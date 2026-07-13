@@ -45,6 +45,7 @@ either cohort. Each stage and where its result is reported:
 | `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`Score-based measurement invariance <guides/score-based-invariance>` |
 | `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube, an in-plane capture fraction, a control-panel specificity check, and the per-class directional net-trend statistic (DIREC) with a descriptive break. | {doc}`Invariance as an effect size <guides/invariance-as-an-effect-size>` |
+| `prevalence` | Tests whether the frozen class proportions trend along an axis (PREV): a maximum-likelihood three-step correction of a multinomial logit on the frozen posteriors, with a naive hard-label cross-check, per-class one-versus-rest slopes, predicted proportion curves, a family-clustered bootstrap, and (for era) a DSM-5 contrast. | {doc}`Measuring prevalence drift <guides/measuring-prevalence-drift>` |
 
 ## Technical guides
 
@@ -197,6 +198,7 @@ guides/measuring-class-drift
 guides/attributing-class-movement
 guides/score-based-invariance
 guides/invariance-as-an-effect-size
+guides/measuring-prevalence-drift
 :::
 
 :::{toctree}

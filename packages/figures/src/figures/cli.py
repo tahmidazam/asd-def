@@ -19,6 +19,7 @@ from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
+from figures.prevalence import proportion_curve_figure, stacked_area_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
@@ -278,6 +279,36 @@ def local_directional(
         name or f"local_directional_{axis}",
         fmt,
     )
+
+
+@app.command()
+def prevalence(
+    axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
+    layout: str = typer.Option(
+        "panels", "--layout", help="Figure layout: panels (per class) or stacked (composition)."
+    ),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the PREV figure: per-class proportion curves, or the stacked class composition.
+
+    ``--layout panels`` draws one panel per class, the corrected proportion curve with its
+    bootstrap band, the naive cross-check, and the pooled proportion line. ``--layout stacked``
+    draws the four corrected proportions stacked to one across the axis, the compositional view.
+    """
+    if layout not in ("panels", "stacked"):
+        raise typer.BadParameter("layout must be 'panels' or 'stacked'")
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "prevalence", run, axis=axis)
+    curve, slopes, meta = data.load_prevalence(run_directory)
+    if layout == "stacked":
+        figure = stacked_area_figure(curve, {**meta, "axis": axis})
+        default_name = f"prevalence_stacked_{axis}"
+    else:
+        figure = proportion_curve_figure(curve, slopes, {**meta, "axis": axis})
+        default_name = f"prevalence_{axis}"
+    _write(root, "prevalence", run_directory, figure, name or default_name, fmt)
 
 
 @app.command()

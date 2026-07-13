@@ -2818,6 +2818,21 @@ def invariance(
     )
 
 
+# The nine ordered household-income bands of ``background_history_child.annual_household_income``,
+# mapped to a monotone rank so the band order (not the raw label) drives the control ordering.
+_INCOME_BANDS = {
+    "less_than_20000": 1,
+    "21000_35000": 2,
+    "36000_50000": 3,
+    "51000_65000": 4,
+    "66000_80000": 5,
+    "81000_100000": 6,
+    "101000_130000": 7,
+    "131000_160000": 8,
+    "over_161000": 9,
+}
+
+
 def _control_axis_series(
     name: str,
     root: Path,
@@ -2831,9 +2846,16 @@ def _control_axis_series(
 
     The specificity check reads the same separation-scaled displacement along variables that are
     not the mechanism under test, so that the era and age magnitudes can be read as larger than a
-    control rather than merely non-zero. ``sex`` and ``area_deprivation`` are real covariates
-    unrelated to diagnosis timing; ``random`` is a seeded uniform ordering, the floor a meaningless
-    axis produces.
+    control rather than merely non-zero. A control is chosen for two screened properties: it is a
+    real proband-level covariate that is not the phenotype (so ordering by it is not the circular
+    self-drift that a clustered feature or a symptom total would give), and it is empirically
+    orthogonal to both timing axes (its rank correlation with year of diagnosis and with age at
+    diagnosis is near zero on the modelling cohort). ``household_income`` (a nine-band ordinal) and
+    ``area_deprivation`` (the 2019 ADI national-rank percentile) meet both and are graded, so the
+    displacement trajectory has an axis to walk. ``random`` is a seeded uniform ordering, the floor
+    a meaningless axis produces. ``sex`` is retained for reproducing the earlier panel, but it is
+    binary (so the trajectory is degenerate) and it is the least timing-orthogonal of the
+    candidates, so it is no longer in the default panel.
     """
     import numpy as np
     import pandas as pd
@@ -2845,6 +2867,14 @@ def _control_axis_series(
     if name == "random":
         rng = np.random.default_rng(seed)
         return pd.Series(rng.uniform(size=len(index)), index=index, name="random")
+    if name == "household_income":
+        cat = open_catalogue(root)
+        path = source_csv(cat, root, dataset, version, "background_history_child")
+        frame = read_columns(path, ["subject_sp_id", "annual_household_income"]).set_index(
+            "subject_sp_id"
+        )
+        frame = frame[~frame.index.duplicated(keep="first")]
+        return frame["annual_household_income"].map(_INCOME_BANDS).reindex(index)
     if name == "area_deprivation":
         cat = open_catalogue(root)
         path = source_csv(cat, root, dataset, version, "area_deprivation_index")
@@ -2981,8 +3011,8 @@ def invariance_trajectory(
     between-class separation. Uncertainty is a family-clustered bootstrap (the tube and per-feature
     intervals), replacing the saturated bridge null. It reports the in-plane capture fraction so
     the 2D figure cannot hide out-of-plane drift, a covariance-aware Mahalanobis corroboration, and
-    a control-panel specificity comparison (era and age against sex, area deprivation, and a random
-    ordering). No mixture is refitted; every artefact is class or feature level.
+    a control-panel specificity comparison (era and age against household income, area deprivation,
+    and a random ordering). No mixture is refitted; every artefact is class or feature level.
     """
     import numpy as np
     import pandas as pd
@@ -3056,7 +3086,7 @@ def invariance_trajectory(
     )
 
     n_classes = int(reference.centroids.shape[0])
-    control_names = ["sex", "area_deprivation", "random"] if controls else []
+    control_names = ["household_income", "area_deprivation", "random"] if controls else []
     params = {
         "fit": ref_fit_hash,
         "names": name_source,
@@ -3564,6 +3594,279 @@ def invariance_responsibilities(model_obj, x_values):
     from analysis import invariance
 
     return invariance.responsibilities(model_obj, x_values)
+
+
+@app.command()
+def prevalence(
+    axis: str = typer.Option(
+        "era", help="Ordering variable: era or age_at_diagnosis (SPARK timing)."
+    ),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_points: int = typer.Option(25, help="Grid points the predicted proportion curve is read at."),
+    n_boot: int = typer.Option(
+        500, "--n-boot", help="Family-clustered bootstrap replicates for the CIs, bands, and p."
+    ),
+    adjusted: bool = typer.Option(
+        True,
+        "--adjusted/--no-adjusted",
+        help="Also read the axis slope net of sex, the lag, and age at evaluation.",
+    ),
+    seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed for the bootstrap."),
+    n_init: int = typer.Option(
+        50, help="The n_init of the measurement-only reference fit to resolve."
+    ),
+    q: float = typer.Option(0.05, help="Benjamini-Hochberg FDR level across the class contrasts."),
+    min_bin_size: int = typer.Option(
+        1000, help="Recovery floor the axis policy is derived against (does not bin the axis)."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Test whether the frozen class proportions trend along an axis (PREV).
+
+    The prevalence-drift test of ``.context/hypotheses.md``. The four classes are held fixed at
+    the measurement-only reference fit (no mixture is refitted); their mixing proportions are
+    regressed on the axis. The rigorous read is a maximum-likelihood three-step correction that
+    removes the classify-analyse bias of a hard-label regression by fixing the classification-error
+    matrix of the frozen posteriors; a naive hard-label multinomial logit is reported beside it as
+    an uncorrected cross-check. It reports, per class, the one-versus-rest axis log-odds slope and
+    odds ratio with a family-clustered bootstrap interval and $p$, the naive Wald and
+    likelihood-ratio $p$-values, the joint likelihood-ratio test of ``class ~ axis`` against
+    ``class ~ 1``, the predicted proportion curve with its band, an adjusted axis slope net of sex,
+    the lag, and age at evaluation, and (for era) the DSM-5 pre/post-2013 contrast. Every artefact
+    is class or coefficient level; no per-proband quantity is written.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from analysis import drift as drift_mod
+    from analysis import localise, profiling, strata_data
+    from analysis import prevalence as prev
+    from analysis.cohort import get_cohort
+    from analysis.paths import run_dir
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = _resolve_measurement_reference(root, cohort_hash, n_init, seed)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    reference_model = cache.load_model(ref_dir / "model.joblib")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    x_values = measurement_data.to_numpy(dtype=float)
+    responsibilities = invariance_responsibilities(reference_model, x_values)
+    hard_labels = pd.Series(responsibilities.argmax(axis=1), index=measurement_data.index)
+
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    name_of, name_source = _measurement_class_names(
+        root, dataset, version, cohort_hash, reference, measurement_data, seed
+    )
+    n_classes = int(reference.centroids.shape[0])
+
+    cohort = get_cohort(dataset, version, root)
+    resolved = cohort.axis(axis, matrix.features.index, matrix.covariates, min_bin_size)
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, _policy = resolved
+    families = cohort.family_ids(matrix.features.index)
+    if families is None:
+        raise typer.BadParameter(
+            f"cohort {dataset!r} exposes no family identifier for the clustered bootstrap"
+        )
+
+    # The adjustment covariates: sex and age at evaluation from the cohort, the
+    # diagnosis-to-measurement lag from the strata-describe machinery (never re-derived here).
+    strata = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    axis_series = axis_values.reindex(measurement_data.index)
+    sex = matrix.covariates["sex"].reindex(measurement_data.index).astype(float)
+    age_at_eval = (
+        matrix.covariates["age_at_eval_years"].reindex(measurement_data.index).astype(float)
+    )
+    lag = strata.lag.reindex(measurement_data.index).astype(float)
+
+    # Keep probands with a finite axis value and (for the adjusted model) finite covariates.
+    finite_axis = axis_series.notna().to_numpy()
+    finite_cov = (sex.notna() & age_at_eval.notna() & lag.notna()).to_numpy()
+    covered = finite_axis & finite_cov
+    n_reference = int(x_values.shape[0])
+    n_covered = int(covered.sum())
+
+    resp_cov = responsibilities[covered]
+    labels_cov = hard_labels.to_numpy()[covered]
+    axis_cov = axis_series[covered].to_numpy(dtype=float)
+    fam_cov = families.reindex(measurement_data.index)[covered].to_numpy()
+    covariate_arrays = {
+        "sex": sex[covered].to_numpy(dtype=float),
+        "lag": lag[covered].to_numpy(dtype=float),
+        "age_at_eval": age_at_eval[covered].to_numpy(dtype=float),
+    }
+
+    grid = np.asarray(
+        localise.focal_grid(pd.Series(axis_cov), n_points, (0.025, 0.975)), dtype=float
+    )
+
+    params = {
+        "fit": ref_fit_hash,
+        "names": name_source,
+        "axis": axis,
+        "estimand": "mixing-proportions;frozen-responsibilities",
+        "method": "ml-3step-correction;naive-hardlabel-crosscheck;v1",
+        "covariates": ["sex", "lag", "age_at_eval"] if adjusted else [],
+        "dsm5_contrast": axis == "era",
+        "n_points": n_points,
+        "n_boot": n_boot,
+        "seed": seed,
+        "q": q,
+    }
+    with run_context("prevalence", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"prevalence: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        with profiling.measure() as unit:
+            result = prev.prevalence_analysis(
+                resp_cov,
+                labels_cov,
+                axis_cov,
+                fam_cov,
+                axis=axis,
+                covariates=covariate_arrays if adjusted else None,
+                grid=grid,
+                n_boot=n_boot,
+                seed=seed,
+                q=q,
+            )
+            _write_prevalence_artefacts(ctx, axis=axis, name_of=name_of, result=result)
+            unit.output_bytes = profiling.path_bytes(ctx.path(f"slopes_{axis}.parquet"))
+
+        resources = unit.metrics
+        assert resources is not None
+        ctx.metrics = {
+            "axis": axis,
+            "reference_fit": cache.short_hash(ref_fit_hash),
+            "n_reference": n_reference,
+            "n_covered": n_covered,
+            "coverage": round(n_covered / n_reference, 4),
+            "n_boot": n_boot,
+            "pooled_proportion_by_class": [round(float(v), 4) for v in result.curve.pooled],
+            "corrected_slope_by_class": [round(s.slope, 4) for s in result.corrected_slopes],
+            "corrected_boot_p_by_class": [round(s.boot_p, 4) for s in result.corrected_slopes],
+            "corrected_reject_by_class": [bool(s.reject) for s in result.corrected_slopes],
+            "n_corrected_reject": int(sum(s.reject for s in result.corrected_slopes)),
+            "naive_slope_by_class": [round(s.slope, 4) for s in result.naive_slopes],
+            "naive_wald_p_by_class": [round(s.wald_p, 4) for s in result.naive_slopes],
+            "joint_lrt": {
+                t.estimator: {"lr_stat": round(t.lr_stat, 3), "df": t.df, "p": round(t.p_value, 6)}
+                for t in result.joint_tests
+            },
+            "resources": resources.to_dict(),
+        }
+    typer.echo(f"prevalence {axis}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  coverage {n_covered}/{n_reference} ({n_covered / n_reference:.1%}); n_boot {n_boot}"
+    )
+    typer.echo(
+        "  per-class corrected slope (log-odds/axis-unit): "
+        + ", ".join(
+            f"{name_of.get(c, c)} {result.corrected_slopes[c].slope:+.3f} "
+            f"(OR {result.corrected_slopes[c].odds_ratio:.3f}) "
+            f"[{result.corrected_slopes[c].ci_low:+.3f},{result.corrected_slopes[c].ci_high:+.3f}] "
+            f"p={result.corrected_slopes[c].boot_p:.3f} "
+            f"{'PREV' if result.corrected_slopes[c].reject else 'ns'}"
+            for c in range(n_classes)
+        )
+    )
+    joint = {t.estimator: t for t in result.joint_tests}
+    typer.echo(
+        f"  joint LRT class~axis vs class~1: corrected chi2={joint['corrected'].lr_stat:.1f} "
+        f"(df {joint['corrected'].df}) p={joint['corrected'].p_value:.3g}; "
+        f"naive p={joint['naive'].p_value:.3g}"
+    )
+
+
+def _write_prevalence_artefacts(ctx, *, axis: str, name_of: dict, result) -> None:
+    """Write the class and coefficient-level tables of a prevalence run.
+
+    Three aggregate artefacts: the per-class slope table (corrected, naive, adjusted, and, for
+    era, the DSM-5 contrast, each with its interval and test); the predicted proportion curves
+    with the corrected band; and the joint likelihood-ratio tests. Nothing is per proband.
+    """
+    import pandas as pd
+
+    def slope_rows(slopes, kind: str) -> list[dict]:
+        rows = []
+        for s in slopes:
+            rows.append(
+                {
+                    "axis": axis,
+                    "kind": kind,
+                    "ref_class": s.ref_class,
+                    "class_name": name_of.get(s.ref_class, str(s.ref_class)),
+                    "slope": float(s.slope),
+                    "odds_ratio": float(s.odds_ratio),
+                    "ci_low": float(s.ci_low),
+                    "ci_high": float(s.ci_high),
+                    "wald_p": float(s.wald_p),
+                    "lrt_p": float(s.lrt_p),
+                    "boot_p": float(s.boot_p),
+                    "reject": bool(s.reject),
+                }
+            )
+        return rows
+
+    rows: list[dict] = []
+    rows += slope_rows(result.corrected_slopes, "corrected")
+    rows += slope_rows(result.naive_slopes, "naive")
+    rows += slope_rows(result.adjusted_slopes, "adjusted")
+    rows += slope_rows(result.dsm_contrasts, "dsm5_contrast")
+    cache.save_frame(pd.DataFrame(rows), ctx.path(f"slopes_{axis}.parquet"))
+
+    curve = result.curve
+    curve_rows: list[dict] = []
+    n_classes = curve.corrected.shape[0]
+    for c in range(n_classes):
+        for j, position in enumerate(curve.positions):
+            curve_rows.append(
+                {
+                    "axis": axis,
+                    "ref_class": c,
+                    "class_name": name_of.get(c, str(c)),
+                    "position": float(position),
+                    "corrected": float(curve.corrected[c, j]),
+                    "naive": float(curve.naive[c, j]),
+                    "band_lo": float(curve.band_lo[c, j]),
+                    "band_hi": float(curve.band_hi[c, j]),
+                    "pooled": float(curve.pooled[c]),
+                }
+            )
+    cache.save_frame(pd.DataFrame(curve_rows), ctx.path(f"proportion_curve_{axis}.parquet"))
+
+    joint_rows = [
+        {
+            "axis": axis,
+            "estimator": t.estimator,
+            "lr_stat": float(t.lr_stat),
+            "df": int(t.df),
+            "p_value": float(t.p_value),
+        }
+        for t in result.joint_tests
+    ]
+    cache.save_frame(pd.DataFrame(joint_rows), ctx.path(f"joint_test_{axis}.parquet"))
 
 
 @app.command(rich_help_panel=_PLANNED)
