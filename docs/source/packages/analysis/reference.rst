@@ -118,6 +118,9 @@ Stratified analysis
 .. automodule:: analysis.trajectory
    :members:
 
+.. automodule:: analysis.invariance
+   :members:
+
 Localisation and the sweep
 =========================================
 

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from figures import data, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
+from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
 from figures.publish import FigureSpec, publish_figure
@@ -530,3 +531,27 @@ def test_mover_contrast_figure_handles_empty_class() -> None:
     movers = movers[movers["ref_class"] == 0]  # class 1 has no mover rows
     fig = mover_contrast_figure(summary, movers, {"axis": "age_at_diagnosis"})
     assert isinstance(fig, Figure)
+
+
+def _invariance_process() -> tuple[pd.DataFrame, dict]:
+    """A stored fluctuation process shaped like an ``invariance`` run's process table."""
+    t = np.linspace(0.0, 1.0, 60)
+    observed = 40.0 * t * (1.0 - t) + 1e-6  # a bump peaking mid-axis, pinned at the ends
+    return pd.DataFrame(
+        {
+            "t": t,
+            "position": 2.0 + 15.0 * t,
+            "observed": observed,
+            "null_q50": np.full_like(t, 0.05),
+            "null_q95": np.full_like(t, 0.09),
+        }
+    ), {"axis": "age_at_diagnosis", "top_block": "class 2 x social/communication"}
+
+
+def test_invariance_process_figure_structure() -> None:
+    process, meta = _invariance_process()
+    fig = invariance_process_figure(process, meta)
+    assert isinstance(fig, Figure)
+    ax = fig.get_axes()[0]
+    assert ax.get_yscale() == "log"  # the null band and the excursion span orders of magnitude
+    assert ax.get_xlabel()

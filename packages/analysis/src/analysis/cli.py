@@ -250,6 +250,52 @@ def _fit_params(cohort_hash: str, n_components: int, n_init: int, seed: int) -> 
     }
 
 
+def _measurement_fit_params(cohort_hash: str, n_init: int, seed: int) -> dict[str, object]:
+    """Return the fit-stage hash parameters for the measurement-only reference.
+
+    The score-based invariance test reads the marginal (measurement-only) reference, the fit
+    produced by ``analysis fit --no-covariates``. It differs from the covariate reference only in
+    the ``structural`` key, so the hash recomputes the exact directory the measurement-only fit
+    wrote (``41ab0e38...`` on SPARK 2026-03-23 at ``n_init=50``).
+    """
+    params = _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, n_init, seed)
+    return {**params, "structural": "measurement"}
+
+
+def _resolve_measurement_reference(root: Path, cohort_hash: str, n_init: int, seed: int) -> str:
+    """Return the run hash of the measurement-only reference fit for a cohort.
+
+    Recomputes the expected hash first (the ``n_init`` default matches the cached reference), and
+    falls back to scanning the fit artefacts for a completed measurement-only four-class fit on
+    the same cohort, so a reference produced at a different ``n_init`` is still found. Raises a
+    clear instruction when none exists.
+    """
+    from analysis.paths import run_dir
+
+    expected = cache.compute_hash(_measurement_fit_params(cohort_hash, n_init, seed))
+    if _completed(run_dir(root, "fit", cache.short_hash(expected))):
+        return expected
+
+    candidates: list[tuple[int, str]] = []
+    for manifest_path in sorted((root / "artefacts" / "fit").glob("*/manifest.json")):
+        manifest = cache.read_manifest(manifest_path.parent) or {}
+        params = manifest.get("params", {})
+        if (
+            manifest.get("status") == "ok"
+            and params.get("structural") == "measurement"
+            and params.get("n_components") == config.DEFAULT_N_COMPONENTS
+            and params.get("cohort") == cohort_hash
+        ):
+            candidates.append((int(params.get("n_init", 0)), manifest["hash"]))
+    if candidates:
+        # Prefer the most thorough fit (largest n_init); ties broken by hash for determinism.
+        return max(candidates, key=lambda c: (c[0], c[1]))[1]
+
+    raise typer.BadParameter(
+        "no measurement-only reference fit found; run `analysis fit --no-covariates` first"
+    )
+
+
 def _align_params(root: Path, fit_hash: str) -> dict[str, object]:
     """Return the hashing parameters for the align stage."""
     return {"fit": fit_hash, "category_map": cache.file_digest(config.author_category_map(root))}
@@ -2638,6 +2684,137 @@ def attribute(
     typer.echo(
         f"  {ctx.metrics['n_strata']} strata x {ctx.metrics['n_classes']} classes; "
         f"mean churn {ctx.metrics['mean_churn']:.2f}"
+    )
+
+
+@app.command()
+def invariance(
+    axis: str = typer.Option(
+        "age_at_diagnosis", help="Ordering variable: age_at_diagnosis or era (SPARK timing)."
+    ),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_simulations: int = typer.Option(
+        2000, "--n-simulations", help="Simulated Brownian bridges for the analytic null."
+    ),
+    seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed for the null draws."),
+    max_grid: int = typer.Option(
+        512, help="Largest evaluation grid (tied axis values collapsed, then thinned to this)."
+    ),
+    n_init: int = typer.Option(
+        50, help="The n_init of the measurement-only reference fit to resolve."
+    ),
+    q: float = typer.Option(0.05, help="Benjamini-Hochberg FDR level across focal blocks."),
+    min_bin_size: int = typer.Option(
+        1000, help="Axis-policy floor for Cohort.axis; does not affect the continuous score test."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Test the reference class profiles for stability along an axis, from the single cached fit.
+
+    The score-based measurement-invariance test (plan section 7e): for the measurement-only
+    reference, each proband's casewise score on every class-conditional location parameter is
+    cumulated in axis order into an empirical fluctuation process, standardised to a Brownian
+    bridge under stability. The maxLM and Cramer-von Mises functionals are read against an
+    analytic (simulated-bridge) null, per focal block (each class, and each class crossed with a
+    feature category), with Benjamini-Hochberg control across blocks. No mixture is refitted.
+
+    Unlike the drift stage, this consumes the fitted model itself (its parameters and
+    responsibilities), not only the labels, and it reads the marginal (measurement-only)
+    reference, so its estimand matches the kernel and pairwise arms rather than the covariate
+    fit.
+    """
+    import pandas as pd
+
+    from analysis import invariance as invariance_mod
+    from analysis import model, profiling
+    from analysis.cohort import get_cohort
+    from analysis.paths import run_dir
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = _resolve_measurement_reference(root, cohort_hash, n_init, seed)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    reference_model = cache.load_model(ref_dir / "model.joblib")
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+
+    resolved = get_cohort(dataset, version, root).axis(
+        axis, matrix.features.index, matrix.covariates, min_bin_size
+    )
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, _policy = resolved
+
+    category_map = features.load_category_map(config.author_category_map(root))
+    params = {
+        "fit": ref_fit_hash,
+        "axis": axis,
+        "focal": "means+logit;class,class-x-category",
+        "n_simulations": n_simulations,
+        "seed": seed,
+        "max_grid": max_grid,
+        "q": q,
+        "category_map": cache.file_digest(config.author_category_map(root)),
+    }
+    with run_context("invariance", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"invariance: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        with profiling.measure() as unit:
+            result = invariance_mod.run_invariance(
+                reference_model,
+                measurement_data,
+                typing,
+                axis_values,
+                axis=axis,
+                category_map=category_map,
+                by_category=True,
+                n_sim=n_simulations,
+                seed=seed,
+                max_grid=max_grid,
+                q=q,
+            )
+            blocks_frame = pd.DataFrame([asdict(b) for b in result.blocks])
+            cache.save_frame(blocks_frame, ctx.path(f"blocks_{axis}.parquet"))
+            if result.top_process is not None:
+                top = result.top_process
+                process_frame = pd.DataFrame(
+                    {
+                        "t": top.t,
+                        "position": top.positions,
+                        "observed": top.observed,
+                        "null_q50": top.null_q50,
+                        "null_q95": top.null_q95,
+                    }
+                )
+                cache.save_frame(process_frame, ctx.path(f"process_{axis}.parquet"))
+            unit.output_bytes = profiling.path_bytes(ctx.path(f"blocks_{axis}.parquet"))
+        resources = unit.metrics
+        assert resources is not None  # measure() always sets metrics on exit
+        n_reject_max = int(blocks_frame["reject_max_lm"].sum())
+        n_reject_cvm = int(blocks_frame["reject_cvm"].sum())
+        ctx.metrics = {
+            "axis": axis,
+            "reference_fit": cache.short_hash(ref_fit_hash),
+            "n_reference": result.n_reference,
+            "n_covered": result.n_covered,
+            "coverage": round(result.coverage, 4),
+            "n_blocks": len(result.blocks),
+            "n_simulations": n_simulations,
+            "n_reject_max_lm": n_reject_max,
+            "n_reject_cvm": n_reject_cvm,
+            "min_p_max_lm": float(blocks_frame["p_max_lm"].min()),
+            "top_block": result.top_process.label if result.top_process else None,
+            "resources": resources.to_dict(),
+        }
+    typer.echo(f"invariance {axis}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  coverage {result.n_covered}/{result.n_reference} ({result.coverage:.1%}); "
+        f"{n_reject_max}/{len(result.blocks)} blocks drift beyond the bridge null "
+        f"(maxLM, FDR q={q})"
     )
 
 

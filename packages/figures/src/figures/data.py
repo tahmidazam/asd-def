@@ -258,6 +258,25 @@ def load_sweep(run_directory: Path) -> tuple[pd.DataFrame, dict]:
     return cache.load_frame(decisions[0]), cache.read_manifest(run_directory) or {}
 
 
+def load_invariance(run_directory: Path) -> tuple[pd.DataFrame, dict]:
+    """Load an `invariance` run's stored fluctuation process and its manifest.
+
+    Parameters
+    ----------
+    run_directory : pathlib.Path
+        The `invariance` run directory.
+
+    Returns
+    -------
+    tuple
+        The process table (``process_<axis>.parquet``) and the run manifest.
+    """
+    processes = sorted(run_directory.glob("process_*.parquet"))
+    if not processes:
+        raise FileNotFoundError(f"no process table in {run_directory}")
+    return cache.load_frame(processes[0]), cache.read_manifest(run_directory) or {}
+
+
 def load_pairwise(run_directory: Path) -> tuple[pd.DataFrame, dict]:
     """Load a pairwise ``drift`` run's trajectory table and its manifest metrics.
 

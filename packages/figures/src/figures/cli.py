@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 
 from figures import data, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
+from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
@@ -185,6 +186,22 @@ def sweep(
     meta = {**manifest.get("metrics", {}), "axis": axis}
     figure = sweep_trajectory_figure(decision, data.class_names(root, axis), meta)
     _write(root, "sweep", run_directory, figure, name or f"sweep_trajectory_{axis}", fmt)
+
+
+@app.command()
+def invariance(
+    axis: str = typer.Option("age_at_diagnosis", "--axis", help="Axis: age_at_diagnosis or era."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the strongest-drifting block's fluctuation process against its bridge null."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance", run, axis=axis)
+    process, manifest = data.load_invariance(run_directory)
+    meta = {**manifest.get("metrics", {}), "axis": axis}
+    figure = invariance_process_figure(process, meta)
+    _write(root, "invariance", run_directory, figure, name or f"invariance_process_{axis}", fmt)
 
 
 @app.command()

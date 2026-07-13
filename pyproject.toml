@@ -44,6 +44,7 @@ docs = [
 [tool.pytest.ini_options]
 testpaths = ["packages/dscat/tests", "packages/analysis/tests", "packages/figures/tests"]
 addopts = "-q"
+markers = ["slow: a slow test (many synthetic fits); deselect with -m 'not slow'"]
 
 [tool.ty.src]
 # ty 0.0.49 hangs analysing sphinx-polyversion's recursive JSON types, which these docs

@@ -43,13 +43,15 @@ either cohort. Each stage and where its result is reported:
 | `drift` | Aligns each stratum's classes to the reference and reads their movement against the permutation null. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
 | `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
+| `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`Score-based measurement invariance <guides/score-based-invariance>` |
 
 ## Technical guides
 
 How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
 the SSC milestone parsing, choosing the stratification bins, the two halves of the drift read
-(aligning a stratum to the reference and measuring how far each class moved), and attributing a
-movement to the features and probands that carry it.
+(aligning a stratum to the reference and measuring how far each class moved), attributing a
+movement to the features and probands that carry it, and the score-based measurement-invariance
+test that reads the same question from the single cached fit.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -187,6 +189,7 @@ guides/choosing-the-stratification-bins
 guides/aligning-stratum-classes
 guides/measuring-class-drift
 guides/attributing-class-movement
+guides/score-based-invariance
 :::
 
 :::{toctree}
