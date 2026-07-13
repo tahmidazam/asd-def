@@ -2869,11 +2869,13 @@ def _endpoint_magnitudes(
     precision,
     plane,
     n_points: int,
-) -> tuple[list[float], float]:
-    """Return each class's separation-scaled endpoint magnitude along an axis, and the bandwidth.
+) -> tuple[list[float], float, float]:
+    """Return each class's separation-scaled endpoint magnitude, the bandwidth, and the endpoint.
 
     A light read used for the control panel: it derives the axis's own bandwidth at the recovery
     floor, builds the focal grid, and takes the whole-class magnitude at the endpoint focal point.
+    The endpoint focal value is returned too, so a paired specificity test can re-read the same
+    control variable at the same kernel centre and width.
     """
     import numpy as np
 
@@ -2897,7 +2899,7 @@ def _endpoint_magnitudes(
         plane=plane,
     )
     endpoint = observed.grain_magnitude["class"][:, observed.focal_ref]
-    return [float(v) for v in endpoint], float(bandwidth)
+    return [float(v) for v in endpoint], float(bandwidth), float(grid[observed.focal_ref])
 
 
 def _measurement_class_names(
@@ -3158,13 +3160,16 @@ def invariance_trajectory(
                     }
                 )
             control_bandwidths: dict[str, float] = {}
+            specificity_tests: list[dict] = []
+            axis_endpoint_focal = float(focal_points[-1])
+            fam_full = families.reindex(measurement_data.index)
             for control in control_names:
                 control_axis = _control_axis_series(
                     control, root, dataset, version, matrix.features.index, matrix.covariates, seed
                 )
                 control_cov = control_axis.reindex(measurement_data.index)
                 mask = control_cov.notna().to_numpy()
-                mags, cband = _endpoint_magnitudes(
+                mags, cband, cfocal = _endpoint_magnitudes(
                     x_values[mask],
                     responsibilities[mask],
                     control_cov[mask],
@@ -3186,6 +3191,46 @@ def invariance_trajectory(
                             "endpoint_magnitude": float(mags[c]),
                         }
                     )
+                # The paired specificity test (plan section 12b): resample the same families,
+                # restricted to probands finite on both the timing axis and this control, for
+                # both quantities in every replicate, so the difference is a genuine paired
+                # statistic rather than a comparison of two separately noisy magnitudes.
+                joint = covered & mask
+                comparison = tl.control_specificity_bootstrap(
+                    x_values[joint],
+                    responsibilities[joint],
+                    fam_full[joint].to_numpy(),
+                    axis_values.reindex(measurement_data.index)[joint].to_numpy(dtype=float),
+                    bandwidth,
+                    axis_endpoint_focal,
+                    control_cov[joint].to_numpy(dtype=float),
+                    cband,
+                    cfocal,
+                    pooled_sd=pooled_sd,
+                    separation_scale=separation_scale,
+                    n_boot=n_boot,
+                    seed=seed,
+                )
+                specificity_tests.append(
+                    {
+                        "axis": axis,
+                        "control": control,
+                        "n_joint": int(joint.sum()),
+                        "axis_magnitude": comparison.axis_magnitude,
+                        "control_magnitude": comparison.control_magnitude,
+                        "difference": comparison.difference,
+                        "p_value": comparison.p_value,
+                        "p_value_greater": comparison.p_value_greater,
+                    }
+                )
+            if specificity_tests:
+                raw_p = np.array([row["p_value"] for row in specificity_tests])
+                reject = drift_mod.benjamini_hochberg(raw_p, q)
+                for row, rej in zip(specificity_tests, reject, strict=True):
+                    row["reject"] = bool(rej)
+                cache.save_frame(
+                    pd.DataFrame(specificity_tests), ctx.path(f"specificity_test_{axis}.parquet")
+                )
             cache.save_frame(
                 pd.DataFrame(specificity_rows), ctx.path(f"specificity_{axis}.parquet")
             )
@@ -3212,6 +3257,18 @@ def invariance_trajectory(
             "n_feature_reject": n_reject,
             "n_features_tested": int(inference.reject.size),
             "control_bandwidths": control_bandwidths,
+            "specificity_tests": [
+                {
+                    "control": row["control"],
+                    "n_joint": row["n_joint"],
+                    "axis_magnitude": round(row["axis_magnitude"], 4),
+                    "control_magnitude": round(row["control_magnitude"], 4),
+                    "difference": round(row["difference"], 4),
+                    "p_value": round(row["p_value"], 4),
+                    "reject": row["reject"],
+                }
+                for row in specificity_tests
+            ],
             "score_test_corroboration": corroboration,
             "directional": {
                 "net_trend_by_class": [round(float(v), 4) for v in directional_inf.net_trend],
@@ -3252,6 +3309,15 @@ def invariance_trajectory(
             for c in range(n_classes)
         )
     )
+    if specificity_tests:
+        typer.echo(
+            f"  specificity (paired bootstrap, mean endpoint vs. control, BH q={q:.2f}): "
+            + ", ".join(
+                f"{row['control']} d={row['difference']:+.2f} p={row['p_value']:.4f} "
+                f"{'SPECIFIC' if row['reject'] else 'ns'}"
+                for row in specificity_tests
+            )
+        )
 
 
 def _write_local_trajectory_artefacts(

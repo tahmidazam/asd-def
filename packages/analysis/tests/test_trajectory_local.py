@@ -487,3 +487,73 @@ def test_step_drift_localises_the_changepoint():
         f"break spread misses the boundary ([{inference.break_lo[c]:.3f}, "
         f"{inference.break_hi[c]:.3f}])"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# The paired-bootstrap control comparison (plan section 12b decision rule): a $p$-value for
+# whether a timing axis's drift exceeds a control's, from resampling the same families for both.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_control_comparison_detects_real_axis_drift():
+    """A real drift on the timing axis beats an unrelated control, with a small paired p-value."""
+    world = _World(20, direction="in-plane", shape="monotone")
+    rng = np.random.default_rng(21)
+    control_axis = rng.uniform(0.0, 1.0, world.x.shape[0])
+
+    comparison = tl.control_specificity_bootstrap(
+        world.x,
+        world.responsibilities,
+        world.families,
+        world.axis,
+        0.12,
+        0.9,
+        control_axis,
+        0.12,
+        0.9,
+        pooled_sd=world.pooled_sd,
+        separation_scale=world.separation,
+        n_boot=200,
+        seed=0,
+    )
+
+    assert comparison.axis_magnitude > comparison.control_magnitude, (
+        "planted drift did not exceed the unrelated control"
+    )
+    assert comparison.p_value < 0.05, f"paired p-value not small ({comparison.p_value:.3f})"
+    assert comparison.p_value_greater < 0.05, (
+        f"one-sided p-value not small ({comparison.p_value_greater:.3f})"
+    )
+
+
+def test_control_comparison_no_drift_p_value_near_nominal():
+    """With no drift on either variable, the paired p-value rejects at about the nominal rate.
+
+    A single scalar comparison per world gives one Bernoulli draw per seed, so the rate estimate
+    is looser than the per-feature or per-class gates above; 40 seeds keeps the bound comfortably
+    wide of the sampling noise of a true 5 per cent rate.
+    """
+    rejections = 0
+    total = 40
+    for seed in range(total):
+        world = _World(200 + seed, direction=None)
+        rng = np.random.default_rng(300 + seed)
+        control_axis = rng.uniform(0.0, 1.0, world.x.shape[0])
+        comparison = tl.control_specificity_bootstrap(
+            world.x,
+            world.responsibilities,
+            world.families,
+            world.axis,
+            0.12,
+            0.9,
+            control_axis,
+            0.12,
+            0.9,
+            pooled_sd=world.pooled_sd,
+            separation_scale=world.separation,
+            n_boot=150,
+            seed=seed,
+        )
+        rejections += int(comparison.p_value < 0.05)
+    rate = rejections / total
+    assert rate < 0.2, f"paired test over-rejects under no drift ({rate:.3f})"

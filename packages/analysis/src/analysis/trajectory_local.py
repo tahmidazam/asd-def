@@ -651,6 +651,147 @@ def per_feature_inference(
     )
 
 
+@dataclass
+class ControlComparison:
+    r"""A paired-bootstrap comparison of a timing axis against one control variable.
+
+    Attributes
+    ----------
+    axis_magnitude, control_magnitude : float
+        The observed, class-averaged, separation-scaled endpoint magnitude of the timing axis and
+        of the control variable (sex, area deprivation, or a random ordering).
+    difference : float
+        ``axis_magnitude - control_magnitude``.
+    diff_draws : numpy.ndarray
+        The paired-bootstrap replicate differences, shape ``(n_boot,)``.
+    p_value : float
+        The two-sided bootstrap $p$-value that the difference is zero, floored at
+        $1/(n_\text{boot} + 1)$.
+    p_value_greater : float
+        The one-sided bootstrap $p$-value that the axis magnitude exceeds the control's, floored
+        the same way.
+    n_boot : int
+        The number of paired bootstrap replicates.
+    """
+
+    axis_magnitude: float
+    control_magnitude: float
+    difference: float
+    diff_draws: np.ndarray
+    p_value: float
+    p_value_greater: float
+    n_boot: int
+
+
+def control_specificity_bootstrap(
+    x_values: np.ndarray,
+    responsibilities: np.ndarray,
+    families: np.ndarray,
+    axis_values: np.ndarray,
+    axis_bandwidth: float,
+    axis_focal: float,
+    control_values: np.ndarray,
+    control_bandwidth: float,
+    control_focal: float,
+    *,
+    pooled_sd: np.ndarray,
+    separation_scale: float,
+    n_boot: int,
+    seed: int,
+) -> ControlComparison:
+    r"""Paired family-bootstrap test that a timing axis's drift exceeds a control's.
+
+    The specificity panel (the ``invariance-as-an-effect-size`` guide) reads
+    the timing axis's endpoint magnitude as larger than a control's, but as a magnitude comparison
+    only, because the axis and the control were each read from one point estimate. This adds a
+    $p$-value: every bootstrap replicate resamples one set of families and recomputes *both* the
+    axis and the control magnitude on that same resample, so the two quantities share their
+    sampling variation and the difference is a genuine paired statistic, not the comparison of two
+    separately noisy numbers. The observed difference then acts as its own bootstrap-inverted
+    test: :math:`p` is the fraction of replicate differences on the far side of zero (doubled for
+    the two-sided form), the same construction :func:`per_feature_inference` and
+    :func:`directional_inference` use.
+
+    ``x_values``, ``responsibilities``, and ``families`` must already be restricted to the
+    probands finite on *both* ``axis_values`` and ``control_values``, so that a family resampled
+    for one quantity is resampled for the other. ``axis_focal`` and ``control_focal`` are each
+    variable's own endpoint focal position (its own bandwidth and grid), matching how the
+    specificity panel reads each variable.
+
+    Parameters
+    ----------
+    x_values, responsibilities : numpy.ndarray
+        The measurement matrix and frozen responsibilities, restricted to the shared rows.
+    families : numpy.ndarray
+        The per-proband family identifier over the same rows, the clustering unit.
+    axis_values, control_values : numpy.ndarray
+        The timing axis and the control variable, over the same rows.
+    axis_bandwidth, control_bandwidth : float
+        Each variable's own Gaussian kernel bandwidth.
+    axis_focal, control_focal : float
+        Each variable's own endpoint focal position.
+    pooled_sd : numpy.ndarray
+        The per-feature pooled standard deviation.
+    separation_scale : float
+        The between-class separation the magnitude is divided by.
+    n_boot : int
+        The number of paired bootstrap replicates.
+    seed : int
+        The bootstrap seed.
+
+    Returns
+    -------
+    ControlComparison
+        The observed magnitudes, their difference, and its bootstrap $p$-values.
+    """
+    rng = np.random.default_rng(seed)
+    groups, _ = _family_rows(np.asarray(families))
+    n_groups = len(groups)
+    columns = np.arange(x_values.shape[1])
+
+    axis_weight = gaussian_weights(pd.Series(axis_values), float(axis_focal), axis_bandwidth)
+    axis_weight = axis_weight.to_numpy()
+    control_weight = gaussian_weights(
+        pd.Series(control_values), float(control_focal), control_bandwidth
+    )
+    control_weight = control_weight.to_numpy()
+
+    def mean_magnitude(xb: np.ndarray, rb: np.ndarray, wb: np.ndarray) -> float:
+        pooledb = pooled_centroids(xb, rb)
+        centroids = local_centroids(xb, rb, wb)
+        disp = centroids - pooledb
+        return float(np.mean(grain_magnitude(disp, pooled_sd, columns, separation_scale)))
+
+    observed_axis = mean_magnitude(x_values, responsibilities, axis_weight)
+    observed_control = mean_magnitude(x_values, responsibilities, control_weight)
+
+    diff_draws = np.empty(n_boot)
+    for b in range(n_boot):
+        chosen = rng.integers(0, n_groups, size=n_groups)
+        rows = np.concatenate([groups[c] for c in chosen])
+        xb = x_values[rows]
+        rb = responsibilities[rows]
+        axis_b = mean_magnitude(xb, rb, axis_weight[rows])
+        control_b = mean_magnitude(xb, rb, control_weight[rows])
+        diff_draws[b] = axis_b - control_b
+
+    floor = 1.0 / (n_boot + 1)
+    frac_positive = float(np.mean(diff_draws > 0.0))
+    tail = min(frac_positive, 1.0 - frac_positive)
+    p_value = float(np.clip(2.0 * tail, floor, 1.0))
+    p_value_greater = float(np.clip(1.0 - frac_positive, floor, 1.0))
+
+    return ControlComparison(
+        axis_magnitude=observed_axis,
+        control_magnitude=observed_control,
+        difference=observed_axis - observed_control,
+        diff_draws=diff_draws,
+        p_value=p_value,
+        p_value_greater=p_value_greater,
+        n_boot=n_boot,
+    )
+
+
 def category_grains(columns: list[str], category_map: dict[str, str]) -> dict[str, np.ndarray]:
     """Return the column indices of each presentation grain: whole-class and per author category.
 
