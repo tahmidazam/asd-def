@@ -47,6 +47,7 @@ _EVAL_YEAR = "eval_year"
 _REGISTRATION_TABLE = "core_descriptive_variables"
 _REG_YEAR = "registration_year"
 _REG_AGE = "age_at_registration_years"
+_FAMILY = "family_sf_id"
 
 
 class SparkCohort:
@@ -136,6 +137,34 @@ class SparkCohort:
             values = self._read_axis_column("iq", "fsiq_score", index)
             return values, strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
         return None
+
+    def family_ids(self, index: pd.Index) -> pd.Series | None:
+        """Return the family identifier of each proband, for the clustered bootstrap.
+
+        SPARK groups probands into families by ``core_descriptive_variables.family_sf_id`` (a
+        de-identified family key). The clustered bootstrap (:mod:`analysis.trajectory_local`)
+        resamples families rather than probands, so siblings move together and the tube respects
+        the within-family correlation. Read as a string so the seven-digit zero-padded key keeps
+        its identity; a proband with no family key is its own singleton family (its proband id),
+        so it is never silently pooled with another.
+
+        Parameters
+        ----------
+        index : pandas.Index
+            The modelling-cohort proband index the identifier is aligned to.
+
+        Returns
+        -------
+        pandas.Series
+            The per-proband family identifier, on ``index``.
+        """
+        path = self._path(_REGISTRATION_TABLE)
+        df = read_columns(path, [INDEX_COLUMN, _FAMILY]).set_index(INDEX_COLUMN)
+        df = df[~df.index.duplicated(keep="first")]
+        families = df[_FAMILY].astype("string").reindex(index)
+        # A proband with no recorded family is its own family, so resampling never conflates it
+        # with another proband.
+        return families.fillna(pd.Series(index.astype(str), index=index))
 
     def _instrument_features(self, available: list[str]) -> list[str]:
         """Return the author features present in an instrument, in feature-list order."""

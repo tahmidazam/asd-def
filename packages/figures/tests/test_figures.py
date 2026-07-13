@@ -20,6 +20,7 @@ from figures.roughness import roughness_figure
 from figures.selection import selection_figure
 from figures.stability import stability_figure
 from figures.trajectory import trajectory_figure
+from figures.trajectory_local import panels_figure, plane_figure, specificity_figure
 from matplotlib.figure import Figure
 
 _CATEGORIES = [
@@ -555,3 +556,101 @@ def test_invariance_process_figure_structure() -> None:
     ax = fig.get_axes()[0]
     assert ax.get_yscale() == "log"  # the null band and the excursion span orders of magnitude
     assert ax.get_xlabel()
+
+
+# ---------------------------------------------------------------------------------------------
+# The local-trajectory (score-invariance recast) figures.
+# ---------------------------------------------------------------------------------------------
+
+
+def _local_trajectory_tables(capture_value: float = 0.3):
+    """Return a synthetic plane table and capture table for the local-trajectory figures."""
+    plane_rows: list[dict] = []
+    capture_rows: list[dict] = []
+    for c in range(4):
+        plane_rows.append(
+            {
+                "kind": "anchor",
+                "ref_class": c,
+                "class_name": _CLASS_NAMES[c],
+                "focal_index": -1,
+                "position": float("nan"),
+                "ld1": float(c),
+                "ld2": float(-c),
+                "ld1_lo": float("nan"),
+                "ld1_hi": float("nan"),
+                "ld2_lo": float("nan"),
+                "ld2_hi": float("nan"),
+                "cov11": 0.4,
+                "cov12": 0.05,
+                "cov22": 0.3,
+                "capture": capture_value,
+            }
+        )
+        for s in range(8):
+            ld1 = float(c) + s * 0.03
+            ld2 = float(-c) + s * 0.02
+            plane_rows.append(
+                {
+                    "kind": "focal",
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "focal_index": s,
+                    "position": 2010.0 + s,
+                    "ld1": ld1,
+                    "ld2": ld2,
+                    "ld1_lo": ld1 - 0.04,
+                    "ld1_hi": ld1 + 0.04,
+                    "ld2_lo": ld2 - 0.03,
+                    "ld2_hi": ld2 + 0.03,
+                    "cov11": float("nan"),
+                    "cov12": float("nan"),
+                    "cov22": float("nan"),
+                    "capture": float("nan"),
+                }
+            )
+        capture_rows.append(
+            {"ref_class": c, "class_name": _CLASS_NAMES[c], "capture": capture_value}
+        )
+    return pd.DataFrame(plane_rows), pd.DataFrame(capture_rows)
+
+
+def test_local_plane_figure_structure() -> None:
+    plane, capture = _local_trajectory_tables()
+    fig = plane_figure(plane, capture, {"axis": "era"})
+    assert isinstance(fig, Figure)
+    assert fig.get_axes()  # a panel and its colourbar
+
+
+def test_local_panels_figure_structure() -> None:
+    plane, capture = _local_trajectory_tables()
+    fig = panels_figure(plane, capture, {"axis": "age_at_diagnosis"})
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) >= 4
+
+
+def test_local_specificity_figure_orders_axes() -> None:
+    rng = np.random.default_rng(1)
+    rows: list[dict] = []
+    magnitudes = {
+        "era": 2.8,
+        "age_at_diagnosis": 6.0,
+        "area_deprivation": 2.1,
+        "sex": 0.8,
+        "random": 1.3,
+    }
+    for axis_name, base in magnitudes.items():
+        for c in range(4):
+            rows.append(
+                {
+                    "axis_name": axis_name,
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "endpoint_magnitude": base + rng.normal() * 0.1,
+                }
+            )
+    fig = specificity_figure(pd.DataFrame(rows), {"timing_axes": ["era", "age_at_diagnosis"]})
+    assert isinstance(fig, Figure)
+    ax = fig.get_axes()[0]
+    # The two timing axes and the three controls are all drawn.
+    assert len(ax.get_xticklabels()) == 5

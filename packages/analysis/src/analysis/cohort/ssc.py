@@ -75,6 +75,15 @@ class SscCohort:
         """Return ``False``: SSC does not expose a clean diagnosis timestamp (plan section 5)."""
         return False
 
+    def family_ids(self, index: pd.Index) -> pd.Series | None:
+        """Return ``None``: the family-clustered bootstrap is wired for the SPARK timing axes only.
+
+        The local-trajectory recast (:mod:`analysis.trajectory_local`) runs on the SPARK-only age
+        and era axes, so the SSC backend does not resolve a family key here. The one-family-per
+        proband it would otherwise need is left unimplemented rather than guessed.
+        """
+        return None
+
     def axis(
         self,
         name: str,

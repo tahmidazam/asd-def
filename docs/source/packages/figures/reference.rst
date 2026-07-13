@@ -50,6 +50,9 @@ Figures
 .. automodule:: figures.trajectory
    :members:
 
+.. automodule:: figures.trajectory_local
+   :members:
+
 .. automodule:: figures.roughness
    :members:
 

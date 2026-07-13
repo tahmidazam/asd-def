@@ -124,6 +124,16 @@ class Cohort(Protocol):
         """
         ...
 
+    def family_ids(self, index: pd.Index) -> pd.Series | None:
+        """Return the per-proband family identifier, or ``None`` when the backend has none.
+
+        The clustered bootstrap in :mod:`analysis.trajectory_local` resamples families rather
+        than probands, so a backend that groups probands into families exposes the grouping key
+        here. Like :meth:`axis`, this is an optional capability: a backend that cannot provide a
+        family key returns ``None``.
+        """
+        ...
+
 
 def open_catalogue(root: Path) -> Catalogue:
     """Open the ``dscat`` catalogue at the repository root."""

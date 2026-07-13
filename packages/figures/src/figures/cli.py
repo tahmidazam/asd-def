@@ -27,6 +27,7 @@ from figures.selection import selection_figure
 from figures.stability import stability_figure
 from figures.sweep import sweep_trajectory_figure
 from figures.trajectory import trajectory_figure
+from figures.trajectory_local import panels_figure, plane_figure, specificity_figure
 
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
 
@@ -186,6 +187,70 @@ def sweep(
     meta = {**manifest.get("metrics", {}), "axis": axis}
     figure = sweep_trajectory_figure(decision, data.class_names(root, axis), meta)
     _write(root, "sweep", run_directory, figure, name or f"sweep_trajectory_{axis}", fmt)
+
+
+@app.command(name="local-trajectory")
+def local_trajectory(
+    axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the combined four-class local trajectory in the discriminant plane, with the tube."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
+    plane, capture, meta = data.load_local_trajectory(run_directory)
+    figure = plane_figure(plane, capture, {**meta, "axis": axis})
+    _write(root, "invariance-trajectory", run_directory, figure, name or f"local_plane_{axis}", fmt)
+
+
+@app.command(name="local-panels")
+def local_panels(
+    axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
+    run: str | None = _RUN,
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the per-class local-trajectory panels, each tube over its faint member ellipse."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
+    plane, capture, meta = data.load_local_trajectory(run_directory)
+    figure = panels_figure(plane, capture, {**meta, "axis": axis})
+    _write(
+        root, "invariance-trajectory", run_directory, figure, name or f"local_panels_{axis}", fmt
+    )
+
+
+@app.command(name="local-specificity")
+def local_specificity(
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the specificity small-multiple: timing-axis drift against the control panel.
+
+    Reads the latest ``invariance-trajectory`` run for each timing axis and pools their endpoint
+    displacements, so the era and age effects are shown together against sex, area deprivation, and
+    the random-ordering floor.
+    """
+    import pandas as pd
+
+    root = find_repo_root()
+    frames = []
+    source_dir = None
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            run_directory = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        source_dir = source_dir or run_directory
+        table = data.load_local_specificity(run_directory)
+        # Keep the timing row from its own run; the control rows are pooled across the runs.
+        frames.append(table)
+    if source_dir is None:
+        raise typer.BadParameter("no completed invariance-trajectory run for either timing axis")
+    merged = pd.concat(frames, ignore_index=True)
+    figure = specificity_figure(merged, {"timing_axes": ["era", "age_at_diagnosis"]})
+    _write(root, "invariance-trajectory", source_dir, figure, name or "local_specificity", fmt)
 
 
 @app.command()

@@ -1,0 +1,324 @@
+r"""Figures for the local class-profile displacement (the score-invariance recast, plan 7e).
+
+An ``invariance-trajectory`` run reads how each pooled class centroid moves as a smooth function
+of the axis, under frozen responsibilities, with a family-clustered bootstrap tube. These figures
+are a view of that full-dimensional effect, not its authority: each carries the in-plane capture
+fraction, so a class whose drift is mostly out of the discriminant plane is flagged rather than
+flattered by the picture.
+
+Three figures:
+
+- :func:`plane_figure` draws all four classes in one discriminant plane: the pooled anchors, each
+  class's local trajectory with a time arrow, the centroid bootstrap tube, and the capture
+  fraction;
+- :func:`panels_figure` gives one panel per class, the trajectory and its tube over the faint
+  within-class member ellipse, which answer different questions (where the centroid sits versus
+  where the members spread);
+- :func:`specificity_figure` is the small-multiple that reads the separation-scaled endpoint
+  displacement of the timing axes against the control panel (sex, area deprivation, a random
+  ordering), so the timing effect is shown to be larger than a control rather than merely non-zero.
+"""
+
+from __future__ import annotations
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from matplotlib.figure import Figure
+from matplotlib.patches import Ellipse, FancyArrowPatch
+
+from figures import style
+from figures.trajectory import (
+    _COVERAGE_LEVELS,
+    _coverage_alpha,
+    _coverage_ellipse,
+    _coverage_radius,
+)
+
+_LETTERS = ("A", "B", "C", "D")
+_NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
+_NICE_CONTROL = {
+    "sex": "sex",
+    "area_deprivation": "area deprivation",
+    "random": "random order",
+    "era": "diagnostic era",
+    "age_at_diagnosis": "age at diagnosis",
+}
+# A class whose in-plane capture falls below this is flagged: the 2D picture understates it.
+_LOW_CAPTURE = 0.5
+
+
+def _tube_ellipse(centre: np.ndarray, half: np.ndarray, colour: str, alpha: float) -> Ellipse:
+    """Return a light axis-aligned ellipse standing for the centroid tube at one focal point."""
+    return Ellipse(
+        tuple(centre),
+        float(2.0 * max(half[0], 1e-6)),
+        float(2.0 * max(half[1], 1e-6)),
+        facecolor=colour,
+        edgecolor="none",
+        alpha=alpha,
+        zorder=2.0,
+    )
+
+
+def _class_order(anchors: pd.DataFrame) -> list[int]:
+    """Return the class ids in a stable order."""
+    return sorted(int(c) for c in anchors["ref_class"])
+
+
+def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figure:
+    """Build the combined four-class discriminant-plane trajectory figure.
+
+    Parameters
+    ----------
+    plane : pandas.DataFrame
+        The ``trajectory_<axis>`` table: anchor rows (with the member covariance) and per-focal
+        centroid rows (with the bootstrap tube box ``ld1_lo``, ``ld1_hi``, ``ld2_lo``, ``ld2_hi``).
+    capture : pandas.DataFrame
+        The ``capture_<axis>`` table, carrying the per-class in-plane capture fraction.
+    meta : dict
+        The run's manifest metrics, carrying ``axis``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The single-panel figure.
+    """
+    anchors = plane[plane["kind"] == "anchor"].set_index("ref_class")
+    focal = plane[plane["kind"] == "focal"]
+    classes = _class_order(plane[plane["kind"] == "anchor"])
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    names = {c: str(anchors.loc[c, "class_name"]) for c in classes}
+    capture_of = dict(
+        zip(capture["ref_class"].astype(int), capture["capture"].astype(float), strict=True)
+    )
+    n_focal = int(focal["focal_index"].max()) + 1
+    cmap = plt.get_cmap("viridis")
+    norm = Normalize(0, max(n_focal - 1, 1))
+    nice = _NICE_AXIS.get(str(meta.get("axis")), str(meta.get("axis")))
+
+    with style.house_style():
+        fig, ax = plt.subplots(figsize=(7.6, 6.4))
+        for c in classes:
+            path = focal[focal["ref_class"] == c].sort_values("focal_index")
+            pts = path[["ld1", "ld2"]].to_numpy(dtype=float)
+            order = path["focal_index"].to_numpy()
+            half1 = (path["ld1_hi"].to_numpy() - path["ld1_lo"].to_numpy()) / 2.0
+            half2 = (path["ld2_hi"].to_numpy() - path["ld2_lo"].to_numpy()) / 2.0
+            for k in range(pts.shape[0]):
+                ax.add_patch(
+                    _tube_ellipse(pts[k], np.array([half1[k], half2[k]]), colours[c], 0.16)
+                )
+            ax.plot(pts[:, 0], pts[:, 1], color=colours[c], lw=0.8, alpha=0.5, zorder=3)
+            ax.scatter(
+                pts[:, 0], pts[:, 1], s=16, c=order, cmap=cmap, norm=norm, zorder=4, linewidths=0
+            )
+            third = max(2, pts.shape[0] // 3)
+            ax.add_patch(
+                FancyArrowPatch(
+                    pts[:third].mean(axis=0),
+                    pts[-third:].mean(axis=0),
+                    arrowstyle="-|>",
+                    mutation_scale=16,
+                    color=colours[c],
+                    lw=2.0,
+                    alpha=0.9,
+                    zorder=5,
+                )
+            )
+            anchor = anchors.loc[c, ["ld1", "ld2"]].to_numpy(dtype=float)
+            ax.scatter(*anchor, s=42, color=colours[c], edgecolor="black", lw=0.6, zorder=6)
+            flag = " *" if capture_of.get(c, 1.0) < _LOW_CAPTURE else ""
+            ax.annotate(
+                f"{names[c].split()[0]} (capture {capture_of.get(c, float('nan')):.2f}{flag})",
+                anchor,
+                textcoords="offset points",
+                xytext=(6, 6),
+                fontsize=7,
+                color=colours[c],
+                zorder=7,
+            )
+        ax.set_xlabel("Linear discriminant 1")
+        ax.set_ylabel("Linear discriminant 2")
+        smap = ScalarMappable(norm=norm, cmap=cmap)
+        smap.set_array([])
+        bar = fig.colorbar(smap, ax=ax, fraction=0.045, pad=0.02)
+        bar.set_label(f"Focal point ({nice}, low to high)", fontsize=8)
+        bar.set_ticks([0, max(n_focal - 1, 1)])
+        bar.set_ticklabels(["low", "high"], fontsize=7)
+        style.panel_title(ax, "A", f"Local class trajectories along {nice}")
+        low = [names[c] for c in classes if capture_of.get(c, 1.0) < _LOW_CAPTURE]
+        if low:
+            ax.text(
+                0.5,
+                -0.13,
+                "* drift is mostly out of plane; the full-dimensional magnitude is the authority",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=6.6,
+                color="#555",
+            )
+    return fig
+
+
+def panels_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figure:
+    """Build the per-class panels: the local trajectory and tube over the member ellipse.
+
+    Parameters
+    ----------
+    plane : pandas.DataFrame
+        The ``trajectory_<axis>`` table (anchors with the member covariance and per-focal
+        centroids with the tube box).
+    capture : pandas.DataFrame
+        The ``capture_<axis>`` table.
+    meta : dict
+        The run's manifest metrics, carrying ``axis``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The 2 by 2 figure, one panel per class.
+    """
+    anchors = plane[plane["kind"] == "anchor"].set_index("ref_class")
+    focal = plane[plane["kind"] == "focal"]
+    classes = _class_order(plane[plane["kind"] == "anchor"])
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    names = {c: str(anchors.loc[c, "class_name"]) for c in classes}
+    capture_of = dict(
+        zip(capture["ref_class"].astype(int), capture["capture"].astype(float), strict=True)
+    )
+    n_focal = int(focal["focal_index"].max()) + 1
+    cmap = plt.get_cmap("viridis")
+    norm = Normalize(0, max(n_focal - 1, 1))
+    nice = _NICE_AXIS.get(str(meta.get("axis")), str(meta.get("axis")))
+
+    def _cov(c: int) -> np.ndarray:
+        row = anchors.loc[c]
+        return np.array([[row["cov11"], row["cov12"]], [row["cov12"], row["cov22"]]], dtype=float)
+
+    with style.house_style():
+        fig, axes = plt.subplots(2, 2, figsize=(9.0, 7.4), sharex=True, sharey=True)
+        for panel, (letter, ax) in enumerate(zip(_LETTERS, axes.flat, strict=False)):
+            if panel >= len(classes):
+                ax.axis("off")
+                continue
+            c = classes[panel]
+            colour = colours[c]
+            anchor = anchors.loc[c, ["ld1", "ld2"]].to_numpy(dtype=float)
+            for coverage in _COVERAGE_LEVELS:
+                ax.add_patch(
+                    _coverage_ellipse(
+                        anchor,
+                        _cov(c),
+                        _coverage_radius(coverage),
+                        "#6f6f6f",
+                        lw=0.9,
+                        zorder=1.1,
+                        alpha=_coverage_alpha(coverage),
+                    )
+                )
+            path = focal[focal["ref_class"] == c].sort_values("focal_index")
+            pts = path[["ld1", "ld2"]].to_numpy(dtype=float)
+            order = path["focal_index"].to_numpy()
+            half1 = (path["ld1_hi"].to_numpy() - path["ld1_lo"].to_numpy()) / 2.0
+            half2 = (path["ld2_hi"].to_numpy() - path["ld2_lo"].to_numpy()) / 2.0
+            for k in range(pts.shape[0]):
+                ax.add_patch(_tube_ellipse(pts[k], np.array([half1[k], half2[k]]), colour, 0.22))
+            ax.plot(pts[:, 0], pts[:, 1], color=colour, lw=0.9, alpha=0.6, zorder=3)
+            ax.scatter(
+                pts[:, 0], pts[:, 1], s=18, c=order, cmap=cmap, norm=norm, zorder=4, linewidths=0
+            )
+            ax.scatter(*anchor, s=34, color=colour, edgecolor="black", lw=0.5, zorder=5)
+            style.panel_title(ax, letter, names[c])
+            ax.text(
+                0.98,
+                0.03,
+                f"capture {capture_of.get(c, float('nan')):.2f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=6.6,
+                color="#555",
+            )
+        for ax in axes[1, :]:
+            ax.set_xlabel("Linear discriminant 1")
+        for ax in axes[:, 0]:
+            ax.set_ylabel("Linear discriminant 2")
+        smap = ScalarMappable(norm=norm, cmap=cmap)
+        smap.set_array([])
+        bar = fig.colorbar(smap, ax=axes, fraction=0.03, pad=0.02)
+        bar.set_label(f"Focal point ({nice}, low to high)", fontsize=8)
+        bar.set_ticks([0, max(n_focal - 1, 1)])
+        bar.set_ticklabels(["low", "high"], fontsize=7)
+    return fig
+
+
+def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
+    """Build the specificity small-multiple: endpoint displacement by axis, per class.
+
+    The separation-scaled endpoint magnitude of each axis, with the timing axes drawn against the
+    control panel. A per-class dot sits on each axis's bar (the mean over classes), so the
+    comparison is read as a magnitude ordering rather than a reject-or-not decision.
+
+    Parameters
+    ----------
+    specificity : pandas.DataFrame
+        The merged ``specificity`` rows, with ``axis_name``, ``ref_class``, ``class_name`` and
+        ``endpoint_magnitude``. The timing axes and the control axes are pooled here.
+    meta : dict
+        Presentation metrics; ``timing_axes`` names the axes drawn as the effect (highlighted).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The single-panel figure.
+    """
+    timing = set(meta.get("timing_axes", ["era", "age_at_diagnosis"]))
+    order = ["era", "age_at_diagnosis", "area_deprivation", "sex", "random"]
+    present = [a for a in order if a in set(specificity["axis_name"])]
+    means = specificity.groupby("axis_name")["endpoint_magnitude"].mean()
+
+    with style.house_style():
+        fig, ax = plt.subplots(figsize=(7.4, 4.4))
+        for i, axis_name in enumerate(present):
+            highlight = axis_name in timing
+            ax.bar(
+                i,
+                float(means[axis_name]),
+                width=0.62,
+                color=style.PALETTE[3] if highlight else "#b8b8b8",
+                edgecolor="black" if highlight else "none",
+                linewidth=0.6 if highlight else 0.0,
+                zorder=2,
+            )
+            rows = specificity[specificity["axis_name"] == axis_name]
+            jitter = np.linspace(-0.14, 0.14, len(rows))
+            ax.scatter(
+                i + jitter,
+                rows["endpoint_magnitude"].to_numpy(dtype=float),
+                s=16,
+                color="#333",
+                zorder=3,
+            )
+        ax.set_xticks(range(len(present)))
+        ax.set_xticklabels([_NICE_CONTROL.get(a, a) for a in present], fontsize=8)
+        ax.set_ylabel("Endpoint displacement (separation units)")
+        control_mean = float(
+            specificity[~specificity["axis_name"].isin(timing)]["endpoint_magnitude"].mean()
+        )
+        ax.axhline(control_mean, color=style.REFERENCE_COLOUR, ls=":", lw=0.9, zorder=1)
+        ax.text(
+            len(present) - 0.5,
+            control_mean,
+            " control mean",
+            va="center",
+            ha="left",
+            fontsize=6.8,
+            color=style.REFERENCE_COLOUR,
+        )
+        style.panel_title(ax, "A", "Specificity: timing drift against the control panel")
+        ax.margins(x=0.04)
+    return fig

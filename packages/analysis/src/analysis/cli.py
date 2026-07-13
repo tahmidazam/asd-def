@@ -2818,6 +2818,577 @@ def invariance(
     )
 
 
+def _control_axis_series(
+    name: str,
+    root: Path,
+    dataset: str,
+    version: str,
+    index: pd.Index,
+    covariates: pd.DataFrame,
+    seed: int,
+) -> pd.Series:
+    """Return a control-panel ordering variable on the cohort index.
+
+    The specificity check reads the same separation-scaled displacement along variables that are
+    not the mechanism under test, so that the era and age magnitudes can be read as larger than a
+    control rather than merely non-zero. ``sex`` and ``area_deprivation`` are real covariates
+    unrelated to diagnosis timing; ``random`` is a seeded uniform ordering, the floor a meaningless
+    axis produces.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from analysis.cohort import open_catalogue, read_columns, source_csv
+
+    if name == "sex":
+        return covariates["sex"].astype(float).reindex(index)
+    if name == "random":
+        rng = np.random.default_rng(seed)
+        return pd.Series(rng.uniform(size=len(index)), index=index, name="random")
+    if name == "area_deprivation":
+        cat = open_catalogue(root)
+        path = source_csv(cat, root, dataset, version, "area_deprivation_index")
+        # The release ships the column with an R-style ``X`` prefix (it starts with a digit),
+        # which the dscat catalogue records without; read the on-disk name.
+        column = "X2019_adi_national_rank_percentile"
+        frame = read_columns(path, ["subject_sp_id", column]).set_index("subject_sp_id")
+        frame = frame[~frame.index.duplicated(keep="first")]
+        return pd.to_numeric(frame[column], errors="coerce").reindex(index)
+    raise typer.BadParameter(f"unknown control axis {name!r}")
+
+
+def _endpoint_magnitudes(
+    x_values,
+    responsibilities,
+    axis_values: pd.Series,
+    *,
+    pooled_sd,
+    separation_scale: float,
+    grains,
+    embedding,
+    precision,
+    plane,
+    n_points: int,
+) -> tuple[list[float], float]:
+    """Return each class's separation-scaled endpoint magnitude along an axis, and the bandwidth.
+
+    A light read used for the control panel: it derives the axis's own bandwidth at the recovery
+    floor, builds the focal grid, and takes the whole-class magnitude at the endpoint focal point.
+    """
+    import numpy as np
+
+    from analysis import localise
+    from analysis import trajectory_local as tl
+
+    finite = axis_values.dropna()
+    grid = localise.focal_grid(finite, min(n_points, max(2, finite.nunique())), (0.025, 0.975))
+    bandwidth = localise.bandwidth_for_effective_n(finite, grid, 1000.0, reduce="min")
+    observed = tl.observed_trajectory(
+        x_values,
+        responsibilities,
+        axis_values.to_numpy(dtype=float),
+        np.asarray(grid, dtype=float),
+        bandwidth,
+        pooled_sd=pooled_sd,
+        separation_scale=separation_scale,
+        grains={"class": grains["class"]},
+        embedding=embedding,
+        precision=precision,
+        plane=plane,
+    )
+    endpoint = observed.grain_magnitude["class"][:, observed.focal_ref]
+    return [float(v) for v in endpoint], float(bandwidth)
+
+
+def _measurement_class_names(
+    root: Path,
+    dataset: str,
+    version: str,
+    cohort_hash: str,
+    measurement_reference,
+    measurement_data,
+    seed: int,
+) -> tuple[dict[int, str], str]:
+    """Name the measurement-only classes by centroid-matching them to the covariate reference.
+
+    The ``align`` stage names the covariate reference's classes (plan section 6a) but not the
+    measurement-only fit the score test reads. Rather than leave the classes as bare ids, this
+    aligns the measurement-only pooled centroids to the named covariate reference on the same
+    cohort by the Hungarian centroid match (:class:`analysis.drift.CentroidHungarian`), so the
+    figures carry Litman's class names without any refit. Falls back to numeric names when the
+    covariate reference or its alignment is not cached.
+    """
+    from analysis import drift as drift_mod
+    from analysis.paths import run_dir
+
+    n_classes = int(measurement_reference.centroids.shape[0])
+    default = {c: f"class {c}" for c in range(n_classes)}
+
+    cov_fit_hash = cache.compute_hash(
+        _fit_params(cohort_hash, config.DEFAULT_N_COMPONENTS, config.DEFAULT_N_INIT, seed)
+    )
+    cov_fit_dir = run_dir(root, "fit", cache.short_hash(cov_fit_hash))
+    cov_align_hash = cache.compute_hash(_align_params(root, cov_fit_hash))
+    cov_align_dir = run_dir(root, "align", cache.short_hash(cov_align_hash))
+    if not (_completed(cov_fit_dir) and _completed(cov_align_dir)):
+        return default, "class-ids"
+
+    cov_labels = cache.load_frame(cov_fit_dir / "labels.parquet")["class"]
+    cov_labels.index = measurement_data.index
+    cov_reference = drift_mod.build_reference(measurement_data, cov_labels)
+    cov_names = {
+        int(k): v for k, v in cache.load_json(cov_align_dir / "alignment.json")["mapping"].items()
+    }
+    alignment = drift_mod.CentroidHungarian().align(
+        measurement_reference.as_stratum(), cov_reference
+    )
+    names = {meas: cov_names.get(cov, f"class {meas}") for meas, cov in alignment.mapping.items()}
+    resolved = {c: names.get(c, f"class {c}") for c in range(n_classes)}
+    return resolved, cache.short_hash(cov_align_hash)
+
+
+@app.command(name="invariance-trajectory")
+def invariance_trajectory(
+    axis: str = typer.Option(
+        "era", help="Ordering variable: era or age_at_diagnosis (SPARK timing)."
+    ),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_points: int = typer.Option(25, help="Focal grid points the local centroids are read at."),
+    n_boot: int = typer.Option(
+        500, "--n-boot", help="Clustered-bootstrap replicates for the tube and per-feature CIs."
+    ),
+    controls: bool = typer.Option(
+        True, "--controls/--no-controls", help="Also read the control-panel specificity axes."
+    ),
+    seed: int = typer.Option(config.DEFAULT_STRATIFY_SEED, help="Base seed for the bootstrap."),
+    n_init: int = typer.Option(
+        50, help="The n_init of the measurement-only reference fit to resolve."
+    ),
+    q: float = typer.Option(0.05, help="Benjamini-Hochberg FDR level across per-feature tests."),
+    min_bin_size: int = typer.Option(
+        1000, help="Recovery floor the bandwidth is derived against (does not bin the axis)."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Read how each class profile drifts along an axis as a null-free, separation-scaled effect.
+
+    The recast of the score-based invariance test (plan section 7e). Freezing the measurement-only
+    reference's responsibilities, it reads each class's local centroid as a smooth function of the
+    axis, forms the per-feature displacement from the pooled centroid, and scales magnitudes by the
+    between-class separation. Uncertainty is a family-clustered bootstrap (the tube and per-feature
+    intervals), replacing the saturated bridge null. It reports the in-plane capture fraction so
+    the 2D figure cannot hide out-of-plane drift, a covariance-aware Mahalanobis corroboration, and
+    a control-panel specificity comparison (era and age against sex, area deprivation, and a random
+    ordering). No mixture is refitted; every artefact is class or feature level.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from analysis import drift as drift_mod
+    from analysis import localise, profiling
+    from analysis import trajectory as trajectory_mod
+    from analysis import trajectory_local as tl
+    from analysis.cohort import get_cohort
+    from analysis.paths import run_dir
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter("axis must be 'age_at_diagnosis' or 'era'")
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = _resolve_measurement_reference(root, cohort_hash, n_init, seed)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    reference_model = cache.load_model(ref_dir / "model.joblib")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    columns = list(measurement_data.columns)
+    x_values = measurement_data.to_numpy(dtype=float)
+    responsibilities = invariance_responsibilities(reference_model, x_values)
+
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    pooled_sd = reference.pooled_sd.reindex(columns).to_numpy(dtype=float)
+    precision = reference.precision
+    separation_scale = tl.separation(reference)
+    embedding = trajectory_mod.fit_embedding(measurement_data, ref_labels)
+    plane = tl.discriminant_plane(embedding)
+    name_of, name_source = _measurement_class_names(
+        root, dataset, version, cohort_hash, reference, measurement_data, seed
+    )
+
+    category_map = features.load_category_map(config.author_category_map(root))
+    grains = tl.category_grains(columns, category_map)
+
+    cohort = get_cohort(dataset, version, root)
+    resolved = cohort.axis(axis, matrix.features.index, matrix.covariates, min_bin_size)
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, _policy = resolved
+    families = cohort.family_ids(matrix.features.index)
+    if families is None:
+        raise typer.BadParameter(
+            f"cohort {dataset!r} exposes no family identifier for the clustered bootstrap"
+        )
+
+    covered = axis_values.reindex(measurement_data.index).notna().to_numpy()
+    n_reference = int(x_values.shape[0])
+    n_covered = int(covered.sum())
+
+    x_cov = x_values[covered]
+    resp_cov = responsibilities[covered]
+    axis_cov = axis_values.reindex(measurement_data.index)[covered]
+    fam_cov = families.reindex(measurement_data.index)[covered].to_numpy()
+
+    finite = axis_cov.dropna()
+    focal_points = np.asarray(localise.focal_grid(finite, n_points, (0.025, 0.975)), dtype=float)
+    band_grid = localise.focal_grid(finite, 20, (0.025, 0.975))
+    bandwidth = round(
+        localise.bandwidth_for_effective_n(finite, band_grid, float(min_bin_size), reduce="min"), 4
+    )
+
+    n_classes = int(reference.centroids.shape[0])
+    control_names = ["sex", "area_deprivation", "random"] if controls else []
+    params = {
+        "fit": ref_fit_hash,
+        "names": name_source,
+        "axis": axis,
+        "quantity": "local-centroid-displacement;frozen-responsibilities",
+        "bandwidth": bandwidth,
+        "n_points": n_points,
+        "n_boot": n_boot,
+        "seed": seed,
+        "q": q,
+        "controls": control_names,
+        "category_map": cache.file_digest(config.author_category_map(root)),
+    }
+    with run_context("invariance-trajectory", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(
+                f"invariance-trajectory: cache hit {cache.short_hash(ctx.run_hash)}; {cached}"
+            )
+            return
+        with profiling.measure() as unit:
+            observed = tl.observed_trajectory(
+                x_cov,
+                resp_cov,
+                axis_cov.to_numpy(dtype=float),
+                focal_points,
+                bandwidth,
+                pooled_sd=pooled_sd,
+                separation_scale=separation_scale,
+                grains=grains,
+                embedding=embedding,
+                precision=precision,
+                plane=plane,
+            )
+            tube = tl.clustered_bootstrap_tube(
+                x_cov,
+                resp_cov,
+                axis_cov.to_numpy(dtype=float),
+                fam_cov,
+                focal_points,
+                bandwidth,
+                pooled_sd=pooled_sd,
+                separation_scale=separation_scale,
+                grains=grains,
+                embedding=embedding,
+                precision=precision,
+                focal_ref=observed.focal_ref,
+                n_boot=n_boot,
+                seed=seed,
+            )
+            observed_endpoint = observed.displacement[:, observed.focal_ref] / pooled_sd
+            inference = tl.per_feature_inference(observed_endpoint, tube.feature_displacement, q=q)
+
+            # The fixed anchors and member ellipses of the pooled classes, in the embedding.
+            anchor_ld = trajectory_mod.project(
+                embedding, reference.centroids.reindex(range(n_classes))
+            )[:, :2]
+            member_cov = _member_covariance(embedding, ref_labels, measurement_data, n_classes)
+
+            # Aggregate-only artefacts (class or feature level, never per proband).
+            _write_local_trajectory_artefacts(
+                ctx,
+                axis=axis,
+                columns=columns,
+                category_map=category_map,
+                name_of=name_of,
+                observed=observed,
+                tube=tube,
+                inference=inference,
+                anchor_ld=anchor_ld,
+                member_cov=member_cov,
+            )
+
+            specificity_rows: list[dict] = []
+            primary_endpoint = observed.grain_magnitude["class"][:, observed.focal_ref]
+            for c in range(n_classes):
+                specificity_rows.append(
+                    {
+                        "axis_name": axis,
+                        "ref_class": c,
+                        "class_name": name_of.get(c, str(c)),
+                        "endpoint_magnitude": float(primary_endpoint[c]),
+                    }
+                )
+            control_bandwidths: dict[str, float] = {}
+            for control in control_names:
+                control_axis = _control_axis_series(
+                    control, root, dataset, version, matrix.features.index, matrix.covariates, seed
+                )
+                control_cov = control_axis.reindex(measurement_data.index)
+                mask = control_cov.notna().to_numpy()
+                mags, cband = _endpoint_magnitudes(
+                    x_values[mask],
+                    responsibilities[mask],
+                    control_cov[mask],
+                    pooled_sd=pooled_sd,
+                    separation_scale=separation_scale,
+                    grains=grains,
+                    embedding=embedding,
+                    precision=precision,
+                    plane=plane,
+                    n_points=n_points,
+                )
+                control_bandwidths[control] = cband
+                for c in range(n_classes):
+                    specificity_rows.append(
+                        {
+                            "axis_name": control,
+                            "ref_class": c,
+                            "class_name": name_of.get(c, str(c)),
+                            "endpoint_magnitude": float(mags[c]),
+                        }
+                    )
+            cache.save_frame(
+                pd.DataFrame(specificity_rows), ctx.path(f"specificity_{axis}.parquet")
+            )
+            unit.output_bytes = profiling.path_bytes(ctx.path(f"capture_{axis}.parquet"))
+
+        resources = unit.metrics
+        assert resources is not None
+        corroboration = _score_test_corroboration(root, ref_fit_hash, axis)
+        n_reject = int(inference.reject.sum())
+        mean_endpoint = float(np.mean(primary_endpoint))
+        ctx.metrics = {
+            "axis": axis,
+            "reference_fit": cache.short_hash(ref_fit_hash),
+            "n_reference": n_reference,
+            "n_covered": n_covered,
+            "coverage": round(n_covered / n_reference, 4),
+            "bandwidth": bandwidth,
+            "n_points": n_points,
+            "n_boot": n_boot,
+            "separation": round(separation_scale, 4),
+            "endpoint_magnitude_mean": round(mean_endpoint, 4),
+            "endpoint_magnitude_by_class": [round(float(v), 4) for v in primary_endpoint],
+            "capture_by_class": [round(float(v), 4) for v in observed.capture],
+            "n_feature_reject": n_reject,
+            "n_features_tested": int(inference.reject.size),
+            "control_bandwidths": control_bandwidths,
+            "score_test_corroboration": corroboration,
+            "resources": resources.to_dict(),
+        }
+    typer.echo(f"invariance-trajectory {axis}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  coverage {n_covered}/{n_reference} ({n_covered / n_reference:.1%}); "
+        f"bandwidth {bandwidth}; endpoint displacement (sep units) mean {mean_endpoint:.3f}"
+    )
+    typer.echo(
+        "  per-class endpoint "
+        + ", ".join(
+            f"{name_of.get(c, c)} {primary_endpoint[c]:.2f} (capture {observed.capture[c]:.2f})"
+            for c in range(n_classes)
+        )
+    )
+    typer.echo(
+        f"  {n_reject}/{inference.reject.size} per-feature displacements survive FDR (q={q})"
+    )
+
+
+def _write_local_trajectory_artefacts(
+    ctx,
+    *,
+    axis: str,
+    columns: list[str],
+    category_map,
+    name_of: dict,
+    observed,
+    tube,
+    inference,
+    anchor_ld,
+    member_cov,
+) -> None:
+    """Write the class and feature-level tables of a local-trajectory run.
+
+    Four aggregate artefacts: the per-feature endpoint displacement with its interval and FDR
+    decision; the separation-scaled grain magnitude trajectory with its tube; the discriminant-
+    plane trajectory with the centroid tube and the anchor member ellipses; and the per-class
+    summary (capture fraction, endpoint magnitude, Mahalanobis).
+    """
+    import numpy as np
+    import pandas as pd
+
+    n_classes = observed.displacement.shape[0]
+    focal_ref = observed.focal_ref
+
+    feature_rows: list[dict] = []
+    for c in range(n_classes):
+        for j, feature in enumerate(columns):
+            feature_rows.append(
+                {
+                    "ref_class": c,
+                    "class_name": name_of.get(c, str(c)),
+                    "feature": feature,
+                    "category": category_map.get(str(feature), "unmapped"),
+                    "displacement": float(inference.displacement[c, j]),
+                    "ci_low": float(inference.ci_low[c, j]),
+                    "ci_high": float(inference.ci_high[c, j]),
+                    "p_value": float(inference.p_value[c, j]),
+                    "reject": bool(inference.reject[c, j]),
+                    "covers_zero": bool(inference.covers_zero[c, j]),
+                }
+            )
+    cache.save_frame(pd.DataFrame(feature_rows), ctx.path(f"feature_displacement_{axis}.parquet"))
+
+    magnitude_rows: list[dict] = []
+    for grain, bands in tube.grain_bands.items():
+        observed_grain = observed.grain_magnitude[grain]
+        for c in range(n_classes):
+            for j, position in enumerate(observed.focal_points):
+                magnitude_rows.append(
+                    {
+                        "grain": grain,
+                        "ref_class": c,
+                        "class_name": name_of.get(c, str(c)),
+                        "focal_index": j,
+                        "position": float(position),
+                        "magnitude": float(observed_grain[c, j]),
+                        "band_lo": float(bands[0, c, j]),
+                        "band_hi": float(bands[2, c, j]),
+                    }
+                )
+    cache.save_frame(pd.DataFrame(magnitude_rows), ctx.path(f"grain_magnitude_{axis}.parquet"))
+
+    # The plane trajectory: anchors (with the member ellipse) plus per-focal centroids with the
+    # clustered-bootstrap tube box (the 2.5 and 97.5 percentiles of the resampled position).
+    ld_lo = np.nanpercentile(tube.ld, 2.5, axis=0)
+    ld_hi = np.nanpercentile(tube.ld, 97.5, axis=0)
+    plane_rows: list[dict] = []
+    for c in range(n_classes):
+        plane_rows.append(
+            {
+                "kind": "anchor",
+                "ref_class": c,
+                "class_name": name_of.get(c, str(c)),
+                "focal_index": -1,
+                "position": float("nan"),
+                "ld1": float(anchor_ld[c, 0]),
+                "ld2": float(anchor_ld[c, 1]),
+                "ld1_lo": float("nan"),
+                "ld1_hi": float("nan"),
+                "ld2_lo": float("nan"),
+                "ld2_hi": float("nan"),
+                "cov11": float(member_cov[c][0, 0]),
+                "cov12": float(member_cov[c][0, 1]),
+                "cov22": float(member_cov[c][1, 1]),
+                "capture": float(observed.capture[c]),
+            }
+        )
+        for j, position in enumerate(observed.focal_points):
+            plane_rows.append(
+                {
+                    "kind": "focal",
+                    "ref_class": c,
+                    "class_name": name_of.get(c, str(c)),
+                    "focal_index": j,
+                    "position": float(position),
+                    "ld1": float(observed.ld[c, j, 0]),
+                    "ld2": float(observed.ld[c, j, 1]),
+                    "ld1_lo": float(ld_lo[c, j, 0]),
+                    "ld1_hi": float(ld_hi[c, j, 0]),
+                    "ld2_lo": float(ld_lo[c, j, 1]),
+                    "ld2_hi": float(ld_hi[c, j, 1]),
+                    "cov11": float("nan"),
+                    "cov12": float("nan"),
+                    "cov22": float("nan"),
+                    "capture": float("nan"),
+                }
+            )
+    cache.save_frame(pd.DataFrame(plane_rows), ctx.path(f"trajectory_{axis}.parquet"))
+
+    capture_rows: list[dict] = []
+    for c in range(n_classes):
+        capture_rows.append(
+            {
+                "ref_class": c,
+                "class_name": name_of.get(c, str(c)),
+                "capture": float(observed.capture[c]),
+                "peak_position": float(observed.focal_points[observed.peak_focal[c]]),
+                "endpoint_magnitude": float(observed.grain_magnitude["class"][c, focal_ref]),
+                "endpoint_magnitude_lo": float(tube.grain_bands["class"][0, c, focal_ref]),
+                "endpoint_magnitude_hi": float(tube.grain_bands["class"][2, c, focal_ref]),
+                "mahalanobis": float(observed.mahalanobis[c, focal_ref]),
+                "mahalanobis_lo": float(tube.mahalanobis_bands[0, c, focal_ref]),
+                "mahalanobis_hi": float(tube.mahalanobis_bands[2, c, focal_ref]),
+                "n_feature_reject": int(inference.reject[c].sum()),
+                "n_feature_covers_zero": int(inference.covers_zero[c].sum()),
+            }
+        )
+    cache.save_frame(pd.DataFrame(capture_rows), ctx.path(f"capture_{axis}.parquet"))
+
+
+def _member_covariance(embedding, ref_labels, measurement_data, n_classes):
+    """Return each class's member covariance in the first two discriminant axes, for the ellipse."""
+    import numpy as np
+
+    z_all = (
+        measurement_data.loc[:, embedding.columns].to_numpy(dtype=float) - embedding.mean
+    ) / embedding.sd
+    member_ld = embedding.transformer.transform(z_all)[:, :2]
+    labels = ref_labels.reindex(measurement_data.index).to_numpy()
+    return [np.cov(member_ld[labels == c], rowvar=False) for c in range(n_classes)]
+
+
+def _score_test_corroboration(root: Path, ref_fit_hash: str, axis: str) -> dict | None:
+    """Return the cached score-based invariance run's headline for this fit and axis, if present.
+
+    The bridge test is demoted to corroboration under this recast, so its minimum $p$-value and
+    rejection count are carried alongside the effect size when a completed run exists.
+    """
+    for manifest_path in sorted((root / "artefacts" / "invariance").glob("*/manifest.json")):
+        manifest = cache.read_manifest(manifest_path.parent) or {}
+        params = manifest.get("params", {})
+        if (
+            manifest.get("status") == "ok"
+            and params.get("fit") == ref_fit_hash
+            and params.get("axis") == axis
+        ):
+            metrics = manifest.get("metrics", {})
+            return {
+                "run": cache.short_hash(manifest["hash"]),
+                "min_p_max_lm": metrics.get("min_p_max_lm"),
+                "n_reject_max_lm": metrics.get("n_reject_max_lm"),
+                "n_blocks": metrics.get("n_blocks"),
+            }
+    return None
+
+
+def invariance_responsibilities(model_obj, x_values):
+    """Return the frozen posterior responsibilities of the measurement-only reference."""
+    from analysis import invariance
+
+    return invariance.responsibilities(model_obj, x_values)
+
+
 @app.command(rich_help_panel=_PLANNED)
 def sensitivity() -> None:
     """Re-fit under alternative feature sets and within cognitive-level strata."""

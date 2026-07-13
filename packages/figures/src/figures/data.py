@@ -298,6 +298,30 @@ def load_pairwise(run_directory: Path) -> tuple[pd.DataFrame, dict]:
     return cache.load_frame(tables[0]), manifest.get("metrics", {})
 
 
+def load_local_trajectory(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Load an ``invariance-trajectory`` run's plane and capture tables and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(plane, capture, meta)``: the ``trajectory_<axis>`` discriminant-plane table (anchors
+        and per-focal centroids with the bootstrap tube), the per-class ``capture_<axis>`` table,
+        and the manifest metrics (``axis``).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    plane = cache.load_frame(run_directory / f"trajectory_{axis}.parquet")
+    capture = cache.load_frame(run_directory / f"capture_{axis}.parquet")
+    return plane, capture, manifest.get("metrics", {})
+
+
+def load_local_specificity(run_directory: Path) -> pd.DataFrame:
+    """Load an ``invariance-trajectory`` run's specificity table (endpoint magnitude by axis)."""
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    return cache.load_frame(run_directory / f"specificity_{axis}.parquet")
+
+
 def class_names(root: Path, axis: str) -> dict[int, str]:
     """Return the reference-class id to name map for an axis, from its `trajectory` run.
 
