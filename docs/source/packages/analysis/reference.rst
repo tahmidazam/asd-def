@@ -127,6 +127,9 @@ Stratified analysis
 .. automodule:: analysis.prevalence
    :members:
 
+.. automodule:: analysis.order
+   :members:
+
 Localisation and the sweep
 =========================================
 

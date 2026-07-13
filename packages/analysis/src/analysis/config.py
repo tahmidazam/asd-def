@@ -76,6 +76,31 @@ DEFAULT_BOOTSTRAP_SEED = 0
 DEFAULT_N_PERMUTATIONS = 1000
 DEFAULT_STRATIFY_SEED = 0
 
+# Number-of-classes search (ORDER hypothesis, plan section 7 / hypotheses.md ORDER). The
+# confirmatory statistic is a warm-started parametric bootstrap likelihood-ratio test (BLRT)
+# for $K$ against $K+1$ (splitting) and $K-1$ (merging), anchored at four classes and stepped
+# outward to the caps. These defaults set the recipe folded into every run hash.
+DEFAULT_ORDER_N_INIT = 5
+DEFAULT_ORDER_K_ANCHOR = 4
+DEFAULT_ORDER_K_CAP = 7
+DEFAULT_ORDER_K_FLOOR = 2
+# Warm-start recipe for the $K+1$ fit: split each of the $K$ classes in turn (so $K$ warm
+# starts) and add this many random restarts, keeping the best. The observed and every
+# bootstrap sample use this identical recipe, so the BLRT is not biased by under-fitting the
+# alternative in the null.
+DEFAULT_ORDER_N_RANDOM = 2
+DEFAULT_ORDER_SPLIT_JITTER = 0.5
+DEFAULT_ORDER_MAX_ITER = 500
+# Staged bootstrap schedule: screen every step at ``B_SCREEN``, escalate to ``B_ESCALATE``
+# only where the screen $p$ falls below ``ESCALATE_THRESHOLD``. The Phipson-Smyth add-one
+# $p$-value makes the smallest attainable $p$ ``1 / (B + 1)``.
+DEFAULT_ORDER_B_SCREEN = 199
+DEFAULT_ORDER_B_ESCALATE = 999
+DEFAULT_ORDER_ESCALATE_THRESHOLD = 0.10
+# Rejection level for a single BLRT step, and the FDR level for the across-strata decision.
+DEFAULT_ORDER_ALPHA = 0.05
+DEFAULT_ORDER_SEED = 0
+
 # Ordering-shuffle permutations for the trajectory stage's directional test (plan section 7).
 # The statistic is a class's net young-to-old displacement; the null shuffles the stratum
 # order. This is a cheap resampling of stored centroids, not a refit, so a high count is

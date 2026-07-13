@@ -1779,6 +1779,509 @@ def drift(
     )
 
 
+def _make_order_dispatch(pool, log, done, *, scope_id, descriptor, columns, recipe, base_seed):
+    """Build a bootstrap-draw dispatcher backed by a process pool and a resumable checkpoint.
+
+    The dispatcher :func:`analysis.order.sequential_search` calls: given the null parameters and
+    a half-open block of draw indices, it returns that block's null likelihood-ratio statistics.
+    Draws already in ``done`` (loaded from the checkpoint) are returned without recomputation;
+    the rest are submitted to ``pool`` and each result is appended to ``log`` as it lands, so an
+    interrupt resumes from the first missing draw. Each draw's seed is deterministic in its
+    scope, null class count, and index, so a resumed run reproduces an uninterrupted one.
+    """
+    from concurrent.futures import as_completed
+
+    from analysis import order as order_mod
+
+    columns_list = [str(c) for c in columns]
+
+    def dispatch(k_null, null_params, n, start, count):
+        results: list[float | None] = [None] * count
+        futures = {}
+        for offset in range(count):
+            idx = start + offset
+            key = (scope_id, int(k_null), int(idx))
+            if key in done:
+                results[offset] = done[key]
+                continue
+            draw_seed = base_seed + scope_id * 10_000_000 + int(k_null) * 100_000 + int(idx)
+            future = pool.submit(
+                order_mod.bootstrap_lr,
+                null_params,
+                descriptor,
+                columns_list,
+                int(n),
+                int(k_null),
+                n_init=recipe.n_init,
+                n_random=recipe.n_random,
+                seed=draw_seed,
+                jitter=recipe.jitter,
+            )
+            futures[future] = (offset, key)
+        for future in as_completed(futures):
+            offset, key = futures[future]
+            value = future.result()
+            results[offset] = value
+            log.append({"scope": key[0], "k_null": key[1], "idx": key[2], "lr": value})
+            done[key] = value
+        return results
+
+    return dispatch
+
+
+def _run_order_search(
+    measurement_data,
+    covariates,
+    descriptor,
+    *,
+    scope_id,
+    pool,
+    log,
+    done,
+    recipe,
+    schedule,
+    anchor,
+    cap,
+    floor,
+    seed,
+    cv_n_init,
+):
+    """Run the elbow corroborator and the anchored BLRT search for one dataset.
+
+    The cross-validated log-likelihood elbow (a corroborator, so its failure is non-fatal) is
+    computed over the ``floor`` to ``cap`` grid, then the sequential bootstrap likelihood-ratio
+    search runs anchored at ``anchor``. Returns the :class:`~analysis.order.SearchResult`.
+    """
+    from analysis import order as order_mod
+
+    k_values = list(range(floor, cap + 1))
+    try:
+        cv_scores = order_mod.cross_validated_log_likelihood(
+            measurement_data, covariates, descriptor, k_values, seed=seed, n_init=cv_n_init
+        )
+    except Exception:  # noqa: BLE001 - the elbow only corroborates, so a failed grid is not fatal
+        cv_scores = {}
+    dispatch = _make_order_dispatch(
+        pool,
+        log,
+        done,
+        scope_id=scope_id,
+        descriptor=descriptor,
+        columns=measurement_data.columns,
+        recipe=recipe,
+        base_seed=seed + 500,
+    )
+    return order_mod.sequential_search(
+        measurement_data,
+        descriptor,
+        dispatch=dispatch,
+        recipe=recipe,
+        schedule=schedule,
+        anchor=anchor,
+        cap=cap,
+        floor=floor,
+        seed=seed,
+        cv_scores=cv_scores,
+    )
+
+
+def _order_supported_label(result, cap: int) -> str:
+    """Render a supported order, marking the cap as a lower bound (``">=cap"``)."""
+    return f">={cap}" if result.capped else str(result.supported_k)
+
+
+def _order_step_rows(scope: str, result) -> list[dict]:
+    """Flatten a search's BLRT steps into per-step records for the steps table."""
+    return [
+        {
+            "scope": scope,
+            "k_null": s.k_null,
+            "k_alt": s.k_alt,
+            "direction": s.direction,
+            "observed_lr": s.observed_lr,
+            "p_value": s.p_value,
+            "b_used": s.b_used,
+            "escalated": s.escalated,
+            "n_dropped": s.n_dropped,
+            "rejected": s.rejected,
+        }
+        for s in result.steps
+    ]
+
+
+def _order_params(
+    cohort_hash: str,
+    *,
+    recipe,
+    schedule,
+    anchor: int,
+    cap: int,
+    floor: int,
+    seed: int,
+) -> dict:
+    """Return the recipe, anchor, caps, and schedule folded into every order run hash."""
+    return {
+        "recipe": recipe.spec(),
+        "schedule": schedule.spec(),
+        "anchor": anchor,
+        "cap": cap,
+        "floor": floor,
+        "seed": seed,
+    }
+
+
+def _run_pooled_order(
+    root,
+    cohort_hash,
+    matrix,
+    typing,
+    *,
+    recipe,
+    schedule,
+    anchor,
+    cap,
+    floor,
+    seed,
+    cv_n_init,
+    workers,
+    force,
+):
+    """Compute (or load) the pooled cohort's supported order, the K*-reference both axes share.
+
+    Cached as its own stage (``order-pooled``), keyed only by the cohort and the search recipe,
+    so the age and era axis runs reuse one pooled search rather than recomputing it. Returns the
+    pooled run hash and its result dict (supported order, elbow knee, VLMR, steps).
+    """
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    from analysis import checkpoint as checkpoint_mod
+    from analysis import order as order_mod
+    from analysis import profiling
+
+    params = {
+        "cohort": cohort_hash,
+        **_order_params(
+            cohort_hash,
+            recipe=recipe,
+            schedule=schedule,
+            anchor=anchor,
+            cap=cap,
+            floor=floor,
+            seed=seed,
+        ),
+    }
+    with run_context("order-pooled", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            return ctx.run_hash, cache.load_json(ctx.path("pooled.json"))
+        if force:
+            checkpoint_mod.clear_checkpoints(ctx.run_dir)
+        measurement_data, descriptor = order_mod.measurement_inputs(matrix, typing)
+        log = checkpoint_mod.CheckpointLog(ctx.path("draws.checkpoint.jsonl"))
+        done = {(r["scope"], r["k_null"], r["idx"]): r["lr"] for r in log.load()}
+        n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+        ctx.log.info(
+            "pooled order search: n=%d, B up to %d", len(measurement_data), schedule.b_escalate
+        )
+        with (
+            profiling.single_threaded_blas(),
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
+            result = _run_order_search(
+                measurement_data,
+                matrix.covariates,
+                descriptor,
+                scope_id=0,
+                pool=pool,
+                log=log,
+                done=done,
+                recipe=recipe,
+                schedule=schedule,
+                anchor=anchor,
+                cap=cap,
+                floor=floor,
+                seed=seed,
+                cv_n_init=cv_n_init,
+            )
+        payload = {
+            "supported_k": result.supported_k,
+            "supported_label": _order_supported_label(result, cap),
+            "capped": result.capped,
+            "direction": result.direction,
+            "elbow_knee": result.elbow_knee,
+            "vlmr_p": result.vlmr.get("p", float("nan")),
+            "cv_log_likelihood": {str(k): v for k, v in result.cv_log_likelihood.items()},
+            "n_dropped": result.n_dropped,
+            "steps": _order_step_rows("__pooled__", result),
+        }
+        cache.save_json(payload, ctx.path("pooled.json"))
+        checkpoint_mod.clear_checkpoints(ctx.run_dir)
+        ctx.metrics = {
+            "supported_k": result.supported_k,
+            "supported_label": payload["supported_label"],
+            "elbow_knee": result.elbow_knee,
+            "n_dropped": result.n_dropped,
+        }
+    return ctx.run_hash, payload
+
+
+@app.command()
+def order(
+    axis: str = typer.Option(
+        "age_at_diagnosis", help="Axis: age_at_diagnosis or era (SPARK diagnosis-timing axes)."
+    ),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_init: int = typer.Option(
+        config.DEFAULT_ORDER_N_INIT, "--n-init", help="Random restarts for each K-class fit."
+    ),
+    k_anchor: int = typer.Option(
+        config.DEFAULT_ORDER_K_ANCHOR, "--k-anchor", help="Anchor number of classes (four)."
+    ),
+    k_cap: int = typer.Option(
+        config.DEFAULT_ORDER_K_CAP, "--k-cap", help="Upper cap; the search reports '>=cap' there."
+    ),
+    b_screen: int = typer.Option(
+        config.DEFAULT_ORDER_B_SCREEN,
+        "--b-screen",
+        help="Bootstrap draws every step is screened at.",
+    ),
+    b_escalate: int = typer.Option(
+        config.DEFAULT_ORDER_B_ESCALATE,
+        "--b-escalate",
+        help="Bootstrap draws a step escalates to when its screen p is below the threshold.",
+    ),
+    escalate_threshold: float = typer.Option(
+        config.DEFAULT_ORDER_ESCALATE_THRESHOLD,
+        "--escalate-threshold",
+        help="Screen-p threshold that triggers escalation to --b-escalate.",
+    ),
+    cv_n_init: int = typer.Option(
+        1, "--cv-n-init", help="Restarts for the cross-validated elbow corroborator (kept cheap)."
+    ),
+    seed: int = typer.Option(config.DEFAULT_ORDER_SEED, "--seed", help="Base seed."),
+    workers: int = typer.Option(
+        0, help="Parallel bootstrap workers (0 = logical cores minus one)."
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Test whether the supported number of latent classes is stable across strata of an axis.
+
+    The ORDER hypothesis (plan section 7, ``hypotheses.md`` ORDER). Per stratum, the supported
+    number of classes is found by a warm-started parametric bootstrap likelihood-ratio search
+    anchored at four (:mod:`analysis.order`), and read relative to the pooled cohort put through
+    the identical procedure, so the shared over-extraction cancels: an order change is a stratum
+    whose supported order differs from the pooled cohort's. The strata are the four
+    equal-frequency quantile bins of the axis (a fifth class in a thousand-proband bin is not
+    estimable, so the fine ``MaxEqualBins`` scheme is deliberately not used here), plus, for the
+    era axis, the DSM-IV against DSM-5 (2013) split as one targeted secondary pair. The pooled
+    search is cached as its own stage so both axes reuse it. Bootstrap draws run concurrently and
+    stream to a resumable checkpoint. A positive order-change claim needs agreement: the BLRT
+    order differs from the pooled order, the cross-validated elbow knee moves off it, and the
+    adjusted Lo-Mendell-Rubin test agrees.
+    """
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    import pandas as pd
+
+    from analysis import checkpoint as checkpoint_mod
+    from analysis import order as order_mod
+    from analysis import profiling
+    from analysis import strata as strata_mod
+    from analysis.cohort import CohortMatrix, get_cohort
+
+    if axis not in ("age_at_diagnosis", "era"):
+        raise typer.BadParameter(
+            "order supports the diagnosis-timing axes: age_at_diagnosis or era"
+        )
+
+    recipe = order_mod.Recipe(n_init=n_init)
+    schedule = order_mod.Schedule(
+        b_screen=b_screen,
+        b_escalate=b_escalate,
+        escalate_threshold=escalate_threshold,
+        alpha=config.DEFAULT_ORDER_ALPHA,
+    )
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    pooled_hash, pooled = _run_pooled_order(
+        root,
+        cohort_hash,
+        matrix,
+        typing,
+        recipe=recipe,
+        schedule=schedule,
+        anchor=k_anchor,
+        cap=k_cap,
+        floor=config.DEFAULT_ORDER_K_FLOOR,
+        seed=seed,
+        cv_n_init=cv_n_init,
+        workers=workers,
+        force=force,
+    )
+    pooled_k = int(pooled["supported_k"])
+
+    resolved = get_cohort(dataset, version, root).axis(
+        axis, matrix.features.index, matrix.covariates
+    )
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, _policy = resolved
+
+    # The ORDER strata are the coarse four-way quantile split (plan section 7), not the fine
+    # frozen MaxEqualBins primary; the DSM-5 boundary split is an era-only secondary pair.
+    quantile = strata_mod.QuantileBins(q=4)
+    quantile_assignment = quantile.assign(axis_values)
+    stratum_plan: list[tuple[str, str, pd.Index]] = [
+        ("quantile", label, quantile_assignment.codes[quantile_assignment.codes == label].index)
+        for label in quantile_assignment.labels
+    ]
+    dsm_assignment = None
+    if axis == "era":
+        dsm = strata_mod.FixedBands(edges=(2013.0,), labels=("pre_dsm5", "dsm5"), name="dsm5")
+        dsm_assignment = dsm.assign(axis_values)
+        stratum_plan += [
+            ("dsm5", label, dsm_assignment.codes[dsm_assignment.codes == label].index)
+            for label in dsm_assignment.labels
+        ]
+
+    params = {
+        "cohort": cohort_hash,
+        "axis": axis,
+        "pooled": pooled_hash,
+        "quantile_policy": quantile.spec(),
+        "dsm_split": dsm_assignment is not None,
+        **_order_params(
+            cohort_hash,
+            recipe=recipe,
+            schedule=schedule,
+            anchor=k_anchor,
+            cap=k_cap,
+            floor=config.DEFAULT_ORDER_K_FLOOR,
+            seed=seed,
+        ),
+    }
+
+    with run_context("order", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"order: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        if force:
+            checkpoint_mod.clear_checkpoints(ctx.run_dir)
+
+        log = checkpoint_mod.CheckpointLog(ctx.path(f"draws_{axis}.checkpoint.jsonl"))
+        done = {(r["scope"], r["k_null"], r["idx"]): r["lr"] for r in log.load()}
+        n_workers = workers or max(1, (os.cpu_count() or 2) - 1)
+
+        rows: list[dict] = []
+        step_rows: list[dict] = _order_step_rows("__pooled__", _PooledSteps(pooled["steps"]))
+        with (
+            profiling.single_threaded_blas(),
+            ProcessPoolExecutor(max_workers=n_workers) as pool,
+        ):
+            for scope_id, (scheme, label, members) in enumerate(stratum_plan, start=1):
+                sub = CohortMatrix(
+                    matrix.features.loc[members], matrix.covariates.loc[members], dataset, version
+                )
+                measurement_data, descriptor = order_mod.measurement_inputs(sub, typing)
+                ctx.log.info(
+                    "order %s stratum %s (%s): n=%d", axis, label, scheme, len(measurement_data)
+                )
+                result = _run_order_search(
+                    measurement_data,
+                    sub.covariates,
+                    descriptor,
+                    scope_id=scope_id,
+                    pool=pool,
+                    log=log,
+                    done=done,
+                    recipe=recipe,
+                    schedule=schedule,
+                    anchor=k_anchor,
+                    cap=k_cap,
+                    floor=config.DEFAULT_ORDER_K_FLOOR,
+                    seed=seed,
+                    cv_n_init=cv_n_init,
+                )
+                step_rows.extend(_order_step_rows(f"{scheme}:{label}", result))
+                total_draws = sum(s.b_used + s.n_dropped for s in result.steps)
+                drop_fraction = result.n_dropped / total_draws if total_draws else 0.0
+                primary = next(
+                    (s for s in result.steps if s.k_null == k_anchor and s.direction == "split"),
+                    None,
+                )
+                order_changed = result.supported_k != pooled_k
+                rows.append(
+                    {
+                        "stratum": label,
+                        "scheme": scheme,
+                        "n": int(len(measurement_data)),
+                        "supported_k": result.supported_k,
+                        "supported_label": _order_supported_label(result, k_cap),
+                        "capped": result.capped,
+                        "direction": result.direction,
+                        "primary_p": primary.p_value if primary else float("nan"),
+                        "primary_escalated": bool(primary.escalated) if primary else False,
+                        "elbow_knee": result.elbow_knee,
+                        "vlmr_p": result.vlmr.get("p", float("nan")),
+                        "vlmr_lmr": result.vlmr.get("lmr", float("nan")),
+                        "order_changed_vs_pooled": order_changed,
+                        "agreement": order_mod.agreement_flag(result, pooled_k),
+                        "n_dropped": result.n_dropped,
+                        "drop_fraction": drop_fraction,
+                        "flagged_degenerate": drop_fraction > 0.10,
+                    }
+                )
+
+        decision = pd.DataFrame(rows)
+        cache.save_frame(decision, ctx.path(f"decision_{axis}.parquet"))
+        cache.save_frame(pd.DataFrame(step_rows), ctx.path(f"steps_{axis}.parquet"))
+        cache.save_json(
+            {
+                "pooled_hash": cache.short_hash(pooled_hash),
+                "pooled_supported_k": pooled_k,
+                "pooled_supported_label": pooled["supported_label"],
+                "pooled_elbow_knee": pooled["elbow_knee"],
+                "pooled_vlmr_p": pooled["vlmr_p"],
+            },
+            ctx.path(f"pooled_reference_{axis}.json"),
+        )
+        checkpoint_mod.clear_checkpoints(ctx.run_dir)
+
+        n_changed = int(decision["order_changed_vs_pooled"].sum())
+        n_agree = int(decision["agreement"].sum())
+        n_flagged = int(decision["flagged_degenerate"].sum())
+        ctx.metrics = {
+            "axis": axis,
+            "pooled_supported_k": pooled_k,
+            "pooled_supported_label": pooled["supported_label"],
+            "n_strata": len(decision),
+            "supported_k": {r["stratum"]: r["supported_label"] for r in rows},
+            "n_order_changed": n_changed,
+            "n_agreement": n_agree,
+            "n_flagged_degenerate": n_flagged,
+        }
+    typer.echo(f"order {axis} {dataset}/{version}: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  pooled K*={pooled['supported_label']}; per-stratum "
+        f"{ctx.metrics['supported_k']}; {n_agree} corroborated order change(s)"
+    )
+
+
+class _PooledSteps:
+    """Adapt the cached pooled step records to the ``.steps`` attribute the flattener reads."""
+
+    def __init__(self, step_dicts: list[dict]) -> None:
+        from types import SimpleNamespace
+
+        self.steps = [SimpleNamespace(**d) for d in step_dicts]
+
+
 @app.command()
 def sweep(
     axis: str = typer.Option("age_at_diagnosis", help="Axis: age_at_diagnosis or era."),
