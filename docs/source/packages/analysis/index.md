@@ -157,6 +157,10 @@ for the arc, or jump to one.
    In the first stratified run (one hundred permutations, both axes) no stratum drifts beyond its
    null, but the classes trace a gradual young-to-old trajectory carried by the developmental
    classes and features, with the membership reorganising at the extremes.
+7. {doc}`Does the drift have a direction? <investigations/the-direction-of-the-drift>` In seven of
+   the eight class-by-axis tests it does. Age at diagnosis moves every class the same way, led by
+   the developmental class; diagnostic era splits, and the Moderate challenges class has a large
+   era displacement but no directional trend, with the era breaks falling around 2017.
 
 Several of these investigations carry a third condition alongside the full `2026-03-23` release
 and the published values: the cohort cut back to the records present at the authors' V9 freeze
@@ -205,6 +209,7 @@ investigations/stability-under-refitting
 investigations/the-minimum-stratum-size
 investigations/replicating-in-the-ssc
 investigations/tracking-the-classes-across-strata
+investigations/the-direction-of-the-drift
 :::
 
 :::{toctree}

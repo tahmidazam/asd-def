@@ -80,6 +80,13 @@ FIGURES: tuple[FigureSpec, ...] = (
     # The specificity small-multiple pools both timing axes and is written under the era run.
     FigureSpec("local-specificity", "invariance-trajectory", "local_specificity", "era"),
     FigureSpec(
+        "local-directional-age",
+        "invariance-trajectory",
+        "local_directional_age_at_diagnosis",
+        "age_at_diagnosis",
+    ),
+    FigureSpec("local-directional-era", "invariance-trajectory", "local_directional_era", "era"),
+    FigureSpec(
         "invariance-age", "invariance", "invariance_process_age_at_diagnosis", "age_at_diagnosis"
     ),
     FigureSpec("invariance-era", "invariance", "invariance_process_era", "era"),
