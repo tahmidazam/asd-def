@@ -53,6 +53,9 @@ Figures
 .. automodule:: figures.trajectory_local
    :members:
 
+.. automodule:: figures.invariance
+   :members:
+
 .. automodule:: figures.prevalence
    :members:
 
