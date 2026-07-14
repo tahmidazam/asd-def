@@ -74,6 +74,7 @@ extensions = [
     "sphinx_design",  # grids, cards, tabs; pairs with the pydata theme
     "sphinx_copybutton",  # copy button on code blocks
     "sphinxcontrib.mermaid",  # render mermaid diagrams in the docs
+    "sphinxcontrib.bibtex",  # cite from a shared BibTeX file via :footcite:
 ]
 
 templates_path = ["_templates"]
@@ -197,6 +198,15 @@ html_theme_options = {
 # Strip interactive prompts (">>> ", "... ", "$ ") when copying code blocks.
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
+
+# -- sphinxcontrib-bibtex ----------------------------------------------------
+# One shared bibliography, seeded from the brief's verified entries. Pages cite with the
+# ``:footcite:`` role and carry a per-page ``{footbibliography}`` so each article renders
+# its own footnotes; the References page holds the full ``{bibliography}``. Every entry is
+# verified with the user before it lands here.
+bibtex_bibfiles = ["references.bib"]
+bibtex_reference_style = "label"
+bibtex_default_style = "unsrt"
 
 # -- sphinxcontrib-mermaid ---------------------------------------------------
 

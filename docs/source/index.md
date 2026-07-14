@@ -90,6 +90,8 @@ Build and live-preview this Sphinx site.
 :maxdepth: 2
 
 packages/analysis/index
+glossary
+references
 packages/figures/index
 packages/dscat/index
 packages/docs/index
