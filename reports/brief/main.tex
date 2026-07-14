@@ -85,7 +85,7 @@
 \setlength{\headheight}{14pt}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\footnotesize Autism classes and diagnostic timing}
+\fancyhead[L]{\footnotesize Autism clusters \& diagnostic timing}
 \fancyhead[R]{\footnotesize Azam \& Patel}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -169,19 +169,19 @@ Outlined in \autoref{tab:hyp}.
 \begin{xltabular}{\textwidth}{@{} N T R @{}}
 \caption{Each row states a null hypothesis about the four classes, the technique that tests it, and where it
 now stands.}\label{tab:hyp}\\
-\toprule
+\toprule[1.2pt]
 \textbf{Null hypothesis} & \textbf{Technique} & \textbf{Status} \\
-\midrule
+\midrule[1.2pt]
 \endfirsthead
 \multicolumn{3}{l}{\small\itshape (continued from previous page)} \\
-\toprule
+\toprule[1.2pt]
 \textbf{Null hypothesis} & \textbf{Technique} & \textbf{Status} \\
-\midrule
+\midrule[1.2pt]
 \endhead
 \midrule
 \multicolumn{3}{r}{\small\itshape continued on next page} \\
 \endfoot
-\bottomrule
+\bottomrule[1.2pt]
 \endlastfoot
 
 $H_0^{A}$: The four-class phenotypic profiles are invariant to diagnostic era/age at
@@ -194,6 +194,7 @@ families (a bootstrap, giving an uncertainty band) shows whether the shift is re
 it is larger than for control orderings that should produce none (\autoref{fig:spec}). &
 \rej, $p<0.001$ (drift, both axes). Age, all
 four classes; era, only Moderate and Mixed-ASD-DD (Broadly and Social clear random only). \\
+\midrule
 
 $H_0^{B}$: The class proportions are invariant to diagnostic era/age at diagnosis. &
 Model each person's class as a function of the axis (multinomial logistic regression: the odds
@@ -202,6 +203,7 @@ membership is estimated rather than observed, so a person's uncertainty about wh
 belong to does not bias the trend. Uncertainty from the same family-resampling bootstrap. &
 \rej, $p<0.01$ (all four classes, both axes, per-class; bootstrap floor; joint
 likelihood-ratio test saturates). \\
+\midrule
 
 $H_0^{C}$: The optimal number of clusters is four and invariant to diagnostic era/age at
 diagnosis. &
@@ -209,6 +211,7 @@ Refit the mixture within coarse slices of the axis and choose the number of clas
 fits held-out data best (cross-validated log-likelihood), with guards against unstable
 solutions, plus a formal \ac{em} test of different $k$ values. &
 \sopen{Not yet run.} \\
+\midrule
 
 $H_0^{D}$: The drift is within sampling noise and small relative to the between-class
 separation. [requires $H_0^{A}$ rejected] &
@@ -218,12 +221,14 @@ plane that separates the classes) flags drift that points somewhere else, off th
 the classes. &
 \rej, $p<0.001$ (magnitude exceeds sampling noise; distinct from A's specificity
 floor). \\
+\midrule
 
 $H_0^{E}$: The drift is inconsistent in direction. [requires $H_0^{A}$ rejected] &
 For each class, measure the slope of its trajectory (does it move steadily one way along the
 axis?), with a two-sided family-resampling bootstrap and a correction for testing four classes
 across two axes (Benjamini-Hochberg, controlling the false-discovery rate). &
 \rej{} for 7 of 8 class-by-axis tests, $q<0.05$. \\
+\midrule
 
 $H_0^{F}$: The drift is spread evenly across the seven phenotypic categories.
 [requires $H_0^{A}$ rejected] &
@@ -232,6 +237,7 @@ interval per feature and false-discovery-rate control. Because this splits one q
 parts, it yields a per-feature count rather than a single $p$-value. &
 \rej{} (per-feature control: age 560/952, era 347/952 features; a decomposition, so
 no single $p$). \\
+\midrule
 
 $H_0^{G}$: The drift is spread evenly across instruments regardless of referent (current vs
 retrospective). [requires $H_0^{A}$ rejected] &
@@ -240,6 +246,7 @@ Split the era drift by what each questionnaire asks about: current state versus 
 instruments are weighted evenly) and a paired family-resampling bootstrap. &
 \rej, $p<0.01$ (all four classes retrospective-dominant; BH across the four): the
 era drift tracks lifetime-referent report, a shifting diagnosed population. \\
+\midrule
 
 $H_0^{H}$: The drift is spread evenly across measurement lag (age at diagnosis vs age at
 evaluation). [requires $H_0^{A}$ rejected] &
@@ -248,6 +255,7 @@ evaluation, using a direct-effect model (differential item functioning: does yea
 answer once the person's class and evaluation age are held fixed?), with a small-lag
 sensitivity re-test. &
 \sopen{Partially written.} \\
+\midrule
 
 $H_0^{I}$: The genotype-to-class mapping is invariant to diagnostic era/age at diagnosis.
 [gated on data, not on a rejection] &
@@ -255,6 +263,7 @@ Test whether the axis changes how genotype predicts class: an interaction betwee
 axis (Wald or likelihood-ratio test) in a model over polygenic scores and rare-variant burden,
 adjusting for cognitive impairment. Class labels stay fixed, so no mixture is refitted. &
 \sopen{Waiting on data access.} \\
+\midrule
 
 $H_0^{J}$: Any drift in the genotype-to-class mapping tracks the drift in the phenotype.
 [requires $H_0^{A}$ rejected] &
