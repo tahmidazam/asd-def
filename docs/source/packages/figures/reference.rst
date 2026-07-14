@@ -56,6 +56,9 @@ Figures
 .. automodule:: figures.invariance
    :members:
 
+.. automodule:: figures.attribution
+   :members:
+
 .. automodule:: figures.prevalence
    :members:
 
