@@ -39,6 +39,24 @@ Each subcommand takes an optional `--run` (defaulting to the latest completed ru
 stage) and writes a PDF and a PNG under `artefacts/figures/<stage>/<run-hash>/` beside a JSON
 sidecar that records the source run and the package version.
 
+## Figures by hypothesis
+
+Each figure belongs to a hypothesis article or a foundational page, and is drawn by one builder
+module. The table maps a page to its figures and the module and command that render them.
+
+| Page | Figures | Module | Command |
+| --- | --- | --- | --- |
+| {doc}`$H_0^A$, $H_0^D$: invariance <../analysis/hypotheses/h0a-invariance>` | `local_plane_*`, `local_panels_*`, `local_specificity`, `invariance_process_*` | {py:mod}`figures.trajectory_local`, {py:mod}`figures.invariance` | `local-trajectory`, `local-panels`, `local-specificity`, `invariance` |
+| {doc}`$H_0^B$: prevalence <../analysis/hypotheses/h0b-prevalence>` | `prevalence_*`, `prevalence_stacked_*` | {py:mod}`figures.prevalence` | `prevalence` |
+| {doc}`$H_0^E$: direction <../analysis/hypotheses/h0e-direction>` | `local_directional_*` | {py:mod}`figures.trajectory_local` | `local-directional` |
+| {doc}`$H_0^F$: attribution by category <../analysis/hypotheses/h0f-attribution-categories>` | `attribution_*`, `attribution_movers_*` | {py:mod}`figures.attribution` | `attribution` |
+| {doc}`Reproducing the reference classes <../analysis/appendix/reproducing-the-reference-classes>` | `reproduction` | {py:mod}`figures.reproduction` | `reproduce` |
+| {doc}`Selecting the number of classes <../analysis/appendix/selecting-the-number-of-classes>` | `selection_criteria` | {py:mod}`figures.selection` | `select` |
+| {doc}`Replicating in the SSC <../analysis/appendix/replicating-in-the-ssc>` | `replication` | {py:mod}`figures.replication` | `replicate` |
+| {doc}`Stability under refitting <../analysis/appendix/stability-under-refitting>` | `stability` | {py:mod}`figures.stability` | `stability` |
+| {doc}`The minimum stratum size <../analysis/appendix/the-minimum-stratum-size>` | `stratum_size` | {py:mod}`figures.nmin` | `nmin` |
+| {doc}`The refit pilot <../analysis/archive/tracking-the-classes-across-strata>` | `trajectory_*`, `roughness` | {py:mod}`figures.trajectory` | `trajectory` |
+
 ## Class trajectories across the strata
 
 Each class's centroid, projected into the pooled four-class discriminant space, and how it
