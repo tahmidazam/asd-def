@@ -1,4 +1,12 @@
-# H0A pilot / H0F: tracking the classes across the strata
+# Tracking the classes across the strata (refit pilot)
+
+:::{admonition} Archived
+:class: warning
+
+This is the earlier hundred-permutation refit pilot, kept for the record. The drift question it
+opened is now answered by the effect-size recast ({doc}`../hypotheses/h0a-invariance`), and its
+category-attribution result is {doc}`$H_0^F$ <../hypotheses/h0f-attribution-categories>`.
+:::
 
 :::{admonition} The question
 :class: note
@@ -169,7 +177,7 @@ The recurring discriminators are the developmental milestones (age at combined w
 toilet-trained) and the broad CBCL problem scores (total, conduct, anxious or depressed), all
 Benjamini-Hochberg significant at each class's peak-churn stratum. The probands who change class are
 the boundary cases whose milestone timing and problem burden sit between two profiles, the same ones
-the [stability analysis](../archive/stability-under-refitting) found move between fits.
+the [stability analysis](../appendix/stability-under-refitting) found move between fits.
 
 ## Limits
 

@@ -122,7 +122,7 @@ on, await the run.
 
 - {doc}`Testing the number of classes <../guides/testing-the-number-of-classes>`, the guide to the
   `analysis order` stage this page describes.
-- {doc}`Selecting the number of classes <../archive/selecting-the-number-of-classes>`, the pooled
+- {doc}`Selecting the number of classes <../appendix/selecting-the-number-of-classes>`, the pooled
   investigation into how many classes the data support, with the selection-criteria figure.
 - {doc}`Are the class profiles invariant, and is any drift small? <../hypotheses/h0a-invariance>`
   ($H_0^A$ and $H_0^D$), the sibling profile-invariance read.

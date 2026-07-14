@@ -48,7 +48,7 @@ the cohort, the stratifying variable, the measurement-to-diagnosis lag, and the 
   composition artefact.
 
 The floor follows the phase-2 finding that four-class recovery holds from about 1,000 probands
-(see [the minimum viable stratum size](../archive/the-minimum-stratum-size)), enough to
+(see [the minimum viable stratum size](../appendix/the-minimum-stratum-size)), enough to
 populate the smallest of the four classes. The thresholds are settable and recorded in the
 report, so the values a policy was judged against travel with it.
 

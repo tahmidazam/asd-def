@@ -175,6 +175,4 @@ make them.
   shape question this size read is kept separate from.
 - {doc}`Measuring prevalence drift <../guides/measuring-prevalence-drift>`, the three-step correction
   and its correctness gates this rests on.
-- {doc}`The size of the classes <../investigations/the-size-of-the-classes>`, the investigation write-up
-  of this read.
 - {doc}`The Python API <../reference>` for the `prevalence` stage.

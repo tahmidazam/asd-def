@@ -30,7 +30,7 @@ The recovered class signatures against the values read from figure 1b of Litman 
 one panel per named class, ordered by published class size. Each panel draws two recovered
 conditions, the full `2026-03-23` release and the cohort cut back to the records present at the
 authors' V9 freeze (see
-{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`), and notes
+{doc}`subsetting the cohort to the V9 freeze <../appendix/subsetting-to-the-v9-freeze>`), and notes
 the two recovered proportions against the published one. The two conditions' signatures sit almost
 on top of each other in every panel, so the V9 cut leaves the class shapes unchanged and moves only
 the proportions. Mixed ASD with developmental delay tracks the published profile closely

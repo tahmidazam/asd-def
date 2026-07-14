@@ -34,7 +34,7 @@ same separation-scaled endpoint displacement along control variables and asks wh
 exceed them. A class is above the noise floor if it clears a random ordering, and specific to timing
 if it also clears a real covariate that is not the mechanism. The mechanics of the endpoint
 displacement are in {doc}`invariance as an effect size
-<../investigations/invariance-as-an-effect-size>`; this page is about which controls earn a place in
+<../hypotheses/h0a-invariance>`; this page is about which controls earn a place in
 the comparison.
 
 ## Two roles are disqualified before any number

@@ -32,28 +32,46 @@ either cohort. Each stage and where its result is reported:
 | Stage | What it does | Reported in |
 | --- | --- | --- |
 | `cohort` | Builds the harmonised proband-by-feature matrix from a SPARK release and the authors' final feature list, with the reconciled feature typing. | {doc}`The cohort interface <guides/the-cohort-interface>` |
-| `fit` | Fits the reference four-class general finite mixture model and predicts a class label per proband. | {doc}`Reproducing the reference classes <archive/reproducing-the-reference-classes>` |
-| `align` | Summarises each class into the seven literature-defined categories and aligns the recovered classes to Litman's four named classes. | {doc}`Reproducing the reference classes <archive/reproducing-the-reference-classes>` |
-| `select` | Grids over the number of components and reports the information criteria. | {doc}`Selecting the number of classes <archive/selecting-the-number-of-classes>` |
-| `stability` | Ranks many single-init fits by log-likelihood, and refits on random halves, comparing each fit to the reference. | {doc}`Stability under refitting <archive/stability-under-refitting>` |
-| `nmin` | Refits at descending sample sizes to fix the minimum viable stratum size. | {doc}`The minimum viable stratum size <archive/the-minimum-stratum-size>` |
-| `replicate` | Fits on the SPARK features shared with the SSC, projects onto the SSC, and correlates the profiles against a permutation null. | {doc}`Replicating in the SSC <archive/replicating-in-the-ssc>` |
+| `fit` | Fits the reference four-class general finite mixture model and predicts a class label per proband. | {doc}`Reproducing the reference classes <appendix/reproducing-the-reference-classes>` |
+| `align` | Summarises each class into the seven literature-defined categories and aligns the recovered classes to Litman's four named classes. | {doc}`Reproducing the reference classes <appendix/reproducing-the-reference-classes>` |
+| `select` | Grids over the number of components and reports the information criteria. | {doc}`Selecting the number of classes <appendix/selecting-the-number-of-classes>` |
+| `stability` | Ranks many single-init fits by log-likelihood, and refits on random halves, comparing each fit to the reference. | {doc}`Stability under refitting <appendix/stability-under-refitting>` |
+| `nmin` | Refits at descending sample sizes to fix the minimum viable stratum size. | {doc}`The minimum viable stratum size <appendix/the-minimum-stratum-size>` |
+| `replicate` | Fits on the SPARK features shared with the SSC, projects onto the SSC, and correlates the profiles against a permutation null. | {doc}`Replicating in the SSC <appendix/replicating-in-the-ssc>` |
 | `strata-describe` | Builds the age-at-diagnosis and diagnostic-era axes, the lag, and the demographics, and tests each binning policy against the acceptance requirements. | {doc}`Choosing the stratification bins <guides/choosing-the-stratification-bins>` |
-| `strata`, `stratify` | Assigns every proband to a stratum under the frozen policy, then re-estimates the four-class model independently within each stratum. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
-| `drift` | Aligns each stratum's classes to the reference and reads their movement against the permutation null. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
-| `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
-| `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`Tracking the classes across the strata <investigations/tracking-the-classes-across-strata>` |
-| `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`Score-based measurement invariance <investigations/score-based-invariance>` |
-| `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube, an in-plane capture fraction, a control-panel specificity check, the per-class directional net-trend statistic (DIREC) with a descriptive break, and (era only) the current-versus-retrospective referent split (ATTR-REF). | {doc}`Invariance as an effect size <investigations/invariance-as-an-effect-size>`, {doc}`Splitting the era drift by referent <guides/splitting-the-drift-by-referent>` |
-| `prevalence` | Tests whether the frozen class proportions trend along an axis (PREV): a maximum-likelihood three-step correction of a multinomial logit on the frozen posteriors, with a naive hard-label cross-check, per-class one-versus-rest slopes, predicted proportion curves, a family-clustered bootstrap, and (for era) a DSM-5 contrast. | {doc}`Measuring prevalence drift <guides/measuring-prevalence-drift>` |
-| `order` | Tests whether the supported number of classes is stable across strata (ORDER): a warm-started parametric bootstrap likelihood-ratio search anchored at four, read relative to the pooled cohort under the identical procedure, corroborated by the cross-validated elbow and the adjusted Lo-Mendell-Rubin test. | {doc}`Testing the number of classes <guides/testing-the-number-of-classes>` |
+| `strata`, `stratify` | Assigns every proband to a stratum under the frozen policy, then re-estimates the four-class model independently within each stratum. | {doc}`Tracking the classes across the strata <archive/tracking-the-classes-across-strata>` |
+| `drift` | Aligns each stratum's classes to the reference and reads their movement against the permutation null. | {doc}`Tracking the classes across the strata <archive/tracking-the-classes-across-strata>` |
+| `trajectory` | Traces each class's path across the strata and tests its net young-to-old displacement. | {doc}`Tracking the classes across the strata <archive/tracking-the-classes-across-strata>` |
+| `attribute` | Decomposes each class's movement onto features and categories, and contrasts the probands that moved with those that stayed. | {doc}`$H_0^F$: attribution by category <hypotheses/h0f-attribution-categories>` |
+| `invariance` | Tests the class profiles for stability along an axis from the single cached fit, reading a score-based fluctuation process against an analytic Brownian-bridge null. | {doc}`The score-based invariance test <guides/the-score-based-invariance-test>` |
+| `invariance-trajectory` | Recasts the invariance read as a null-free effect size: the separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap band, an in-plane capture fraction, a control-panel specificity check, the per-class directional net-trend statistic with a descriptive break, and (era only) the current-versus-retrospective referent split. | {doc}`$H_0^A$: invariance <hypotheses/h0a-invariance>`, {doc}`Computing the invariance effect size <guides/computing-the-invariance-effect-size>` |
+| `prevalence` | Tests whether the frozen class proportions trend along an axis: a maximum-likelihood three-step correction of a multinomial logit on the frozen posteriors, with a naive hard-label cross-check, per-class one-versus-rest slopes, predicted proportion curves, a family-clustered bootstrap, and (for era) a DSM-5 contrast. | {doc}`$H_0^B$: prevalence <hypotheses/h0b-prevalence>` |
+| `order` | Tests whether the supported number of classes is stable across strata: a warm-started parametric bootstrap likelihood-ratio search anchored at four, read relative to the pooled cohort under the identical procedure, corroborated by the cross-validated elbow and the adjusted Lo-Mendell-Rubin test. | {doc}`$H_0^C$: order <hypotheses/h0c-order>` |
+
+## Hypotheses
+
+Each hypothesis has its own article: the null and estimand, the verdict up front, the method with
+its figures, and the cross-links to the machinery it rests on. The front page carries the status
+table across all ten.
+
+- {doc}`$H_0^A$ and $H_0^D$: are the profiles invariant, and is any drift small? <hypotheses/h0a-invariance>` Both rejected on both axes.
+- {doc}`$H_0^B$: do the class proportions shift? <hypotheses/h0b-prevalence>` Rejected: every proportion trends on both axes.
+- {doc}`$H_0^C$: is the supported number of classes four in every stratum? <hypotheses/h0c-order>` Not yet run.
+- {doc}`$H_0^E$: does the drift have a direction? <hypotheses/h0e-direction>` Partially rejected: directional in 7 of 8 tests.
+- {doc}`$H_0^F$: is the drift spread evenly across the seven categories? <hypotheses/h0f-attribution-categories>` Rejected: concentrated in the developmental features.
+- {doc}`$H_0^G$: is the era drift even across instruments regardless of referent? <hypotheses/h0g-attribution-referent>` Rejected: retrospective-dominant for all four classes.
+- {doc}`$H_0^H$: is the era drift an artefact of measurement timing? <hypotheses/h0h-attribution-timing>` Partially written.
+- {doc}`$H_0^I$: does the genotype-to-class mapping hold? <hypotheses/h0i-genotype-mapping>` Waiting on data access.
+- {doc}`$H_0^J$: does genetic drift track phenotypic drift? <hypotheses/h0j-genotype-dissociation>` Waiting on data access.
 
 ## Technical guides
 
 How the machinery works: the staged pipeline and its cache, the runbook, the cohort interface,
 the SSC milestone parsing, choosing the stratification bins, the two halves of the drift read
-(aligning a stratum to the reference and measuring how far each class moved), attributing a
-movement to the features and probands that carry it, and testing the number of classes.
+(aligning a stratum to the reference and measuring how far each class moved), the two invariance
+reads (the effect-size recast and the score-based test), attributing a movement to the features and
+probands that carry it, splitting the era drift by referent, measuring prevalence drift, and testing
+the number of classes.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -90,14 +108,6 @@ Turning the SSC's free-text developmental-milestone ages into months: the forms 
 and the entries left missing.
 :::
 
-:::{grid-item-card} Subsetting the cohort to the V9 freeze
-:link: guides/subsetting-to-the-v9-freeze
-:link-type: doc
-
-Cutting a later SPARK release back in time to the probands present at Litman's V9 freeze: the
-roster and completion gates, and what the cut recovers.
-:::
-
 :::{grid-item-card} Choosing the stratification bins
 :link: guides/choosing-the-stratification-bins
 :link-type: doc
@@ -122,6 +132,23 @@ The swappable distances between an aligned class and the reference (Mahalanobis,
 mean-absolute, Jensen-Shannon), and the between-class separation they are read against.
 :::
 
+:::{grid-item-card} Computing the invariance effect size
+:link: guides/computing-the-invariance-effect-size
+:link-type: doc
+
+The separation-scaled local-centroid displacement, its family-clustered bootstrap band, the
+in-plane capture fraction, the specificity panel, the directional statistic, and the correctness
+gates.
+:::
+
+:::{grid-item-card} The score-based invariance test
+:link: guides/the-score-based-invariance-test
+:link-type: doc
+
+The casewise score, the empirical fluctuation process and its Brownian-bridge null, the two
+statistics, the focal blocks, and the correctness gates.
+:::
+
 :::{grid-item-card} Attributing a class's movement
 :link: guides/attributing-class-movement
 :link-type: doc
@@ -135,7 +162,15 @@ probands that changed class (the mover-versus-stayer contrast).
 :link-type: doc
 
 The size-fair current-versus-retrospective decomposition of the era drift, discriminating a
-measurement-timing signature from a diagnosed-population one (ATTR-REF).
+measurement-timing signature from a diagnosed-population one.
+:::
+
+:::{grid-item-card} Measuring prevalence drift
+:link: guides/measuring-prevalence-drift
+:link-type: doc
+
+The three-step correction of a multinomial logit on the frozen posteriors, the per-class slopes,
+the predicted proportion curves, and the DSM-5 contrast.
 :::
 
 :::{grid-item-card} Testing the number of classes
@@ -149,50 +184,20 @@ Lo-Mendell-Rubin corroborators.
 
 ::::
 
-## Investigations
+## Appendix
 
-Each investigation tests one hypothesis from the labelled registry (H0A to H0J; see
-`.context/hypotheses.md`), with its own figure and headline result. Read in order for the arc, or
-jump to one.
-
-1. {doc}`Are the class profiles invariant to diagnostic era or age at diagnosis, and is any drift
-   small relative to the between-class separation? <investigations/invariance-as-an-effect-size>`
-   Neither: both nulls are rejected on both axes (paired specificity bootstrap floor
-   $p = 0.0005$), and the drift is high-dimensional, mostly out of the between-class discriminant
-   plane, and largest for age at diagnosis.
-2. {doc}`Does a score-based fluctuation-process test corroborate that? <investigations/score-based-invariance>`
-   Yes: the observed fluctuation process sits an order of magnitude above the simulated null band
-   on both axes, though the test saturates at this sample size and its break locations are
-   descriptive rather than resolved.
-3. {doc}`Do the classes hold across the strata, and is the drift spread evenly across the seven
-   phenotypic categories? <investigations/tracking-the-classes-across-strata>` This pilot
-   (one hundred permutations, both axes) finds no stratum drifting beyond its null, but a gradual
-   young-to-old trajectory carried by the developmental classes and features, with the movement
-   concentrated rather than spread evenly across categories.
-4. {doc}`Does the drift have a direction? <investigations/the-direction-of-the-drift>` In seven of
-   the eight class-by-axis tests it does. Age at diagnosis moves every class the same way, led by
-   the developmental class; diagnostic era splits, and the Moderate challenges class has a large
-   era displacement but no directional trend, with the era breaks falling around 2017.
-5. {doc}`Do the class sizes shift? <investigations/the-size-of-the-classes>` Every class's
-   proportion trends on both axes. The developmental class falls from about a third of the
-   earliest-diagnosed to almost none of the latest while the social class grows to three fifths; the
-   era shift is milder, and its social rise is explained away by measurement timing while the age
-   shift is not.
-
-## Archive
-
-Reproduction, replication, and other validation work that the hypothesis tests above depend on,
-but that does not itself test a labelled hypothesis. Several of these carry a third condition
-alongside the full `2026-03-23` release and the published values: the cohort cut back to the
-records present at the authors' V9 freeze (see {doc}`subsetting the cohort to the V9 freeze
-<guides/subsetting-to-the-v9-freeze>`), which isolates the differences that trace to the records
+Reproduction, replication, and other foundational work that the hypothesis tests depend on, but
+that does not itself test a hypothesis. Several of these carry a third condition alongside the full
+`2026-03-23` release and the published values: the cohort cut back to the records present at the
+authors' V9 freeze (see {doc}`subsetting the cohort to the V9 freeze
+<appendix/subsetting-to-the-v9-freeze>`), which isolates the differences that trace to the records
 added since.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
 
 :::{grid-item-card} Do the four classes reproduce?
-:link: archive/reproducing-the-reference-classes
+:link: appendix/reproducing-the-reference-classes
 :link-type: doc
 
 They do: proportions 39/29/18/15 against the published 37/34/19/10, every named-class anchor
@@ -200,7 +205,7 @@ holds, and the overall profile correlates with the published figure at $r = 0.90
 :::
 
 :::{grid-item-card} How many classes do the data support?
-:link: archive/selecting-the-number-of-classes
+:link: appendix/selecting-the-number-of-classes
 :link-type: doc
 
 The selection criteria over-extract at this sample size (their minimum is at nine classes); four
@@ -208,7 +213,7 @@ is retained by reading them, as the authors did.
 :::
 
 :::{grid-item-card} Do the classes survive re-initialisation and resampling?
-:link: archive/stability-under-refitting
+:link: appendix/stability-under-refitting
 :link-type: doc
 
 The profiles reproduce at 0.91 to 0.92 and no class ever collapses; proband-level membership is
@@ -216,7 +221,7 @@ softer (adjusted Rand 0.63 to 0.65).
 :::
 
 :::{grid-item-card} How small a stratum stays viable?
-:link: archive/the-minimum-stratum-size
+:link: appendix/the-minimum-stratum-size
 :link-type: doc
 
 Recovery is reliable from about 1,000 probands (isotonic floor about 840), so the stratification
@@ -224,7 +229,7 @@ bins are best kept nearer 2,000.
 :::
 
 :::{grid-item-card} Do the classes replicate in a second cohort?
-:link: archive/replicating-in-the-ssc
+:link: appendix/replicating-in-the-ssc
 :link-type: doc
 
 They do in the SSC, at $r = 0.89$ ($p = 0.006$), with a bootstrap interval $[0.79, 0.93]$ that
@@ -233,12 +238,39 @@ the developmental category lower at $0.79$.
 :::
 
 :::{grid-item-card} Which controls does the specificity check use?
-:link: archive/choosing-the-specificity-controls
+:link: appendix/choosing-the-specificity-controls
 :link-type: doc
 
 The negative controls are chosen by role and by a timing-orthogonality screen, not by
 convenience: the phenotype and the clustered features are excluded on principle, leaving
 household income and area deprivation against a random floor.
+:::
+
+:::{grid-item-card} Subsetting the cohort to the V9 freeze
+:link: appendix/subsetting-to-the-v9-freeze
+:link-type: doc
+
+Cutting a later SPARK release back in time to the probands present at Litman's V9 freeze: the
+roster and completion gates, and what the cut recovers.
+:::
+
+::::
+
+## Archive
+
+Superseded work, kept for the record. The refit pilot is an earlier route to the drift question,
+now answered by the effect-size recast and the hypothesis articles.
+
+::::{grid} 1 1 2 2
+:gutter: 3
+
+:::{grid-item-card} Tracking the classes across the strata (refit pilot)
+:link: archive/tracking-the-classes-across-strata
+:link-type: doc
+
+The hundred-permutation refit pilot on both axes: no stratum drifts beyond its null, but a gradual
+young-to-old trajectory carried by the developmental classes and features. Its category-attribution
+result is now $H_0^F$.
 :::
 
 ::::
@@ -281,10 +313,11 @@ guides/pipeline-and-caching
 guides/running-the-pipeline
 guides/the-cohort-interface
 guides/parsing-ssc-milestone-ages
-guides/subsetting-to-the-v9-freeze
 guides/choosing-the-stratification-bins
 guides/aligning-stratum-classes
 guides/measuring-class-drift
+guides/computing-the-invariance-effect-size
+guides/the-score-based-invariance-test
 guides/attributing-class-movement
 guides/splitting-the-drift-by-referent
 guides/measuring-prevalence-drift
@@ -293,25 +326,22 @@ guides/testing-the-number-of-classes
 
 :::{toctree}
 :hidden:
-:caption: Investigations
+:caption: Appendix
 
-investigations/invariance-as-an-effect-size
-investigations/score-based-invariance
-investigations/tracking-the-classes-across-strata
-investigations/the-direction-of-the-drift
-investigations/the-size-of-the-classes
+appendix/reproducing-the-reference-classes
+appendix/selecting-the-number-of-classes
+appendix/stability-under-refitting
+appendix/the-minimum-stratum-size
+appendix/replicating-in-the-ssc
+appendix/choosing-the-specificity-controls
+appendix/subsetting-to-the-v9-freeze
 :::
 
 :::{toctree}
 :hidden:
 :caption: Archive
 
-archive/reproducing-the-reference-classes
-archive/selecting-the-number-of-classes
-archive/stability-under-refitting
-archive/the-minimum-stratum-size
-archive/replicating-in-the-ssc
-archive/choosing-the-specificity-controls
+archive/tracking-the-classes-across-strata
 :::
 
 :::{toctree}

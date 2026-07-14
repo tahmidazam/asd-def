@@ -32,7 +32,7 @@ probands. (A) Every class-by-category signature value, SSC against SPARK, around
 equality ($r = 0.90$, $[0.79, 0.94]$), with the authors' overall $r = 0.927$ noted alongside. (B)
 The per-category correlation for two training conditions, the full `2026-03-23` release and the
 cohort cut back to the records present at the authors' V9 freeze (see
-{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`), against the
+{doc}`subsetting the cohort to the V9 freeze <../appendix/subsetting-to-the-v9-freeze>`), against the
 values Litman et al. (2025) report (markers). The two conditions track each other (overall $r = 0.90$
 for both), so the SPARK records the model trains on do not drive the replication; developmental, the
 one category the SSC builds from parsed milestone ages rather than a standard instrument, reads
@@ -86,7 +86,7 @@ four-class, seven-category profile, is the stabler summary.
 
 The records the SPARK model trains on do not drive the gap. Retraining on the cohort cut back to the
 records present at the authors' V9 freeze (the second condition in the figure; see
-{doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`) gives an
+{doc}`subsetting the cohort to the V9 freeze <../appendix/subsetting-to-the-v9-freeze>`) gives an
 overall correlation of $0.90$, matching the full release, with a developmental correlation of $0.91$
 against $0.86$ on the full release. Developmental is no lower on the smaller, earlier cohort, so the
 divergence from the published value sits on the SSC side of the projection, in the milestone ages and

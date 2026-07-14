@@ -150,9 +150,9 @@ separates direction from size on the same displacement the magnitude read report
 - {doc}`Are the class profiles invariant, and is any drift small? <../hypotheses/h0a-invariance>`
   ($H_0^A$ and $H_0^D$), which reads the magnitude of the same displacement whose signed trend this
   page reads.
-- {doc}`Invariance as an effect size <../investigations/invariance-as-an-effect-size>`, the recast
+- {doc}`Invariance as an effect size <../hypotheses/h0a-invariance>`, the recast
   and the correctness gates that separate a planted trend from a planted excursion.
-- {doc}`The score-based invariance test <../investigations/score-based-invariance>`, the corroborating
+- {doc}`The score-based invariance test <../guides/the-score-based-invariance-test>`, the corroborating
   read that places the era and age breaks.
 - {doc}`Measuring how far a class drifts <../guides/measuring-class-drift>`, the class-drift machinery
   this rests on.

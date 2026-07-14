@@ -27,7 +27,7 @@ by an automatic rule.
 
 Model selection across one to ten latent classes, from `analysis select` runs on the full
 `2026-03-23` release and on the cohort cut back to the records present at the authors' V9 freeze
-(the subset; see {doc}`subsetting the cohort to the V9 freeze <../guides/subsetting-to-the-v9-freeze>`).
+(the subset; see {doc}`subsetting the cohort to the V9 freeze <../appendix/subsetting-to-the-v9-freeze>`).
 (A) The Bayesian information criterion, normalised within each cut since it scales with sample
 size, reaches its minimum at nine classes on the full release and eight on the V9 subset, both far
 out along the grid. (B) The cross-validated log-likelihood gains little beyond four classes in

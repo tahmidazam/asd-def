@@ -1,44 +1,13 @@
-# H0A / H0D: invariance as an effect size
+# Computing the invariance effect size
 
-:::{admonition} The question
-:class: note
-
-Are the four class profiles invariant to diagnostic era and age at diagnosis (H0A), and if not, is
-the drift small relative to the between-class separation (H0D)? The score-based invariance test
-({doc}`score-based-invariance`) reads the class profiles for stability along an axis from the
-single cached fit, but at the reference sample size, roughly 11,700 probands, it has so much power
-that exact invariance is always rejected: on the real runs every whole-class block and almost every
-class-by-category block rejects at the smallest attainable $p$-value, and the break confidence sets
-span nearly the whole axis. Exact measurement invariance is a point null, and no real class profile
-sits exactly on it, so the bridge $p$-value stops discriminating once the sample runs to the
-thousands, the known large-sample regime for measurement invariance (Meredith 1993, *Psychometrika*;
-Putnick and Bornstein 2016, *Dev Rev*). This page recasts both nulls as a null-free effect size, the
-separation-scaled local-centroid displacement along an axis, with a family-clustered bootstrap tube,
-an in-plane capture fraction, and a specificity check against a control panel, so a class-profile
-drift is read by its size against the gap between classes rather than by whether it is exactly zero.
-:::
-
-:::{admonition} The result
-:class: tip
-
-Both nulls are rejected. The separation-scaled endpoint displacement averages about 2.8 along
-diagnosis year and about 6.0 along age at diagnosis, against a control panel of about 3.2 for
-household income, 2.1 for area deprivation, and 1.3 for the random floor: both timing axes clear
-the noise floor, and age at diagnosis clears every covariate control for all four classes (H0A
-rejected, paired specificity bootstrap floor $p = 0.0005$ on both axes). The drift is not small
-relative to the between-class separation either: roughly a third of the per-feature displacements
-survive the false-discovery step for diagnosis year and over half for age at diagnosis, and in
-root-mean-square terms the diagnosis-year magnitude is about a fifth of a class gap (H0D rejected,
-same bootstrap tube, comparative specificity $p = 0.0005$). The capture fractions are all small, so
-the drift is high-dimensional and mostly out of the between-class discriminant plane the trajectory
-figures draw; the full-dimensional magnitude is the authoritative read, not the short in-plane
-paths.
-:::
-
-This page describes the recast that the `invariance-trajectory` stage runs. It keeps the same
-frozen fit and the same question, whether the class profiles move along age at diagnosis or
-diagnosis year, but makes a null-free effect size the headline and demotes the bridge $p$-value to
-corroboration. It reuses the cached measurement-only reference fit and refits nothing.
+The machinery behind the invariance read of {doc}`../hypotheses/h0a-invariance` ($H_0^A$ and
+$H_0^D$). The `analysis invariance-trajectory` stage recasts the invariance question as a null-free
+effect size, the separation-scaled local-centroid displacement along an axis, with a
+family-clustered bootstrap band, an in-plane capture fraction, and a specificity check against a
+control panel. It reuses the cached measurement-only reference fit and refits nothing. This guide
+sets out the quantity, the uncertainty, the specificity panel, the directional statistic, the
+corroborators, and the correctness gates; the hypothesis article carries the verdict and the
+reading.
 
 ## The quantity
 
@@ -66,7 +35,7 @@ carries a larger norm; the bootstrap tube below is what makes grains of differen
 ## The discriminant plane is a view, not the authority
 
 The class trajectories are drawn in the fixed between-class discriminant plane, the same linear-
-discriminant embedding the {doc}`trajectory <tracking-the-classes-across-strata>`
+discriminant embedding the {doc}`trajectory <../archive/tracking-the-classes-across-strata>`
 figure fits once on the pooled classes. Because the plane is two-dimensional and the displacement is
 full-dimensional, a picture can flatter or hide the movement. Each class therefore carries an
 in-plane capture fraction, the fraction of its displacement that lies in the plane,
@@ -170,7 +139,7 @@ classes clear the covariate controls, while the broadly-affected and social-or-b
 above the random floor but below their own household-income control, so their era drift is above
 noise but not specific to timing.
 
-## Directionality (DIREC)
+## Directionality
 
 The magnitude answers how far a class drifts; it does not answer whether the drift has a systematic
 trend along the axis. That distinction matters, because the local centroid sits nearest the pooled
@@ -204,7 +173,7 @@ confidence set saturates at the full sample size.
 Two corroborating reads sit beside the effect size. The covariance-aware Mahalanobis magnitude uses
 the drift stage's Ledoit-Wolf-shrunk within-class precision, so a coordinated shift across correlated
 features counts once; it is bootstrap-calibrated, which makes it dimension-fair across grains of
-different size. The score-based bridge $p$-value of {doc}`score-based-invariance` is carried through
+different size. The score-based bridge $p$-value of {doc}`the score-based invariance test <the-score-based-invariance-test>` is carried through
 as well, so the saturated test that motivated the recast stays on the record rather than being
 dropped.
 
@@ -224,7 +193,7 @@ reading is trusted. The magnitude and tube gates:
 5. strongly within-family-correlated data yields a wider tube under family resampling than under an
    independent-proband bootstrap, so the family clustering is real rather than cosmetic.
 
-The DIREC directionality gates then separate direction from magnitude:
+The directionality gates then separate direction from magnitude:
 
 6. a planted monotone drift is flagged directional, its net-trend interval excluding zero;
 7. a symmetric excursion (down then back) has a large magnitude but a net trend whose interval
@@ -250,7 +219,7 @@ table. Every output is class or feature level, so nothing per-proband leaves the
 skips the control panel, `--n-boot` sets the bootstrap replicates (500 by default), and the run hash
 folds in the reference fit, the axis, the bandwidth, and the bootstrap settings.
 
-It also writes the DIREC tables: the per-class directional summary (the net-trend effect size with
+It also writes the directional tables: the per-class directional summary (the net-trend effect size with
 its interval, the two-sided bootstrap $p$-value, the Benjamini-Hochberg decision, and the descriptive
 break with its spread) and the one-dimensional signed trajectory with its band.
 
@@ -258,45 +227,3 @@ The figures are built with `uv run figures local-trajectory --axis <axis>` (the 
 `uv run figures local-panels --axis <axis>` (the per-class panels), `uv run figures
 local-directional --axis <axis>` (the signed directional trajectories), and `uv run figures
 local-specificity` (the control-panel small-multiple, which reads both timing axes).
-
-## Reading the result
-
-On the reference release the two axes tell a consistent story with an honest split. The
-separation-scaled endpoint displacement averages about 2.8 along diagnosis year and about 6.0 along
-age at diagnosis, against a control panel of about 3.2 for household income, 2.1 for area
-deprivation, and 1.3 for the random floor. Age at diagnosis clears every control, on the mean and for
-all four classes. Diagnosis year clears the random floor and area deprivation, but its mean sits just
-below the household-income control, and per class only the moderate-challenges and developmental
-classes clear the covariate controls. The age effect is the larger, carried by the developmental
-class (the Mixed ASD with developmental delay class moves furthest). Roughly a third of the per-feature
-displacements survive the false-discovery step for diagnosis year and over half for age at
-diagnosis, so the drift is pervasive but not total: most single features stay within sampling noise
-while the class profiles as a whole move.
-
-The capture fractions are all small, near what a random direction would give, so the drift is
-high-dimensional and mostly out of the between-class discriminant plane. The short in-plane paths in
-the trajectory figures are not the size of the effect; the full-dimensional magnitude is. In
-root-mean-square terms the diagnosis-year magnitude is about a fifth of a class gap, which matches
-the movement the refit-based drift stage measured on the hard bins, so the two methods triangulate.
-
-The drift is also directional. Along age at diagnosis all four classes carry a net trend whose
-interval excludes zero, in the same sense, with the developmental class moving furthest; the drift is
-monotone, not a symmetric excursion. Along diagnosis year the picture is a split: the Broadly affected
-and Social or behavioral classes trend one way while the Mixed ASD with developmental delay class
-trends the other, and the Moderate challenges class shows a large endpoint magnitude but no
-directional trend (its net-trend interval covers zero). So the Moderate era movement is a
-non-directional excursion, exactly the case the magnitude alone cannot tell from a trend. The
-descriptive single-break locations on diagnosis year cluster around 2017, a few years after the
-DSM-5 boundary of 2013, consistent with the score-test break estimates; they are read with their
-bootstrap spread, not as a resolved changepoint, because the bridge confidence set saturates.
-
-## Limits
-
-The read is conditional on the pooled fit: it freezes the reference responsibilities and reweights,
-so it measures where the class centroids sit along the axis, not a re-estimated partition. The
-capture fractions warn that the discriminant-plane figures understate the movement; the
-full-dimensional, separation-scaled magnitude is the authoritative number. The specificity split on
-diagnostic era, where two classes clear the covariate controls and two do not, means the era verdict
-is not uniform across classes even though the joint test rejects. Whether this recast is
-re-registered as the primary invariance read, and how it sits beside the frozen refit null of the
-pre-registration, is a decision recorded in the progress log rather than taken by the stage.

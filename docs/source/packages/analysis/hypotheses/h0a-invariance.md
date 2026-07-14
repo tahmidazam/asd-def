@@ -78,7 +78,7 @@ uses.
   phenotype and is orthogonal to timing; the phenotype is excluded on principle, since ordering by a
   clustered feature moves the centroids by construction. The screen leaves household income and area
   deprivation against a random floor ({doc}`choosing the specificity controls
-  <../archive/choosing-the-specificity-controls>`).
+  <../appendix/choosing-the-specificity-controls>`).
 - Families resampled, not probands. Siblings share a family and correlate, so resampling whole
   families gives an honest, wider band.
 
@@ -177,11 +177,11 @@ and how the class proportions move, are separate questions taken up in the sibli
 
 ## See also
 
-- {doc}`Does the drift have a direction? <../investigations/the-direction-of-the-drift>` ($H_0^E$),
+- {doc}`Does the drift have a direction? <../hypotheses/h0e-direction>` ($H_0^E$),
   which reads the signed trend of this same displacement.
-- {doc}`Do the class sizes shift? <../investigations/the-size-of-the-classes>` ($H_0^B$), the
+- {doc}`Do the class sizes shift? <../hypotheses/h0b-prevalence>` ($H_0^B$), the
   separate question of the mixing proportions.
-- {doc}`Choosing the specificity controls <../archive/choosing-the-specificity-controls>` and
+- {doc}`Choosing the specificity controls <../appendix/choosing-the-specificity-controls>` and
   {doc}`measuring how far a class drifts <../guides/measuring-class-drift>`, the machinery this rests
   on.
 - {doc}`The Python API <../reference>` for the `invariance-trajectory` and `invariance` stages.

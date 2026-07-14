@@ -1,35 +1,6 @@
-# H0A corroboration: score-based measurement invariance
+# The score-based invariance test
 
-:::{admonition} The question
-:class: note
-
-Are the four class profiles invariant to diagnostic era and age at diagnosis (H0A), read a second
-way? The drift stages ask this by refitting the mixture inside strata of an axis, and paying for a
-fit and a permutation null in each stratum. The score-based test asks the same question from the
-single cached fit instead, with an analytic null and no refitting, following the empirical
-fluctuation process of Merkle and Zeileis (2013, *Psychometrika*) and Merkle, Fan and Zeileis
-(2014). It is the corroborating technique for H0A alongside the primary moving-window read in
-{doc}`invariance as an effect size <invariance-as-an-effect-size>`, sharing no machinery with it, so
-agreement between the two is not circular.
-:::
-
-:::{admonition} The result
-:class: tip
-
-The test corroborates the rejection of H0A but saturates at this sample size: on both axes, almost
-every whole-class and class-by-category block rejects at the smallest attainable bridge $p$-value,
-and the observed fluctuation process sits an order of magnitude above the simulated null band across
-the whole axis, not just at one point, the signature of a pervasive drift rather than a single sharp
-break. The break locations are diffuse rather than sharp: on diagnostic era they cluster near 2016,
-a few years after the DSM-5 (2013) boundary, and on age at diagnosis near the five-to-six year mark,
-both consistent with the descriptive breaks the effect-size read finds independently. Because the
-bridge confidence sets span nearly the whole axis at this sample size, the test corroborates
-direction and rough location; the effect size carries the primary magnitude read.
-:::
-
-This page describes the casewise score, the fluctuation process and its bridge null, the two
-statistics, the focal blocks, the correctness gates, and how to read the result. The stage is a
-pure consumer of the measurement-only reference fit and the axis, so it never refits the mixture.
+The corroborating machinery for the invariance read of {doc}`../hypotheses/h0a-invariance` ($H_0^A$). The drift stages ask whether the class profiles are invariant along an axis by refitting the mixture inside strata; the `analysis invariance` stage asks the same question from the single cached fit instead, with an analytic null and no refitting, following the empirical fluctuation process of Merkle and Zeileis {footcite}`merkleTestsMeasurementInvariance2013`. It shares no machinery with the effect-size read, so agreement between the two is not circular. This guide sets out the casewise score, the fluctuation process and its bridge null, the two statistics, the focal blocks, and the correctness gates; the hypothesis article carries the verdict and the reading.
 
 ## The casewise score
 
@@ -156,32 +127,7 @@ The break near 2016 is again close to the median diagnosis year, so it reads as 
 continuous change over the era rather than an abrupt one.
 :::
 
-## Reading the result
+## Sources
 
-The test consumes the marginal (measurement-only) reference, so its estimand matches the kernel
-and pairwise arms rather than the covariate fit. At the reference sample size, roughly 11,700
-probands, the test has great power, so a rejection means the class profiles are not perfectly
-invariant along the axis, which is almost always true to some degree. Two habits keep the reading
-honest. First, read the effect sizes and the break locations, not only the binary decisions: which
-classes and categories drift most, and where. Second, confirm against a permuted axis, a random
-ordering under which there is no drift; the $p$-values there are uniform and nothing survives the
-false-discovery-rate step, which is what separates genuine axis-associated drift from the
-large-sample tendency to reject.
-
-Read the break against the axis median rather than as an event. The maxLM statistic borrows its
-name from change-point testing, where the peak locates an abrupt shift, but it also has power
-against smooth drift, and for a smoothly drifting parameter the peak falls at the axis median by
-construction. So a break that sits at the median, with a wide confidence set and a significant
-Cramer-von Mises statistic, is continuous drift, not a discontinuity; the informative signal is how
-far the break departs from the median (where the drift concentrates) and the sign of the
-directional slope (which way it goes). The whole trajectory is traced directly, rather than tested,
-by the kernel sweep and the pairwise-drift arms.
-
-## Limits
-
-The test's great power at this sample size makes the binary decision uninformative on its own; the
-break location and the directional slope carry the reading, not the rejection. The break confidence
-sets span nearly the whole axis, so the break locations are corroborating and descriptive, not
-resolved changepoints. The relationship of this test to the frozen refit null of the
-pre-registration, whether it supplements or replaces it and any re-pre-registration, is a decision
-recorded in the progress log rather than taken by the stage.
+```{footbibliography}
+```

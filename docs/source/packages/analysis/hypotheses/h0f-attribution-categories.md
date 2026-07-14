@@ -180,6 +180,6 @@ full-dimensional per-feature contributions, and the plane figures are a picture 
   null this test is conditional on.
 - {doc}`Measuring how far a class drifts <../guides/measuring-class-drift>`, the drift distance the
   decomposition splits.
-- {doc}`Tracking the classes across the strata <../investigations/tracking-the-classes-across-strata>`,
+- {doc}`Tracking the classes across the strata <../archive/tracking-the-classes-across-strata>`,
   the stratified refit run these attribution figures were first drawn on.
 - {doc}`The Python API <../reference>` for the `attribute` stage.

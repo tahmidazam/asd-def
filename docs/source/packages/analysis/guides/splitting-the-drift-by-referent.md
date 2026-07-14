@@ -1,6 +1,6 @@
 # Splitting the era drift by referent
 
-The {doc}`effect-size recast <../investigations/invariance-as-an-effect-size>` reports how far
+The {doc}`effect-size recast <../hypotheses/h0a-invariance>` reports how far
 each class profile drifts along diagnostic era, and the {doc}`attribution stage
 <attributing-class-movement>` splits that drift across the seven author categories. This read asks
 a different question of the same era drift: does it sit in the instruments that rate the child's
