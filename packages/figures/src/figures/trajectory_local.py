@@ -181,6 +181,136 @@ def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figu
     return fig
 
 
+_AXIS_STYLE: dict[str, str | tuple[int, tuple[int, int]]] = {
+    "age_at_diagnosis": "-",
+    "era": (0, (5, 2)),
+}
+
+
+def _focal_endpoints(path: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return a focal path's points, its start, and its end (mean of the outer thirds)."""
+    pts = path.sort_values("focal_index")[["ld1", "ld2"]].to_numpy(dtype=float)
+    third = max(2, pts.shape[0] // 3)
+    return pts, pts[:third].mean(axis=0), pts[-third:].mean(axis=0)
+
+
+def plane_overlay_figure(
+    planes: dict[str, pd.DataFrame],
+    captures: dict[str, pd.DataFrame],
+    *,
+    width_in: float | None = None,
+    brief: bool = False,
+) -> Figure:
+    """Overlay the local trajectories of two timing axes in the one shared discriminant plane.
+
+    Both axes are read against the same pooled fit, so the class anchors and the discriminant
+    basis are common: each class grows two trajectories from its anchor, one per axis, drawn in
+    the class colour and told apart by line style (age at diagnosis solid, diagnostic era dashed).
+    The colour-by-focal-point scale of :func:`plane_figure` is dropped, since one scale cannot
+    serve two axes; a small start dot and the arrowhead carry the low-to-high direction instead.
+
+    Parameters
+    ----------
+    planes : dict of str to pandas.DataFrame
+        The ``trajectory_<axis>`` table per axis name (``"age_at_diagnosis"``, ``"era"``); the
+        anchors are taken from the first and the others must share them.
+    captures : dict of str to pandas.DataFrame
+        The ``capture_<axis>`` table per axis name, for the in-plane capture note.
+    width_in : float, optional
+        The figure width in inches; the height follows the default aspect. Set this to the
+        document text width so the input is placed at natural size.
+    brief : bool, optional
+        When true, drop the panel letter and the in-axes capture note for a document that
+        supplies its own caption.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The single-panel overlay figure.
+    """
+    axes_order = [a for a in ("age_at_diagnosis", "era") if a in planes]
+    base = planes[axes_order[0]]
+    anchors = base[base["kind"] == "anchor"].set_index("ref_class")
+    classes = _class_order(base[base["kind"] == "anchor"])
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    names = {c: str(anchors.loc[c, "class_name"]) for c in classes}
+    capture_of = {
+        axis: dict(zip(cap["ref_class"].astype(int), cap["capture"].astype(float), strict=True))
+        for axis, cap in captures.items()
+    }
+    width = width_in if width_in is not None else 7.6
+    height = width * (6.4 / 7.6)
+
+    with style.house_style():
+        fig, ax = plt.subplots(figsize=(width, height))
+        for c in classes:
+            colour = colours[c]
+            for axis in axes_order:
+                plane = planes[axis]
+                path = plane[(plane["kind"] == "focal") & (plane["ref_class"] == c)]
+                _, start, end = _focal_endpoints(path)
+                # A single straight line from the start of the ordering to its most recent value,
+                # the arrowhead marking that recent end.
+                ax.add_patch(
+                    FancyArrowPatch(
+                        (float(start[0]), float(start[1])),
+                        (float(end[0]), float(end[1])),
+                        arrowstyle="-|>",
+                        mutation_scale=12,
+                        color=colour,
+                        lw=1.2,
+                        ls=_AXIS_STYLE[axis],
+                        alpha=0.9,
+                        zorder=4,
+                    )
+                )
+            anchor = anchors.loc[c, ["ld1", "ld2"]].to_numpy(dtype=float)
+            # An x marks the pooled centroid location for the class.
+            ax.scatter(*anchor, marker="x", s=34, color=colour, linewidths=1.3, zorder=6)
+            ax.annotate(
+                names[c].split()[0],
+                anchor,
+                textcoords="offset points",
+                xytext=(6, 6),
+                fontsize=7,
+                color=colour,
+                zorder=7,
+            )
+        ax.set_xlabel("Linear discriminant 1")
+        ax.set_ylabel("Linear discriminant 2")
+        style.brief_axis_style(ax)
+        # The line-style legend only earns its place when two axes are overlaid; a single-axis
+        # plot reads from the arrows alone, so it is left off.
+        if len(axes_order) > 1:
+            legend_handles = [
+                plt.Line2D(
+                    [], [], color="#444", lw=1.8, ls=_AXIS_STYLE[axis], label=_NICE_AXIS[axis]
+                )
+                for axis in axes_order
+            ]
+            ax.legend(handles=legend_handles, loc="upper left", fontsize=7)
+        # The docs figure carries its own panel title and the capture caveat in the axes; the brief
+        # supplies both through its LaTeX caption, so the small figure stays uncluttered.
+        if not brief:
+            style.panel_title(ax, "A", "Local class trajectories along both timing axes")
+            worst = min(
+                (v for table in capture_of.values() for v in table.values()), default=float("nan")
+            )
+            ax.text(
+                0.5,
+                -0.13,
+                "arrows show the in-plane drift; most of it is out of plane "
+                f"(capture down to {worst:.2f}), so the magnitude is read off the "
+                "specificity panel",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=6.4,
+                color="#555",
+            )
+    return fig
+
+
 def panels_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figure:
     """Build the per-class panels: the local trajectory and tube over the member ellipse.
 
@@ -273,7 +403,14 @@ def panels_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Fig
     return fig
 
 
-def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
+def specificity_figure(
+    specificity: pd.DataFrame,
+    meta: dict,
+    *,
+    width_in: float | None = None,
+    height_in: float | None = None,
+    brief: bool = False,
+) -> Figure:
     """Build the specificity small-multiple: endpoint displacement by axis, per class.
 
     The separation-scaled endpoint magnitude of each axis, with the timing axes drawn against the
@@ -287,6 +424,14 @@ def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
         ``endpoint_magnitude``. The timing axes and the control axes are pooled here.
     meta : dict
         Presentation metrics; ``timing_axes`` names the axes drawn as the effect (highlighted).
+    width_in : float, optional
+        The figure width in inches; the height follows the default aspect unless ``height_in`` is
+        given. Set this to the document text width so the input is placed at natural size.
+    height_in : float, optional
+        The figure height in inches, overriding the default aspect. Use it to flatten the panel
+        (the five long axis labels need close to the full text width, so height is the free knob).
+    brief : bool, optional
+        When true, drop the panel letter for a document that supplies its own caption.
 
     Returns
     -------
@@ -297,9 +442,11 @@ def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
     order = ["era", "age_at_diagnosis", "area_deprivation", "household_income", "sex", "random"]
     present = [a for a in order if a in set(specificity["axis_name"])]
     means = specificity.groupby("axis_name")["endpoint_magnitude"].mean()
+    width = width_in if width_in is not None else 7.4
+    height = height_in if height_in is not None else width * (4.4 / 7.4)
 
     with style.house_style():
-        fig, ax = plt.subplots(figsize=(7.4, 4.4))
+        fig, ax = plt.subplots(figsize=(width, height))
         for i, axis_name in enumerate(present):
             highlight = axis_name in timing
             ax.bar(
@@ -321,23 +468,174 @@ def specificity_figure(specificity: pd.DataFrame, meta: dict) -> Figure:
                 zorder=3,
             )
         ax.set_xticks(range(len(present)))
-        ax.set_xticklabels([_NICE_CONTROL.get(a, a) for a in present], fontsize=8)
-        ax.set_ylabel("Endpoint displacement (separation units)")
+        # At a single column the five labels are too wide to sit horizontally, so the brief rotates
+        # them; the wider docs panel keeps them flat.
+        labels = [_NICE_CONTROL.get(a, a) for a in present]
+        if brief:
+            ax.set_xticklabels(labels, fontsize=7.5, rotation=30, ha="right")
+        else:
+            ax.set_xticklabels(labels, fontsize=8)
+        # A flattened panel (brief) has too little height for the label on one rotated line, so
+        # it wraps to two; the full-height docs panel keeps it on one.
+        ax.set_ylabel(
+            "Endpoint displacement\n(separation units)"
+            if brief
+            else "Endpoint displacement (separation units)"
+        )
         control_mean = float(
             specificity[~specificity["axis_name"].isin(timing)]["endpoint_magnitude"].mean()
         )
         ax.axhline(control_mean, color=style.REFERENCE_COLOUR, ls=":", lw=0.9, zorder=1)
-        ax.text(
-            len(present) - 0.5,
+        # The docs panel labels the line in the axes; the brief has no room, so its caption does.
+        if not brief:
+            ax.text(
+                len(present) - 0.5,
+                control_mean,
+                " control mean",
+                va="center",
+                ha="left",
+                fontsize=6.8,
+                color=style.REFERENCE_COLOUR,
+            )
+        if not brief:
+            style.panel_title(ax, "A", "Specificity: timing drift against the control panel")
+        ax.margins(x=0.04)
+    return fig
+
+
+def _bar_group(ax, x: float, values: dict[int, float], colours: dict[int, str], classes: list[int]):
+    """Draw one axis group as per-class bars with a rule at the across-class mean.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The subplot to draw into.
+    x : float
+        The group's centre on the x-axis.
+    values : dict of int to float
+        The endpoint displacement per class id for this axis.
+    colours : dict of int to str
+        The bar colour per class id.
+    classes : list of int
+        The class ids in draw order (left to right within the group).
+    """
+    width = 0.8 / len(classes)
+    for j, c in enumerate(classes):
+        offset = (j - (len(classes) - 1) / 2.0) * width
+        ax.bar(x + offset, values[c], width=width, color=colours[c], zorder=2)
+    mean = float(np.mean([values[c] for c in classes]))
+    ax.plot([x - 0.44, x + 0.44], [mean, mean], color="black", lw=1.3, zorder=4)
+
+
+def specificity_panels_figure(
+    specificity: pd.DataFrame,
+    meta: dict,
+    *,
+    width_in: float | None = None,
+    height_in: float | None = None,
+) -> Figure:
+    """Build the two-panel specificity figure: per-class drift by timing axis and by control.
+
+    Each ordering axis is a group of four bars, one per class in a consistent colour (legend), so
+    the reader sees which class moves. A black rule across each group marks the across-class mean,
+    the summary the single bar of :func:`specificity_figure` used to carry. Panel A holds the timing
+    axes and panel B the control axes; they share the y-axis and a dotted line at the control mean,
+    so the timing bars clearing that line, and the controls sitting on it, is the read.
+
+    Parameters
+    ----------
+    specificity : pandas.DataFrame
+        The merged ``specificity`` rows (``axis_name``, ``ref_class``, ``class_name``,
+        ``endpoint_magnitude``), timing and control axes pooled.
+    meta : dict
+        Presentation metrics; ``timing_axes`` names the axes shown in panel A.
+    width_in, height_in : float, optional
+        The figure size in inches; sensible defaults are used when omitted.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The two-panel figure.
+    """
+    timing = [a for a in ("era", "age_at_diagnosis") if a in set(specificity["axis_name"])]
+    controls = [
+        a
+        for a in ("area_deprivation", "household_income", "sex", "random")
+        if a in set(specificity["axis_name"])
+    ]
+    classes = sorted(int(c) for c in specificity["ref_class"].unique())
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    labelled = specificity.drop_duplicates("ref_class")
+    names = {
+        int(c): str(n).split()[0]
+        for c, n in zip(labelled["ref_class"], labelled["class_name"], strict=True)
+    }
+    control_rows = specificity[specificity["axis_name"].isin(controls)]
+    control_mean = float(control_rows["endpoint_magnitude"].mean())
+
+    def _values(axis_name: str) -> dict[int, float]:
+        rows = specificity[specificity["axis_name"] == axis_name]
+        return dict(
+            zip(
+                rows["ref_class"].astype(int),
+                rows["endpoint_magnitude"].astype(float),
+                strict=True,
+            )
+        )
+
+    width = width_in if width_in is not None else 3.2
+    height = height_in if height_in is not None else 2.8
+    with style.house_style():
+        fig, (ax_a, ax_b) = plt.subplots(
+            1,
+            2,
+            figsize=(width, height),
+            sharey=True,
+            gridspec_kw={
+                "width_ratios": [max(len(timing), 1), max(len(controls), 1)],
+                "wspace": 0.1,
+            },
+        )
+        for ax, axes_here, letter, label in (
+            (ax_a, timing, "A", "timing"),
+            (ax_b, controls, "B", "controls"),
+        ):
+            for i, axis_name in enumerate(axes_here):
+                _bar_group(ax, i, _values(axis_name), colours, classes)
+            ax.axhline(control_mean, color=style.REFERENCE_COLOUR, ls=":", lw=1.0, zorder=1)
+            ax.set_xticks(range(len(axes_here)))
+            ax.set_xticklabels(
+                [_NICE_CONTROL.get(a, a) for a in axes_here], fontsize=7, rotation=30, ha="right"
+            )
+            ax.margins(x=0.08)
+            style.panel_title(ax, letter, label)
+            style.brief_axis_style(ax, minor_x=False)
+        ax_a.set_ylabel("Endpoint displacement\n(separation units)")
+        ax_b.text(
+            len(controls) - 0.5,
             control_mean,
             " control mean",
-            va="center",
-            ha="left",
-            fontsize=6.8,
+            va="bottom",
+            ha="right",
+            fontsize=6.2,
             color=style.REFERENCE_COLOUR,
         )
-        style.panel_title(ax, "A", "Specificity: timing drift against the control panel")
-        ax.margins(x=0.04)
+        handles = [
+            plt.Line2D([], [], marker="s", ls="", markersize=6, color=colours[c], label=names[c])
+            for c in classes
+        ]
+        # Reserve a band at the bottom for the rotated tick labels, then put the legend in its own
+        # band beneath them, so the two no longer collide. The legend wraps to two rows so it does
+        # not overrun the narrow figure width.
+        fig.subplots_adjust(bottom=0.34, top=0.9)
+        fig.legend(
+            handles=handles,
+            loc="upper center",
+            ncol=2,
+            fontsize=6.5,
+            frameon=False,
+            bbox_to_anchor=(0.5, 0.12),
+        )
     return fig
 
 

@@ -14,7 +14,7 @@ from analysis import cache
 from analysis.paths import find_repo_root
 from matplotlib.figure import Figure
 
-from figures import data, paths, style
+from figures import data, layout, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
@@ -32,8 +32,10 @@ from figures.trajectory_local import (
     directional_figure,
     panels_figure,
     plane_figure,
+    plane_overlay_figure,
     referent_figure,
     specificity_figure,
+    specificity_panels_figure,
 )
 
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
@@ -258,6 +260,71 @@ def local_specificity(
     merged = pd.concat(frames, ignore_index=True)
     figure = specificity_figure(merged, {"timing_axes": ["era", "age_at_diagnosis"]})
     _write(root, "invariance-trajectory", source_dir, figure, name or "local_specificity", fmt)
+
+
+@app.command()
+def brief(
+    fmt: str = typer.Option("pgf,pdf", "--format", help="Comma-separated output formats."),
+) -> None:
+    """Build the collaboration-brief figures: the single-fit trajectory and the specificity panels.
+
+    Writes each figure to ``reports/brief/figures`` beside ``main.tex``, so the brief inputs the
+    ``.pgf`` at natural size, its text set in the brief's sans-serif font. The trajectory shows the
+    age-at-diagnosis drift in one column; the specificity figure is the wider two-panel view (timing
+    axes and controls), built at the text width. Needs a working TeX install on the path.
+    """
+    import pandas as pd
+
+    root = find_repo_root()
+    planes: dict[str, pd.DataFrame] = {}
+    captures: dict[str, pd.DataFrame] = {}
+    spec_frames: list[pd.DataFrame] = []
+    source_dir: Path | None = None
+    for timing_axis in ("age_at_diagnosis", "era"):
+        try:
+            run_directory = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        source_dir = source_dir or run_directory
+        plane, capture, _ = data.load_local_trajectory(run_directory)
+        planes[timing_axis] = plane
+        captures[timing_axis] = capture
+        spec_frames.append(data.load_local_specificity(run_directory))
+    if source_dir is None:
+        raise typer.BadParameter("no completed invariance-trajectory run for either timing axis")
+    if "age_at_diagnosis" not in planes:
+        raise typer.BadParameter("the trajectory needs a completed age_at_diagnosis run")
+
+    # The trajectory is a single-column float showing age at diagnosis only (input at natural size,
+    # never rescaled). The specificity figure carries per-class bars in two panels and needs the
+    # room, so it spans the text width.
+    age = {"age_at_diagnosis": planes["age_at_diagnosis"]}
+    age_capture = {"age_at_diagnosis": captures["age_at_diagnosis"]}
+    trajectory = plane_overlay_figure(
+        age, age_capture, width_in=layout.BRIEF_COLUMNWIDTH_IN, brief=True
+    )
+    specificity = specificity_panels_figure(
+        pd.concat(spec_frames, ignore_index=True),
+        {"timing_axes": ["era", "age_at_diagnosis"]},
+        width_in=layout.BRIEF_COLUMNWIDTH_IN,
+        height_in=2.8,
+    )
+
+    manifest = cache.read_manifest(source_dir) or {}
+    out_dir = paths.brief_figures_dir(root)
+    formats = tuple(part.strip() for part in fmt.split(",") if part.strip())
+    provenance = {
+        "source_stage": "invariance-trajectory",
+        "source_run": source_dir.name,
+        "source_git_commit": manifest.get("git_commit"),
+    }
+    for figure, name in ((trajectory, "trajectory_overlay"), (specificity, "specificity")):
+        written = style.save_figure(
+            figure, out_dir / name, formats=formats, provenance=provenance, pgf_rc=style.PGF_RC_SANS
+        )
+        plt.close(figure)
+        for path in written:
+            typer.echo(f"  wrote {path.relative_to(root)}")
 
 
 @app.command(name="local-directional")

@@ -22,6 +22,15 @@ def docs_figures_dir(root: Path) -> Path:
     return root / "docs" / "source" / "_figures"
 
 
+def brief_figures_dir(root: Path) -> Path:
+    r"""Return the collaboration brief's figures directory, ``<root>/reports/brief/figures``.
+
+    This holds the ``.pgf`` assets ``reports/brief/main.tex`` inputs, beside the brief so the
+    ``\input`` paths are relative; the brief compiles from here without a separate build step.
+    """
+    return root / "reports" / "brief" / "figures"
+
+
 def figure_stem(root: Path, source_stage: str, source_hash: str, name: str) -> Path:
     """Return the output-path stem for a figure built from one source run.
 
