@@ -1,53 +1,55 @@
-# asd-def
+# Phenotypic autism clusters drift with diagnostic timing
 
-## Investigations
+Tahmid Azam (School of Clinical Medicine, University of Cambridge) and Chirag J. Patel
+(Department of Biomedical Informatics, Harvard Medical School).
 
-Each investigation tests one hypothesis from the labelled registry (H0A to H0J). See
-{doc}`the analysis package <packages/analysis/index>` for the full list, and its archive for the
-reproduction and replication work these tests depend on.
+## Background
 
-::::{grid} 1 1 2 2
-:gutter: 3
+Litman et al. {footcite}`litmanDecompositionPhenotypicHeterogeneity2025a` fitted a
+{term}`general finite mixture model` to parent-reported phenotype data from {term}`SPARK` and
+recovered four {term}`autism class`es, which they map to genetic programs of common, de novo, and
+inherited variation and present as biologically grounded. This work tests whether those classes
+are invariant to {term}`diagnostic era` and to {term}`age at diagnosis`.
 
-:::{grid-item-card} H0A / H0D. Invariance as an effect size
-:link: packages/analysis/investigations/invariance-as-an-effect-size
-:link-type: doc
+## The gap
 
-Are the class profiles invariant to diagnostic era or age at diagnosis, and is any drift small
-relative to the between-class separation?
-:::
+Litman et al. enter age at evaluation as a model covariate and use age at diagnosis only for
+external validation, so no peer-reviewed work has tested whether the classes are confounded by
+diagnostic timing. The surrounding literature has questioned the stability of the autism diagnosis
+over time: age at diagnosis indexes different developmental and polygenic profiles
+{footcite}`zhangPolygenicDevelopmentalProfiles2025`, and the mean polygenic load of a diagnosis
+declines with diagnostic year, with broadening criteria a candidate explanation
+{footcite}`labiancaChangesGeneticContributions2026`. Both describe autism at the population level;
+whether Litman's classes agree with those shifts, or are confounded by them, is untested.
 
-:::{grid-item-card} H0A corroboration. Score-based measurement invariance
-:link: packages/analysis/investigations/score-based-invariance
-:link-type: doc
+## Why it matters
 
-Does a score-based fluctuation-process test corroborate the invariance read from the single
-cached fit?
-:::
+A data-driven class becomes consequential the moment people are sorted into it, for research, for
+clinical narrative, and eventually for care. Who is diagnosed early, and who is diagnosed at all,
+has never been random: it tracks sex, race, and access to services. A partition that is not
+invariant to diagnostic era and age at diagnosis risks writing the history of who was noticed, and
+when, into a claim about who they are. Testing that invariance before the classes are treated as
+biology is what this work is for.
 
-:::{grid-item-card} H0A pilot / H0F. Tracking the classes across the strata
-:link: packages/analysis/investigations/tracking-the-classes-across-strata
-:link-type: doc
+## Hypotheses
 
-Do the classes hold across the strata, and is the drift spread evenly across the seven
-phenotypic categories?
-:::
+| Hypothesis | Null | Status |
+| --- | --- | --- |
+| $H_0^A$ | The four-class profiles are invariant to diagnostic era and age at diagnosis. | Rejected |
+| $H_0^B$ | The class proportions are invariant to both axes. | Rejected |
+| $H_0^C$ | The supported number of classes is four in every stratum. | Not yet run |
+| $H_0^D$ | Any drift is within sampling noise and small against the {term}`between-class separation`. | Rejected |
+| $H_0^E$ | The drift has no consistent direction along the axis. | Partially rejected |
+| $H_0^F$ | The drift is spread evenly across the {term}`seven phenotype categories`. | Rejected |
+| $H_0^G$ | The era drift is spread evenly across instruments regardless of {term}`referent`. | Rejected |
+| $H_0^H$ | The era drift is spread evenly across {term}`measurement lag`. | Partially written |
+| $H_0^I$ | The genotype-to-class mapping is invariant to both axes. | Waiting on data access |
+| $H_0^J$ | Drift in the genotype-to-class mapping tracks the phenotype drift. | Waiting on data access |
 
-:::{grid-item-card} H0E. The direction of the drift
-:link: packages/analysis/investigations/the-direction-of-the-drift
-:link-type: doc
+## Sources
 
-Does the drift have a direction, or is it a symmetric excursion?
-:::
-
-:::{grid-item-card} H0B. The size of the classes
-:link: packages/analysis/investigations/the-size-of-the-classes
-:link-type: doc
-
-Do the four classes make up the same share of the diagnosed population across the axis?
-:::
-
-::::
+```{footbibliography}
+```
 
 ## Packages
 
