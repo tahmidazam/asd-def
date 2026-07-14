@@ -11,6 +11,7 @@ https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import contextlib
 import sys
+import warnings
 from datetime import date
 from importlib.metadata import version as _package_version
 from pathlib import Path
@@ -25,6 +26,14 @@ from sphinx_polyversion.git import GitRef  # import also registers GitRef for lo
 _PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 for _src in sorted(_PACKAGES.glob("*/src")):
     sys.path.insert(0, str(_src))
+
+# A strict build (``docs build --strict`` passes ``-W``) fails on any warning, including the
+# SyntaxWarning that stepmix raises when autodoc imports it: one of its docstrings carries an
+# invalid ``\_`` escape. That is a third-party bug we cannot fix in their source, so drop it here.
+# The warning fires at compile time and reports its origin as ``<unknown>``, so it is matched on
+# message rather than module. Invalid escapes in this repo's own code are still caught by ruff
+# (W605), so the filter does not hide a warning we would otherwise want to see.
+warnings.filterwarnings("ignore", message=r"invalid escape sequence", category=SyntaxWarning)
 
 # -- Project information -----------------------------------------------------
 
