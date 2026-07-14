@@ -9,4 +9,23 @@
 html {
   --pst-font-family-base: Helvetica, "Helvetica Neue", Arial, sans-serif;
   --pst-font-family-heading: Helvetica, "Helvetica Neue", Arial, sans-serif;
+
+  /* The theme's default heading scale runs large (h1 at 2.5rem). Pull it down to
+   * a tighter, more paper-like scale. */
+  --pst-font-size-h1: 1.8rem;
+  --pst-font-size-h2: 1.45rem;
+  --pst-font-size-h3: 1.2rem;
+  --pst-font-size-h4: 1.05rem;
+  --pst-font-size-h5: 0.95rem;
+  --pst-font-size-h6: 0.85rem;
 }
+
+/* The theme also ships Bootstrap heading rules with hard-coded rem sizes that
+ * override the variables above on wide viewports, so restate the scale on the
+ * article headings, where it needs to win. */
+.bd-article h1 { font-size: var(--pst-font-size-h1); }
+.bd-article h2 { font-size: var(--pst-font-size-h2); }
+.bd-article h3 { font-size: var(--pst-font-size-h3); }
+.bd-article h4 { font-size: var(--pst-font-size-h4); }
+.bd-article h5 { font-size: var(--pst-font-size-h5); }
+.bd-article h6 { font-size: var(--pst-font-size-h6); }
