@@ -1,0 +1,272 @@
+% Compile with: latexmk -pdf main.tex (biber backend; needs references.bib in this directory)
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{multicol}  % two-column body via multicols, so a full-width table can follow without a forced page break
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\usepackage[helvet]{sfmath}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{xltabular}
+\usepackage[backend=biber,style=numeric,sorting=none]{biblatex}
+\addbibresource{references.bib}
+\renewcommand*{\bibfont}{\footnotesize}
+% Superscript bracketed citations: \cite prints the number(s) as a superscript "[n]".
+\DeclareCiteCommand{\cite}[\mkbibsuperscript]
+  {\iffieldundef{prenote}{}{\BibliographyWarning{Ignoring prenote argument}}%
+   \iffieldundef{postnote}{}{\BibliographyWarning{Ignoring postnote argument}}}
+  {\bibopenbracket\usebibmacro{citeindex}\usebibmacro{cite}\bibclosebracket}
+  {\supercitedelim}
+  {}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,citecolor=blue,linkcolor=blue,urlcolor=blue]{hyperref}
+
+% Status colours for the hypothesis register: the verdict "Rejected" in green and an open status
+% (not run, partially written, waiting on data) in orange; the rest of the cell stays black.
+\definecolor{statusgreen}{HTML}{1B7837}
+\definecolor{statusorange}{HTML}{D55E00}
+\newcommand{\rej}{\textcolor{statusgreen}{\textbf{Rejected}}}
+\newcommand{\sopen}[1]{\textcolor{statusorange}{#1}}
+\usepackage{pgf}
+\usepackage{subcaption}
+\usepackage{stfloats}  % allow a full-width figure* to sit at the bottom of a two-column page
+
+% Captions at footnote size, with a bold "Figure N:" / "Table N:" run-in label (colon separator).
+\captionsetup{font=footnotesize,labelfont=bf,labelsep=colon}
+% Capitalise the autoref names so \autoref prints "Figure 1" and "Table 1".
+\def\figureautorefname{Figure}
+\def\tableautorefname{Table}
+\usepackage{acro}
+\usepackage{titlesec}
+
+\DeclareAcronym{em}{short=EM,long=Expectation-Maximization}
+
+% Section headings at body text size, bold, with normal space above but a tight gap below.
+\titleformat{\section}{\normalfont\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{1.6ex plus .4ex minus .2ex}{0.5ex plus .1ex}
+
+% Auto-sizing columns for the hypothesis table: tabularx's X mechanism splits \textwidth
+% (minus \tabcolsep and rules) across these three. The base weights track each column's character
+% count summed over all rows (Null hypothesis 1037, Technique 2854, Status 722 chars), but Status
+% is widened past its share and Technique narrowed to match, since Status holds short unbreakable
+% tokens (p-values, counts) that wrap badly in a thin column. The three weights sum to 3.
+\newcolumntype{N}{>{\hsize=0.65\hsize\raggedright\arraybackslash}X}
+\newcolumntype{T}{>{\hsize=1.67\hsize\raggedright\arraybackslash}X}
+\newcolumntype{R}{>{\hsize=0.68\hsize\raggedright\arraybackslash}X}
+
+\usepackage{authblk}
+\renewcommand\Authfont{\small}
+\renewcommand\Affilfont{\footnotesize}
+\setlength{\affilsep}{0.4em}
+\makeatletter
+% Compact title block: title at body size (no oversized default), authors and affiliations smaller.
+\renewcommand{\@maketitle}{%
+  \begin{center}%
+    {\normalsize\bfseries\@title\par}%
+    \vskip 0.5em%
+    {\@author\par}%
+  \end{center}%
+  \vskip 1em}
+\makeatother
+
+\title{Phenotypic autism clusters drift with diagnostic timing, a brief}
+\author[1]{Tahmid Azam}
+\author[2]{Chirag J.\ Patel}
+\affil[1]{School of Clinical Medicine, University of Cambridge, UK}
+\affil[2]{Patel Group, Department of Biomedical Informatics, Harvard Medical School}
+\date{}
+
+% Running head on every page but the first; centred page number in the footer throughout.
+\usepackage{fancyhdr}
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize Autism classes and diagnostic timing}
+\fancyhead[R]{\footnotesize Azam \& Patel}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Relax the default float limits so a full-width figure and a column figure can share page one with
+% the text, rather than being pushed onto a float page of their own.
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.9}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.7}
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\dblfloatpagefraction}{0.7}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{3}
+\setcounter{totalnumber}{5}
+\setcounter{dbltopnumber}{3}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{plain}  % no running head on the title page
+
+\begin{figure*}[b]
+  \begin{minipage}[t]{0.49\textwidth}
+    \centering
+    \input{figures/trajectory_overlay.pgf}
+    \captionof{figure}{Each class traced through the discriminant plane from the start of the
+    ordering to its most recent value as age at diagnosis rises (arrowhead: the recent end); an x
+    marks the pooled centroid. Mixed ASD with developmental delay moves most, the others barely
+    shift ($H_0^{A}$).}
+    \label{fig:traj}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.49\textwidth}
+    \centering
+    \input{figures/specificity.pgf}
+    \captionof{figure}{Per-class endpoint
+    displacement in separation units: coloured bars are the four classes (legend), the black rule
+    their mean, the dotted line the mean over all controls. Panels: \textbf{A} timing axes,
+    \textbf{B} controls, on a shared $y$-axis. The timing bars and means sit above the control
+    line; the controls on or below it ($H_0^{D}$).}
+    \label{fig:spec}
+  \end{minipage}
+\end{figure*}
+
+\begin{multicols}{2}
+\section*{Background}
+
+Litman et al.\ \cite{litmanDecompositionPhenotypicHeterogeneity2025a} fit a mixture model to
+parent-reported phenotype data from SPARK and recovered 4 autism classes, which they map to
+genetic programs of common, de novo, and inherited variation and present as biologically
+grounded. We investigate if these classes are invariant to diagnostic era, and age of
+diagnosis.
+
+\section*{The gap}
+
+Litman et al.\ enter age at evaluation as a model covariate and use age at diagnosis only for
+external validation. No peer-reviewed work has tested whether their classes are confounded by
+age at diagnosis or diagnostic timing. Recent literature has questioned the stability of the autism diagnosis through time: age at diagnosis has been shown to index different
+developmental and polygenic profiles~\cite{zhangPolygenicDevelopmentalProfiles2025}; and the
+mean polygenic load of an ASD diagnosis declines with diagnostic year, with broadening criteria
+serving as a candidate explanation~\cite{labiancaChangesGeneticContributions2026}. These
+investigations discuss autism at the population level; whether Litman's classes agree with, or
+are confounded by, these same population-level shifts is untested.
+
+\section*{Why it matters}
+
+A data-driven autism class becomes consequential the moment people are sorted into it, for
+research, for clinical narrative, and eventually for care. Who is diagnosed early, and who is
+diagnosed at all, has never been random: it tracks sex, race, and access to services. A partition that is not invariant to diagnostic era and age at diagnosis risks inscribing the
+history of who was noticed, and when, into a claim about who they are. Testing that invariance
+before the classes are treated as biology is what this work is for.
+
+\section*{Hypotheses}
+
+Outlined in \autoref{tab:hyp}.
+
+\end{multicols}
+
+\footnotesize
+\begin{xltabular}{\textwidth}{@{} N T R @{}}
+\caption{Each row states a null hypothesis about the four classes, the technique that tests it, and where it
+now stands.}\label{tab:hyp}\\
+\toprule
+\textbf{Null hypothesis} & \textbf{Technique} & \textbf{Status} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{l}{\small\itshape (continued from previous page)} \\
+\toprule
+\textbf{Null hypothesis} & \textbf{Technique} & \textbf{Status} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r}{\small\itshape continued on next page} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+$H_0^{A}$: The four-class phenotypic profiles are invariant to diagnostic era/age at
+diagnosis. &
+Hold the four classes as Litman defined them and slide a window along each axis, recomputing each
+class's centroid. The distance a centroid
+travels, expressed in separation units (mean inter-class distance), is the drift
+(a systematic shift of a class's profile along the axis; \autoref{fig:traj}). Resampling whole
+families (a bootstrap, giving an uncertainty band) shows whether the shift is real, and we confirm
+it is larger than for control orderings that should produce none (\autoref{fig:spec}). &
+\rej, $p<0.001$ (drift, both axes). Age, all
+four classes; era, only Moderate and Mixed-ASD-DD (Broadly and Social clear random only). \\
+
+$H_0^{B}$: The class proportions are invariant to diagnostic era/age at diagnosis. &
+Model each person's class as a function of the axis (multinomial logistic regression: the odds
+of each class as the axis moves). The three-step method carries through the fact that class
+membership is estimated rather than observed, so a person's uncertainty about which class they
+belong to does not bias the trend. Uncertainty from the same family-resampling bootstrap. &
+\rej, $p<0.01$ (all four classes, both axes, per-class; bootstrap floor; joint
+likelihood-ratio test saturates). \\
+
+$H_0^{C}$: The optimal number of clusters is four and invariant to diagnostic era/age at
+diagnosis. &
+Refit the mixture within coarse slices of the axis and choose the number of classes by which
+fits held-out data best (cross-validated log-likelihood), with guards against unstable
+solutions, plus a formal \ac{em} test of different $k$ values. &
+\sopen{Not yet run.} \\
+
+$H_0^{D}$: The drift is within sampling noise and small relative to the between-class
+separation. [requires $H_0^{A}$ rejected] &
+Read the same centroid movement as an absolute size relative to the between-class gap, with its
+bootstrap band (\autoref{fig:spec}). A capture fraction (the share of the movement lying in the
+plane that separates the classes) flags drift that points somewhere else, off the axes that define
+the classes. &
+\rej, $p<0.001$ (magnitude exceeds sampling noise; distinct from A's specificity
+floor). \\
+
+$H_0^{E}$: The drift is inconsistent in direction. [requires $H_0^{A}$ rejected] &
+For each class, measure the slope of its trajectory (does it move steadily one way along the
+axis?), with a two-sided family-resampling bootstrap and a correction for testing four classes
+across two axes (Benjamini-Hochberg, controlling the false-discovery rate). &
+\rej{} for 7 of 8 class-by-axis tests, $q<0.05$. \\
+
+$H_0^{F}$: The drift is spread evenly across the seven phenotypic categories.
+[requires $H_0^{A}$ rejected] &
+Break the drift down into the four classes by the seven phenotype categories, with a confidence
+interval per feature and false-discovery-rate control. Because this splits one quantity into
+parts, it yields a per-feature count rather than a single $p$-value. &
+\rej{} (per-feature control: age 560/952, era 347/952 features; a decomposition, so
+no single $p$). \\
+
+$H_0^{G}$: The drift is spread evenly across instruments regardless of referent (current vs
+retrospective). [requires $H_0^{A}$ rejected] &
+Split the era drift by what each questionnaire asks about: current state versus retrospective
+(lifetime) history. Compare the two per class with a size-fair contrast (root-mean-square, so
+instruments are weighted evenly) and a paired family-resampling bootstrap. &
+\rej, $p<0.01$ (all four classes retrospective-dominant; BH across the four): the
+era drift tracks lifetime-referent report, a shifting diagnosed population. \\
+
+$H_0^{H}$: The drift is spread evenly across measurement lag (age at diagnosis vs age at
+evaluation). [requires $H_0^{A}$ rejected] &
+Separate the effect of diagnostic year from the lag between age at diagnosis and age at
+evaluation, using a direct-effect model (differential item functioning: does year shift an
+answer once the person's class and evaluation age are held fixed?), with a small-lag
+sensitivity re-test. &
+\sopen{Partially written.} \\
+
+$H_0^{I}$: The genotype-to-class mapping is invariant to diagnostic era/age at diagnosis.
+[gated on data, not on a rejection] &
+Test whether the axis changes how genotype predicts class: an interaction between class and the
+axis (Wald or likelihood-ratio test) in a model over polygenic scores and rare-variant burden,
+adjusting for cognitive impairment. Class labels stay fixed, so no mixture is refitted. &
+\sopen{Waiting on data access.} \\
+
+$H_0^{J}$: Any drift in the genotype-to-class mapping tracks the drift in the phenotype.
+[requires $H_0^{A}$ rejected] &
+Cross-tabulate the two outcomes per axis: where the profile drifted ($H_0^{A}$) against where
+the genotype-to-class map drifted ($H_0^{I}$). &
+\sopen{Waiting on data access.} \\
+
+\end{xltabular}
+\normalsize
+
+\begin{multicols}{2}
+  \printbibliography
+\end{multicols}
+
+\end{document}

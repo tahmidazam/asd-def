@@ -16,6 +16,18 @@ dist/
 build/
 *.egg-info/
 
+# LaTeX build artefacts (reports compile in place; keep only sources and figures)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+
 .DS_Store
 
 .claude/
