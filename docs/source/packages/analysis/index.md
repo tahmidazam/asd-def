@@ -260,6 +260,13 @@ feature typing, the model wrapper, and the enrichment and alignment.
 
 :::{toctree}
 :hidden:
+:caption: Hypotheses
+
+hypotheses/h0a-invariance
+:::
+
+:::{toctree}
+:hidden:
 :caption: Technical guides
 
 guides/pipeline-and-caching

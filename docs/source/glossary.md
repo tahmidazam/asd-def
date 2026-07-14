@@ -141,9 +141,15 @@ linear discriminant analysis
   drift lying outside it.
 
 between-class separation
-  How far apart the classes sit: the mean distance between their centroids. A drift is reported
-  as a fraction of this separation, so its size is judged against how distinct the classes are
-  rather than in raw feature units.
+  How far apart the classes sit: the mean per-feature (root-mean-square) distance between their
+  centroids. A drift read as a fraction of it is a fraction of a class gap, so the size is judged
+  against how distinct the classes are rather than in raw feature units, and a value near one is a
+  class that moved about as far as two classes are apart. The trajectory figures instead plot a
+  displacement "in separation units", an un-averaged norm that sums the per-feature displacements
+  rather than averaging them, so it grows with the number of features and reads as a comparative
+  scale across axes and controls, not a count of class gaps. Divide a separation-unit value by the
+  square root of the number of features it sums over (about 15 for a whole-class read over the 238
+  features) to recover the fraction of a class gap.
 
 capture fraction
   The share of a class's centroid drift that lies within the {term}`linear discriminant
