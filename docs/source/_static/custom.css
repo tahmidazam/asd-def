@@ -1,0 +1,12 @@
+/* Make Helvetica the default body and heading font.
+ *
+ * The pydata-sphinx-theme draws every non-monospace surface from two CSS
+ * variables, so overriding them here reaches body text, headings, the sidebar,
+ * and the navbar in one place. The stack falls back to Arial and the generic
+ * sans-serif for platforms without Helvetica. Code blocks keep the theme's
+ * monospace font. */
+
+html {
+  --pst-font-family-base: Helvetica, "Helvetica Neue", Arial, sans-serif;
+  --pst-font-family-heading: Helvetica, "Helvetica Neue", Arial, sans-serif;
+}

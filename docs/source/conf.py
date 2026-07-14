@@ -179,6 +179,9 @@ html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = project
 
+# Override the theme's base and heading fonts with Helvetica (see _static/custom.css).
+html_css_files = ["custom.css"]
+
 # See the theme's user guide for the full set of options.
 html_theme_options = {
     "show_toc_level": 2,
