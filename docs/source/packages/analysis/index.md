@@ -263,6 +263,14 @@ feature typing, the model wrapper, and the enrichment and alignment.
 :caption: Hypotheses
 
 hypotheses/h0a-invariance
+hypotheses/h0b-prevalence
+hypotheses/h0c-order
+hypotheses/h0e-direction
+hypotheses/h0f-attribution-categories
+hypotheses/h0g-attribution-referent
+hypotheses/h0h-attribution-timing
+hypotheses/h0i-genotype-mapping
+hypotheses/h0j-genotype-dissociation
 :::
 
 :::{toctree}
