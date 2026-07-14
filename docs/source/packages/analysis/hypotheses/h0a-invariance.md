@@ -63,15 +63,12 @@ share of its displacement lying in the plane. A low capture means the picture un
 movement; the full-dimensional magnitude is the authoritative number.
 
 This is the `analysis invariance-trajectory` stage; the separation and the distances it is read
-against are the {doc}`class-drift machinery <../guides/measuring-class-drift>`, and the classes are
-held to the reference by the {doc}`alignment <../guides/aligning-stratum-classes>` the drift read
-uses.
+against are the {doc}`class-drift machinery <../guides/measuring-class-drift>`.
 
 ## Experimental design decisions
 
 - Measurement-only reference. The invariance question is about the measurement parameters, so the
-  read runs on the marginal fit (`analysis fit --no-covariates`), not the covariate model, and
-  refits nothing.
+  read runs on the marginal fit (`analysis fit --no-covariates`), not the covariate model.
 - Per-class specificity, not the between-class mean. A mean over classes hides drift concentrated in
   one class, so a class is judged specific on its own displacement against its own controls.
 - A screened control panel. A valid control is a real proband-level covariate that is not the
@@ -108,8 +105,7 @@ class. Rendered by {py:mod}`figures.trajectory_local` (`figures local-specificit
 
 The capture fractions are all small, near what a random direction would give, so the drift is
 high-dimensional and mostly out of the between-class discriminant plane. In root-mean-square terms
-the diagnosis-year magnitude is about a fifth of a class gap, which matches the movement the
-refit-based drift stage measures on the hard bins, so the two methods triangulate.
+the diagnosis-year magnitude is about a fifth of a class gap.
 
 :::{figure} /_figures/local_plane_era.png
 :alt: Four class centroids in the discriminant plane, each with a short local trajectory along diagnosis year
@@ -125,8 +121,8 @@ the drift is out of this plane and the short in-plane paths understate it. Rende
 
 ### Corroboration: the score-based test
 
-A second read asks the same question from the single cached fit, with an analytic null and no
-refitting: the {term}`score-based invariance test` of Merkle and Zeileis
+A second read asks the same question from the single cached fit, with an analytic null: the
+{term}`score-based invariance test` of Merkle and Zeileis
 {footcite}`merkleTestsMeasurementInvariance2013`. Order the probands by the axis, take the running
 sum of their class-profile scores, and standardise it into an {term}`empirical fluctuation process`
 that converges to a {term}`Brownian bridge` under the null. It shares no machinery with the
@@ -172,7 +168,7 @@ diagnosis than for diagnostic era, and on era it concentrates in two classes rat
 evenly. The movement is high-dimensional, so the discriminant-plane figures understate it, and the
 full-dimensional separation-scaled magnitude is the authoritative read. The read is conditional on the
 pooled fit: it freezes the reference responsibilities and reweights, measuring where the class
-centroids sit along the axis rather than a re-estimated partition. Whether the drift has a direction,
+centroids sit along the axis. Whether the drift has a direction,
 and how the class proportions move, are separate questions taken up in the sibling articles.
 
 ## See also

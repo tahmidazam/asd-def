@@ -32,15 +32,12 @@ the developmental decline and the Broadly affected rise persist.
 ## Method
 
 Prevalence is a different quantity from profile shape, and the two can move independently: a class can
-hold its shape while its size moves, or move its shape while its size holds. A per-stratum refit
-conflates them, because re-estimating the mixture inside a stratum lets the classes change both their
-profiles and their sizes at once and reports a single proportion that mixes the two. Freezing the
-classes separates the questions. With the {term}`profile`s fixed at the measurement-only reference
-fit, a trend in the mixing proportion is prevalence drift alone.
+hold its shape while its size moves, or move its shape while its size holds. Holding the classes fixed
+separates the two. With the {term}`profile`s fixed at the measurement-only reference fit, a trend in
+the mixing proportion is prevalence drift alone, uncontaminated by any change in profile shape.
 
-The read is cheap because nothing is re-estimated. The frozen reference gives every proband a
-posterior over the four classes, and the stage regresses class membership on the axis using those
-{term}`responsibilities`, with no refit and no per-stratum mixture. The direct approach regresses each
+The frozen reference gives every proband a posterior over the four classes, and the stage regresses
+class membership on the axis using those {term}`responsibilities`. The direct approach regresses each
 proband's hard (modal) class label on the axis. It is transparent but biased: the hard label is a
 noisy reading of the true {term}`latent class`, because the posterior is not a point mass, so a share
 of the labels are wrong, and regressing a mislabelled outcome on the axis pulls a real slope toward
@@ -65,15 +62,15 @@ check it (including that it de-attenuates a known slope where the naive one does
 
 ## Experimental design decisions
 
-- Frozen classes, not a refit. The invariance question is about profile shape; prevalence is about
-  size, and the two come apart only if the classes are held fixed. The stage regresses on the axis with
-  the reference posteriors and re-estimates nothing.
+- Frozen classes. The invariance question is about profile shape; prevalence is about size, and the
+  two come apart only if the classes are held fixed. The stage regresses on the axis with the
+  reference posteriors.
 - Bias-corrected read leads, naive read corroborates. The classify-analyse attenuation is corrected as
   a guarantee, so the result stands without assuming the posteriors are error-free; the naive
   hard-label logit runs beside it as a transparent cross-check.
 - Families resampled, not probands. Siblings share a family and correlate, so resampling whole families
   gives an honest, wider interval.
-- An adjusted sensitivity. The corrected axis slope is refitted net of sex, the measurement-to-diagnosis
+- An adjusted sensitivity. The corrected axis slope is estimated net of sex, the measurement-to-diagnosis
   lag, and age at evaluation, so a trend that survives is more than a measurement-timing or
   sex-composition artefact.
 
@@ -163,11 +160,8 @@ The class proportions are not constant. The diagnosed autism population shifts f
 toward social presentations as diagnosis moves later in life and, more mildly, into more recent years,
 and on the age axis that shift is not an artefact of when the measurements were taken. The read is
 conditional on the pooled fit: it freezes the reference posteriors and regresses on the axis, so it
-measures how the fixed classes' sizes shift, not a re-estimated partition. Where an earlier per-stratum
-refit hinted that a class's proportion moved but a frozen-class curve here does not confirm it, the
-refit's apparent size change was profile drift reassigning members between re-estimated classes rather
-than a genuine change in share, and the two questions come apart exactly as the frozen read is built to
-make them.
+measures how the fixed classes' sizes shift. Holding the profiles fixed is what lets a size change be
+read as prevalence drift alone, separate from any change in profile shape.
 
 ## See also
 
