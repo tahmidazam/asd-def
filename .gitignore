@@ -27,6 +27,7 @@ build/
 *.out
 *.run.xml
 *.synctex.gz
+/reports/brief/main.pdf
 
 .DS_Store
 
