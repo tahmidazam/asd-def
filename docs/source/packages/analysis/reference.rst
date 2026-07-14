@@ -124,6 +124,9 @@ Stratified analysis
 .. automodule:: analysis.trajectory_local
    :members:
 
+.. automodule:: analysis.blocks
+   :members:
+
 .. automodule:: analysis.prevalence
    :members:
 

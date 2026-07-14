@@ -76,6 +76,20 @@ negative, from $-0.05$ to $-0.23$ in separation-standardised units, and each rej
 floor ($p = 0.002$). The drift therefore sits in the retrospective instruments across the board, the
 signature of a change in the diagnosed population rather than in when the child was rated.
 
+:::{figure} /_figures/referent_decomposition.png
+:alt: The per-class current-minus-retrospective contrast and the per-instrument intensity that carries it.
+:width: 100%
+:align: center
+
+The referent split of the era drift. Panel A is the test: each class's current-minus-retrospective
+root-mean-square contrast (a star marks a false-discovery-rate rejection), all four negative, so the
+drift is retrospective-dominant, the diagnosed-population signature. Panel B opens the contrast up by
+instrument (numbered 1 to 4 along the bottom), coloured by referent: the retrospective SCQ Lifetime
+(4) carries it for three classes, while the developmental history (3) dominates for Mixed ASD with
+developmental delay. Rendered by {py:mod}`figures.referent_decomposition`
+(`figures referent-decomposition`).
+:::
+
 Which retrospective instrument carries the drift splits by class. For Moderate challenges, Broadly
 affected, and Social or behavioral the SCQ Lifetime carries it. For Mixed ASD with developmental
 delay the developmental milestones and history dominate instead, with a per-instrument root mean

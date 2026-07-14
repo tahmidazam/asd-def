@@ -1,7 +1,7 @@
 # Measuring prevalence drift
 
 The invariance stages ask whether the four reference classes change shape along an axis. The
-prevalence stage asks a separate question: whether the classes change size. It tests the PREV
+prevalence stage asks a separate question: whether the classes change size. It tests the $H_0^B$
 hypothesis, that the class mixing proportions are constant across diagnostic era and across age at
 diagnosis, against the alternative that at least one class's proportion trends along an axis. The
 estimand is the mixing proportions as a function of the axis.
@@ -78,7 +78,7 @@ change against before it, matching the descriptor overlay of the other era reads
 
 An adjusted sensitivity fits the corrected axis slope net of sex, the measurement-to-diagnosis lag,
 and age at evaluation. A prevalence trend that survives this adjustment is more than a
-measurement-timing or sex-composition artefact, mirroring the ATTR-TIME conditioning of the
+measurement-timing or sex-composition artefact, mirroring the $H_0^H$ conditioning of the
 invariance work.
 
 ## Correctness gates
@@ -101,7 +101,7 @@ At the full sample size the joint test rejects a constant-proportion null decisi
 so the read is the per-class slope, its sign, and its size, not the binary reject. A positive slope
 is a class growing along the axis, a negative slope a class shrinking. Because the classes are
 frozen, a slope here is prevalence drift alone, uncontaminated by the profile drift that a
-per-stratum refit would fold in. Where a per-stratum refit suggested a proportion change that PREV
+per-stratum refit would fold in. Where a per-stratum refit suggested a proportion change that $H_0^B$
 does not confirm, the refit change was profile drift reassigning members rather than a genuine size
 change, and the discrepancy is itself informative.
 

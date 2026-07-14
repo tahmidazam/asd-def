@@ -59,6 +59,15 @@ Figures
 .. automodule:: figures.attribution
    :members:
 
+.. automodule:: figures.category_decomposition
+   :members:
+
+.. automodule:: figures.dense_features
+   :members:
+
+.. automodule:: figures.referent_decomposition
+   :members:
+
 .. automodule:: figures.prevalence
    :members:
 

@@ -5,7 +5,7 @@ each class profile drifts along diagnostic era, and the {doc}`attribution stage
 <attributing-class-movement>` splits that drift across the seven author categories. This read asks
 a different question of the same era drift: does it sit in the instruments that rate the child's
 present state, or in the instruments that ask about the developmental history? The two answers
-point at different mechanisms, so the split discriminates between them (the ATTR-REF hypothesis).
+point at different mechanisms, so the split discriminates between them (the $H_0^G$ hypothesis).
 
 Each instrument carries a temporal referent. The RBS-R and the CBCL 6-18 rate current behaviour.
 The SCQ is administered in its Lifetime form (its items ask whether a behaviour was ever present,

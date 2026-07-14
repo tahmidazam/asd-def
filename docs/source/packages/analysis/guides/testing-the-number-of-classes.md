@@ -2,7 +2,7 @@
 
 The invariance and prevalence stages ask whether the four reference classes change shape or
 size along an axis. The order stage asks a different question: whether the *number* of classes
-the data support changes from one stratum to the next. It tests the ORDER hypothesis, that four
+the data support changes from one stratum to the next. It tests the $H_0^C$ hypothesis, that four
 components are supported within every stratum of age at diagnosis and diagnostic era, against
 the alternative that the supported number rises (a class splits) or falls (two classes merge)
 in some stratum.

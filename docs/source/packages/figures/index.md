@@ -49,7 +49,8 @@ module. The table maps a page to its figures and the module and command that ren
 | {doc}`$H_0^A$, $H_0^D$: invariance <../analysis/hypotheses/h0a-invariance>` | `local_plane_*`, `local_panels_*`, `local_specificity`, `invariance_process_*` | {py:mod}`figures.trajectory_local`, {py:mod}`figures.invariance` | `local-trajectory`, `local-panels`, `local-specificity`, `invariance` |
 | {doc}`$H_0^B$: prevalence <../analysis/hypotheses/h0b-prevalence>` | `prevalence_*`, `prevalence_stacked_*` | {py:mod}`figures.prevalence` | `prevalence` |
 | {doc}`$H_0^E$: direction <../analysis/hypotheses/h0e-direction>` | `local_directional_*` | {py:mod}`figures.trajectory_local` | `local-directional` |
-| {doc}`$H_0^F$: attribution by category <../analysis/hypotheses/h0f-attribution-categories>` | `attribution_*`, `attribution_movers_*` | {py:mod}`figures.attribution` | `attribution` |
+| {doc}`$H_0^F$: attribution by category <../analysis/hypotheses/h0f-attribution-categories>` | `category_decomposition`, `dense_features` | {py:mod}`figures.category_decomposition`, {py:mod}`figures.dense_features` | `category-decomposition`, `dense-features` |
+| {doc}`$H_0^G$: attribution by referent <../analysis/hypotheses/h0g-attribution-referent>` | `referent_decomposition` | {py:mod}`figures.referent_decomposition` | `referent-decomposition` |
 | {doc}`Reproducing the reference classes <../analysis/appendix/reproducing-the-reference-classes>` | `reproduction` | {py:mod}`figures.reproduction` | `reproduce` |
 | {doc}`Selecting the number of classes <../analysis/appendix/selecting-the-number-of-classes>` | `selection_criteria` | {py:mod}`figures.selection` | `select` |
 | {doc}`Replicating in the SSC <../analysis/appendix/replicating-in-the-ssc>` | `replication` | {py:mod}`figures.replication` | `replicate` |
