@@ -10,11 +10,14 @@ import pandas as pd
 import pytest
 from figures import data, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
+from figures.category_decomposition import category_decomposition_figure
+from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
 from figures.prevalence import proportion_curve_figure, stacked_area_figure
 from figures.publish import FigureSpec, publish_figure
+from figures.referent_decomposition import referent_decomposition_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
 from figures.roughness import roughness_figure
@@ -663,7 +666,7 @@ def test_local_specificity_figure_orders_axes() -> None:
 
 
 def _referent_tables() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return synthetic ``referent`` and ``referent_contrast`` frames for the ATTR-REF figure."""
+    """Return synthetic ``referent`` and ``referent_contrast`` frames for the H0G figure."""
     instruments = {
         "current_state": {"rbsr": 49, "cbcl_6_18": 144},
         "retrospective": {"scq": 34, "background_history_child": 11},
@@ -787,3 +790,123 @@ def test_prevalence_stacked_figure_structure() -> None:
     legend = ax.get_legend()
     assert legend is not None
     assert len(legend.get_texts()) == 4
+
+
+def _category_decomposition_tables() -> tuple[dict, dict]:
+    """Return synthetic grain-magnitude and feature-displacement frames for both timing axes."""
+    rng = np.random.default_rng(0)
+    grains: dict[str, pd.DataFrame] = {}
+    features: dict[str, pd.DataFrame] = {}
+    for axis in ("era", "age_at_diagnosis"):
+        grain_rows = []
+        feature_rows = []
+        for c in range(4):
+            for focal in range(3):
+                grain_rows.append(
+                    {
+                        "grain": "class",
+                        "ref_class": c,
+                        "class_name": _CLASS_NAMES[c],
+                        "focal_index": focal,
+                        "position": float(focal),
+                        "magnitude": 1.0,
+                        "band_lo": 0.5,
+                        "band_hi": 1.5,
+                    }
+                )
+                for cat in _CATEGORIES:
+                    grain_rows.append(
+                        {
+                            "grain": f"category:{cat}",
+                            "ref_class": c,
+                            "class_name": _CLASS_NAMES[c],
+                            "focal_index": focal,
+                            "position": float(focal),
+                            "magnitude": float(rng.uniform(0.1, 1.0)),
+                            "band_lo": 0.0,
+                            "band_hi": 1.0,
+                        }
+                    )
+            for j, cat in enumerate(_CATEGORIES):
+                feature_rows.append(
+                    {
+                        "ref_class": c,
+                        "class_name": _CLASS_NAMES[c],
+                        "feature": f"f{c}_{j}_age_mos",
+                        "category": cat,
+                        "displacement": float((j - 3) * 0.2),
+                        "ci_low": -0.1,
+                        "ci_high": 0.1,
+                        "p_value": 0.001,
+                        "reject": True,
+                        "covers_zero": False,
+                    }
+                )
+        grains[axis] = pd.DataFrame(grain_rows)
+        features[axis] = pd.DataFrame(feature_rows)
+    return grains, features
+
+
+def test_category_decomposition_figure_structure() -> None:
+    grains, features = _category_decomposition_tables()
+    fig = category_decomposition_figure(grains, features, {"axes": ["era", "age_at_diagnosis"]})
+    assert isinstance(fig, Figure)
+    # Two category heatmaps, four per-class leading-feature panels, and the shared colour bar.
+    assert len(fig.get_axes()) == 7
+    legend = fig.legends[0]
+    assert len(legend.get_texts()) >= 1
+
+
+def test_dense_feature_figure_structure() -> None:
+    _, features = _category_decomposition_tables()
+    # Mark enough features significant that the dense matrix has rows to draw.
+    for axis in features:
+        features[axis]["reject"] = True
+    fig = dense_feature_figure(features, {"axes": ["era", "age_at_diagnosis"]})
+    assert isinstance(fig, Figure)
+    # The group sidebar, the heatmap, and the colour bar.
+    assert len(fig.get_axes()) == 3
+    legend = fig.legends[0]
+    assert len(legend.get_texts()) >= 1
+
+
+def test_referent_decomposition_figure_structure() -> None:
+    classes = list(range(4))
+    contrast = pd.DataFrame(
+        {
+            "ref_class": classes,
+            "class_name": [_CLASS_NAMES[c] for c in classes],
+            "contrast": [-0.15, -0.05, -0.09, -0.23],
+            "ci_low": [-0.17, -0.07, -0.10, -0.27],
+            "ci_high": [-0.12, -0.02, -0.07, -0.17],
+            "p_value": [0.002] * 4,
+            "reject": [True] * 4,
+            "mechanism": ["population"] * 4,
+        }
+    )
+    grain_rows = []
+    instruments = {
+        "cbcl_6_18": "current_state",
+        "rbsr": "current_state",
+        "scq": "retrospective",
+        "background_history_child": "retrospective",
+    }
+    for c in classes:
+        for name, referent in instruments.items():
+            grain_rows.append(
+                {
+                    "grain_kind": "instrument",
+                    "grain": name,
+                    "referent": referent,
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "rms": 0.1 + 0.05 * c,
+                    "share": 0.25,
+                    "n_features": 40,
+                    "n_feature_reject": 10,
+                }
+            )
+    grains = pd.DataFrame(grain_rows)
+    fig = referent_decomposition_figure(grains, contrast, {"axis": "era"})
+    assert isinstance(fig, Figure)
+    assert len(fig.get_axes()) == 2

@@ -1,4 +1,4 @@
-r"""Figure for the prevalence-drift test (PREV, plan section 3 / 12b).
+r"""Figure for the prevalence-drift test (H0B, plan section 3 / 12b).
 
 A ``prevalence`` run reads how each frozen class's mixing proportion trends along an axis, under
 the maximum-likelihood three-step correction, with a family-clustered bootstrap band. The estimand
@@ -26,7 +26,7 @@ _LETTERS = ("A", "B", "C", "D")
 
 
 def proportion_curve_figure(curve: pd.DataFrame, slopes: pd.DataFrame, meta: dict) -> Figure:
-    """Build the PREV figure: each class's predicted proportion as a function of the axis.
+    """Build the H0B figure: each class's predicted proportion as a function of the axis.
 
     Parameters
     ----------
@@ -131,7 +131,7 @@ def proportion_curve_figure(curve: pd.DataFrame, slopes: pd.DataFrame, meta: dic
 
 
 def stacked_area_figure(curve: pd.DataFrame, meta: dict) -> Figure:
-    """Build the stacked-area PREV figure: the class composition across the axis.
+    """Build the stacked-area H0B figure: the class composition across the axis.
 
     The corrected proportions sum to one at every axis position, so they stack into a full
     composition. The classes are stacked largest-pooled at the bottom for a stable base, and each

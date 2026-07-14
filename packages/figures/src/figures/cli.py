@@ -16,11 +16,14 @@ from matplotlib.figure import Figure
 
 from figures import data, layout, paths, style
 from figures.attribution import attribution_figure, mover_contrast_figure
+from figures.category_decomposition import category_decomposition_figure
+from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
 from figures.prevalence import proportion_curve_figure, stacked_area_figure
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
+from figures.referent_decomposition import referent_decomposition_figure
 from figures.replication import replication_figure
 from figures.reproduction import reproduction_figure
 from figures.roughness import roughness_figure
@@ -262,6 +265,75 @@ def local_specificity(
     _write(root, "invariance-trajectory", source_dir, figure, name or "local_specificity", fmt)
 
 
+@app.command(name="category-decomposition")
+def category_decomposition(
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the H0F category decomposition: what symptom categories carry each class's drift.
+
+    Reads the latest ``invariance-trajectory`` run for each timing axis and pools their category
+    grains and per-feature displacements, so the era and age concentrations are shown together with
+    the leading features behind the age drift.
+    """
+    import pandas as pd
+
+    root = find_repo_root()
+    grains: dict[str, pd.DataFrame] = {}
+    features: dict[str, pd.DataFrame] = {}
+    source_dir = None
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            run_directory = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        source_dir = source_dir or run_directory
+        grains[timing_axis] = data.load_grain_magnitude(run_directory)
+        features[timing_axis] = data.load_feature_displacement(run_directory)
+    if source_dir is None:
+        raise typer.BadParameter("no completed invariance-trajectory run for either timing axis")
+    figure = category_decomposition_figure(grains, features, {"axes": list(grains)})
+    _write(root, "invariance-trajectory", source_dir, figure, name or "category_decomposition", fmt)
+
+
+@app.command(name="dense-features")
+def dense_features(
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot every significant feature's signed drift, per class and axis, grouped by category."""
+    import pandas as pd
+
+    root = find_repo_root()
+    features: dict[str, pd.DataFrame] = {}
+    source_dir = None
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            run_directory = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        source_dir = source_dir or run_directory
+        features[timing_axis] = data.load_feature_displacement(run_directory)
+    if source_dir is None:
+        raise typer.BadParameter("no completed invariance-trajectory run for either timing axis")
+    figure = dense_feature_figure(features, {"axes": list(features)})
+    _write(root, "invariance-trajectory", source_dir, figure, name or "dense_features", fmt)
+
+
+@app.command(name="referent-decomposition")
+def referent_decomposition(
+    run: str | None = _RUN,
+    name: str = _name("referent_decomposition"),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the H0G referent split of the era drift: the contrast and its instruments."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "invariance-trajectory", run, axis="era")
+    grains, contrast, meta = data.load_referent(run_directory)
+    figure = referent_decomposition_figure(grains, contrast, meta)
+    _write(root, "invariance-trajectory", run_directory, figure, name, fmt)
+
+
 @app.command()
 def brief(
     fmt: str = typer.Option("pgf,pdf", "--format", help="Comma-separated output formats."),
@@ -334,7 +406,7 @@ def local_directional(
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
     fmt: str = _FMT,
 ) -> None:
-    """Plot the DIREC figure: each class's signed trajectory along the axis, with its break."""
+    """Plot the H0E figure: each class's signed trajectory along the axis, with its break."""
     root = find_repo_root()
     run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
     signed, directional, meta = data.load_local_directional(run_directory)
@@ -351,12 +423,12 @@ def local_directional(
 
 @app.command(name="local-referent")
 def local_referent(
-    axis: str = typer.Option("era", "--axis", help="Axis: era only (ATTR-REF is era-only)."),
+    axis: str = typer.Option("era", "--axis", help="Axis: era only (H0G is era-only)."),
     run: str | None = _RUN,
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
     fmt: str = _FMT,
 ) -> None:
-    """Plot the ATTR-REF figure: per-class current-versus-retrospective drift with the underlay."""
+    """Plot the H0G figure: per-class current-versus-retrospective drift with the underlay."""
     root = find_repo_root()
     run_directory = data.resolve_run(root, "invariance-trajectory", run, axis=axis)
     grains, contrast, meta = data.load_referent(run_directory)
@@ -381,7 +453,7 @@ def prevalence(
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
     fmt: str = _FMT,
 ) -> None:
-    """Plot the PREV figure: per-class proportion curves, or the stacked class composition.
+    """Plot the H0B figure: per-class proportion curves, or the stacked class composition.
 
     ``--layout panels`` draws one panel per class, the corrected proportion curve with its
     bootstrap band, the naive cross-check, and the pooled proportion line. ``--layout stacked``
@@ -442,7 +514,11 @@ def attribute(
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
     fmt: str = _FMT,
 ) -> None:
-    """Plot each class's membership churn across the strata and what carries each shift."""
+    """Plot each class's membership churn across the strata and what carries each shift (archived).
+
+    The refit-era attribution figure, kept for the refit-pilot archive page; the single-fit $H_0^F$
+    category attribution is drawn by ``category-decomposition`` and ``dense-features``.
+    """
     root = find_repo_root()
     run_directory = data.resolve_run(root, "attribute", run, axis=axis)
     summary, category, _movers, meta = data.load_attribution(run_directory)
@@ -457,7 +533,11 @@ def attribute_contrast(
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
     fmt: str = _FMT,
 ) -> None:
-    """Plot, per class, the features marking the probands that changed class at its peak churn."""
+    """Plot, per class, the features marking the probands that changed class at its peak churn.
+
+    The refit-era mover contrast, kept for the refit-pilot archive page (a single fit relabels no
+    proband, so it has no single-fit counterpart).
+    """
     root = find_repo_root()
     run_directory = data.resolve_run(root, "attribute", run, axis=axis)
     summary, _category, movers, meta = data.load_attribution(run_directory)

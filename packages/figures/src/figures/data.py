@@ -323,7 +323,7 @@ def load_local_specificity(run_directory: Path) -> pd.DataFrame:
 
 
 def load_local_directional(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Load an ``invariance-trajectory`` run's DIREC tables and its metrics.
+    """Load an ``invariance-trajectory`` run's H0E tables and its metrics.
 
     Returns
     -------
@@ -340,8 +340,36 @@ def load_local_directional(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFr
     return signed, directional, manifest.get("metrics", {})
 
 
+def load_grain_magnitude(run_directory: Path) -> pd.DataFrame:
+    """Load an ``invariance-trajectory`` run's per-grain magnitude table (H0F category grains).
+
+    Returns
+    -------
+    pandas.DataFrame
+        The ``grain_magnitude_<axis>`` frame: per grain (``"class"`` and ``"category:<name>"``),
+        class, and focal point, the separation-scaled magnitude with its bootstrap band.
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    return cache.load_frame(run_directory / f"grain_magnitude_{axis}.parquet")
+
+
+def load_feature_displacement(run_directory: Path) -> pd.DataFrame:
+    """Load an ``invariance-trajectory`` run's per-feature displacement table.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The ``feature_displacement_<axis>`` frame: per class and feature, the signed
+        separation-standardised endpoint displacement, its category, and the FDR decision.
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    return cache.load_frame(run_directory / f"feature_displacement_{axis}.parquet")
+
+
 def load_referent(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Load an era ``invariance-trajectory`` run's ATTR-REF tables and its metrics.
+    """Load an era ``invariance-trajectory`` run's H0G tables and its metrics.
 
     Returns
     -------

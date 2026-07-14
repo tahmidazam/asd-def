@@ -1,4 +1,10 @@
-"""The movement-attribution figures: where the classes move, and what carries the move.
+"""The movement-attribution figures: where the classes move, and what carries the move (archived).
+
+Archived. These figures render the refit-era ``attribute`` stage: the per-stratum re-estimated
+membership churn and the mover-versus-stayer contrast. They are kept for the
+:doc:`refit pilot </packages/analysis/archive/tracking-the-classes-across-strata>` page. The
+single-fit category attribution ($H_0^F$) is now drawn by
+:mod:`figures.category_decomposition` and :mod:`figures.dense_features`.
 
 Both figures are built from an ``attribute`` run and are general renderers of its tables, not
 tied to any particular result: the classes, strata, categories, and features are read from the
