@@ -12,7 +12,7 @@ All on synthetic data (governance: no participant data in tests). The magnitude 
 5. the clustered bootstrap actually clusters: strongly within-family-correlated data yields a
    wider tube than an independent proband bootstrap.
 
-The DIREC directionality gates (plan sections 7e, 12b) then separate direction from magnitude:
+The H0E directionality gates (plan sections 7e, 12b) then separate direction from magnitude:
 
 6. a monotone drift is flagged directional (its net-trend interval excludes zero);
 7. a symmetric excursion is a large magnitude but is NOT directional (the key gate);
@@ -20,7 +20,7 @@ The DIREC directionality gates (plan sections 7e, 12b) then separate direction f
 9. the family bootstrap widens the slope interval over an iid one under within-family correlation;
 10. a step drift's single-break read localises near the planted boundary (the DSM-5 read).
 
-The ATTR-REF referent gates (plan sections 6, 7e, 12b; hypotheses.md ATTR-REF) then split the
+The H0G referent gates (plan sections 6, 7e, 12b; H0G) then split the
 era drift by the temporal referent of the instrument carrying each feature:
 
 11. a drift planted in the current-state columns gives a positive current-minus-retrospective
@@ -38,6 +38,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from analysis import blocks
 from analysis import drift as drift_mod
 from analysis import trajectory as trajectory_mod
 from analysis import trajectory_local as tl
@@ -194,7 +195,7 @@ class _World:
             raise ValueError(direction)
         # The drift shape along the axis: a step at ``break_at`` (the default, used by the
         # magnitude gates), a monotone ramp, or a symmetric excursion (down then back, zero net
-        # trend but a large peak magnitude), which is how DIREC must separate direction from size.
+        # trend but a large peak magnitude), which is how H0E must separate direction from size.
         if shape == "step":
             factor = (axis >= break_at).astype(float)
         elif shape == "monotone":
@@ -402,10 +403,10 @@ def test_family_bootstrap_is_wider_than_iid_under_within_family_correlation():
 
 
 # ---------------------------------------------------------------------------------------------
-# DIREC gates: directionality of the drift (plan sections 7e, 12b; hypotheses.md DIREC).
+# H0E gates: directionality of the drift (plan sections 7e, 12b; H0E).
 #
 # Five gates, all synthetic. The first is the whole point: a large but non-directional excursion
-# must NOT be flagged, so DIREC separates direction from magnitude (MAGN).
+# must NOT be flagged, so H0E separates direction from magnitude (H0D).
 # ---------------------------------------------------------------------------------------------
 
 
@@ -432,18 +433,18 @@ def test_monotone_drift_is_flagged_directional():
 
 
 def test_symmetric_excursion_is_large_but_not_directional():
-    """The key gate: a symmetric excursion is a large MAGN magnitude with no directional trend."""
+    """The key gate: a symmetric excursion is a large H0D magnitude with no directional trend."""
     world = _World(12, direction="in-plane", shape="symmetric")
     obs = world.observed()
     result, inference = world.directional(obs)
     c = world.drift_class
 
-    # MAGN is large: the peak whole-class magnitude is well above the no-drift floor.
+    # H0D is large: the peak whole-class magnitude is well above the no-drift floor.
     peak_magnitude = float(np.nanmax(obs.grain_magnitude["class"][c]))
     assert peak_magnitude > 0.3, (
         f"excursion magnitude too small to test the gate ({peak_magnitude:.3f})"
     )
-    # DIREC is null: the net trend is near zero and its interval covers zero, so the excursion is
+    # H0E is null: the net trend is near zero and its interval covers zero, so the excursion is
     # not mistaken for direction.
     lo, hi = inference.net_trend_lo[c], inference.net_trend_hi[c]
     assert lo <= 0.0 <= hi, f"symmetric excursion interval excludes zero ({lo:.3f}, {hi:.3f})"
@@ -585,8 +586,8 @@ def test_control_comparison_no_drift_p_value_near_nominal():
 
 
 # ---------------------------------------------------------------------------------------------
-# ATTR-REF gates: the referent decomposition of the drift (plan sections 6, 7e, 12b;
-# hypotheses.md ATTR-REF). The columns split into an unequal current-state grain (48 features) and
+# H0G gates: the referent decomposition of the drift (plan sections 6, 7e, 12b;
+# H0G). The columns split into an unequal current-state grain (48 features) and
 # a retrospective grain (12 features), a 4-to-1 ratio matching the real 193-vs-45 split, so the
 # size-fair RMS statistic is exercised against grains of very different size.
 # ---------------------------------------------------------------------------------------------
@@ -596,12 +597,17 @@ _CURRENT_COLS = np.arange(0, 48)
 _RETROSPECTIVE_COLS = np.arange(48, 60)
 
 
-def _referent_contrast_from_world(world: _World, *, n_boot: int = 250) -> tl.ReferentContrast:
-    """Run the drift-then-referent-contrast pipeline on a world (feature draws from the tube)."""
+def _referent_contrast_from_world(world: _World, *, n_boot: int = 250) -> blocks.GrainContrast:
+    """Run the drift-then-referent-contrast pipeline on a world (feature draws from the tube).
+
+    The referent contrast is now the general engine primitive :func:`analysis.blocks.grain_contrast`
+    on the two referent grains (current-state as group A, retrospective as group B), so the H0G
+    behaviour is exercised through the block-attribution engine that subsumes it.
+    """
     obs = world.observed()
     tube = world.tube(n_boot=n_boot, seed=0, clustered=True, focal_ref=obs.focal_ref)
     observed_endpoint = obs.displacement[:, obs.focal_ref] / world.pooled_sd
-    return tl.referent_contrast(
+    return blocks.grain_contrast(
         tube.feature_displacement, observed_endpoint, _CURRENT_COLS, _RETROSPECTIVE_COLS
     )
 
@@ -621,11 +627,11 @@ def test_current_referent_drift_is_positive_and_rejects():
     assert result.contrast[c] > 0.0, (
         f"current-referent drift not positive ({result.contrast[c]:.3f})"
     )
-    assert result.rms_current[c] > result.rms_retrospective[c], "current RMS not the larger"
+    assert result.rms_a[c] > result.rms_b[c], "current RMS not the larger"
     assert result.ci_low[c] > 0.0, f"contrast interval touches zero (lo={result.ci_low[c]:.3f})"
     assert result.reject[c], "current-referent drift not rejected by FDR"
     # The share concentrates in the current grain despite it holding four times as many features.
-    assert result.share_current[c] > result.share_retrospective[c]
+    assert result.share_a[c] > result.share_b[c]
 
 
 def test_retrospective_referent_drift_is_negative():
@@ -641,7 +647,7 @@ def test_retrospective_referent_drift_is_negative():
     c = world.drift_class
 
     assert result.contrast[c] < 0.0, f"retrospective drift not negative ({result.contrast[c]:.3f})"
-    assert result.rms_retrospective[c] > result.rms_current[c], "retrospective RMS not the larger"
+    assert result.rms_b[c] > result.rms_a[c], "retrospective RMS not the larger"
     assert result.ci_high[c] < 0.0, f"contrast interval touches zero (hi={result.ci_high[c]:.3f})"
     assert result.reject[c], "retrospective drift not rejected by FDR"
 
@@ -652,7 +658,7 @@ def test_uniform_drift_holds_the_size_fair_null():
     The size-fair claim is a null-holds statement about the statistic, not about a single sample:
     the family bootstrap resamples probands, not features, so a single realisation's finite-feature
     scatter can tip a tight interval off zero even when the per-feature intensity is genuinely
-    equal. So this mirrors the DIREC no-drift gate: over many seeds the uniform drift is called a
+    equal. So this mirrors the H0E no-drift gate: over many seeds the uniform drift is called a
     referent concentration only at about the nominal rate, and its interval covers zero on most
     seeds, even though the current grain holds four times as many features as the retrospective
     one. A raw sum-of-squares (not size-fair) would fail this, always favouring the larger grain.
@@ -699,5 +705,5 @@ def test_additive_share_sums_to_one_over_disjoint_referents():
     current_cols = np.arange(0, 6)
     retrospective_cols = np.arange(6, 10)
 
-    result = tl.referent_contrast(feature_draws, observed, current_cols, retrospective_cols)
-    assert np.allclose(result.share_current + result.share_retrospective, 1.0)
+    result = blocks.grain_contrast(feature_draws, observed, current_cols, retrospective_cols)
+    assert np.allclose(result.share_a + result.share_b, 1.0)

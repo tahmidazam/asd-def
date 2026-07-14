@@ -1,8 +1,8 @@
-"""Prevalence drift: how the frozen class proportions vary along an axis (PREV).
+"""Prevalence drift: how the frozen class proportions vary along an axis (H0B).
 
-The PREV hypothesis of ``.context/hypotheses.md`` asks whether the four Litman class mixing
+The H0B hypothesis asks whether the four Litman class mixing
 proportions are constant across diagnostic era and across age at diagnosis, or whether at least
-one class's proportion trends along an axis. It is distinct from profile drift (the INV family):
+one class's proportion trends along an axis. It is distinct from profile drift (the H0A family):
 the classes are held fixed at the measurement-only reference fit and only their sizes are read as
 a function of the axis, so nothing is re-estimated. The estimand is the mixing proportions as a
 function of the axis.
@@ -518,7 +518,7 @@ class JointTest:
 
 @dataclass
 class PrevalenceResult:
-    """The full PREV read for one axis.
+    """The full H0B read for one axis.
 
     Attributes
     ----------
@@ -590,7 +590,7 @@ def prevalence_analysis(
     q: float = 0.05,
     assignment: str = "modal",
 ) -> PrevalenceResult:
-    """Run the PREV prevalence-drift analysis for one axis.
+    """Run the H0B prevalence-drift analysis for one axis.
 
     Fits the corrected and naive per-class one-versus-rest slopes, the joint likelihood-ratio
     tests, the predicted proportion curves, the family-clustered bootstrap uncertainty, and (for

@@ -1,4 +1,4 @@
-"""Correctness gates for the prevalence-drift test (PREV, plan sections 3 and 12b).
+"""Correctness gates for the prevalence-drift test (H0B, plan sections 3 and 12b).
 
 All on synthetic data (governance: no participant data in tests). The gates:
 

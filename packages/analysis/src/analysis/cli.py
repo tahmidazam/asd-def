@@ -2067,7 +2067,7 @@ def order(
 ) -> None:
     """Test whether the supported number of latent classes is stable across strata of an axis.
 
-    The ORDER hypothesis (plan section 7, ``hypotheses.md`` ORDER). Per stratum, the supported
+    The H0C hypothesis (plan section 7, H0C). Per stratum, the supported
     number of classes is found by a warm-started parametric bootstrap likelihood-ratio search
     anchored at four (:mod:`analysis.order`), and read relative to the pooled cohort put through
     the identical procedure, so the shared over-extraction cancels: an order change is a stratum
@@ -2132,7 +2132,7 @@ def order(
         raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
     axis_values, _policy = resolved
 
-    # The ORDER strata are the coarse four-way quantile split (plan section 7), not the fine
+    # The H0C strata are the coarse four-way quantile split (plan section 7), not the fine
     # frozen MaxEqualBins primary; the DSM-5 boundary split is an era-only secondary pair.
     quantile = strata_mod.QuantileBins(q=4)
     quantile_assignment = quantile.assign(axis_values)
@@ -2656,6 +2656,7 @@ def _embedding_row(
     jaccard: float,
     *,
     reorganised: bool,
+    stratum_value: float = float("nan"),
     cov: Sequence[float] = (float("nan"), float("nan"), float("nan")),
 ) -> dict[str, object]:
     """Return one row of the embedding table.
@@ -2663,6 +2664,9 @@ def _embedding_row(
     Pads the discriminant coordinates to three, and carries the class members' covariance in
     the first two discriminant axes (``cov11``, ``cov12``, ``cov22``) on the anchor rows, so the
     figure can draw each class's coverage ellipse; the stratum rows leave it missing.
+    ``stratum_value`` is the stratum's position on the axis in the axis's own units (a focal
+    age or year for a sweep, the median age or year of the band's members for a hard bin), so the
+    figure can label the colourbar with real ages or years; the anchor rows leave it missing.
     """
     coords = [float(x) for x in ld]
     coords += [float("nan")] * (3 - len(coords))
@@ -2672,6 +2676,7 @@ def _embedding_row(
         "ref_class": int(ref_class),
         "class_name": class_name,
         "stratum": stratum,
+        "stratum_value": float(stratum_value),
         "order": int(order),
         "ld1": coords[0],
         "ld2": coords[1],
@@ -2783,6 +2788,9 @@ def trajectory(
         focal_records = max(by_scheme.values(), key=len)
         focal_records.sort(key=lambda record: float(record["position"]))
         labels = [str(record["label"]) for record in focal_records]
+        # Each focal point's position on the axis is a real age or year, so the figure's
+        # colourbar can be ticked in the axis's own units.
+        stratum_values = [float(record["position"]) for record in focal_records]
         params = {
             "cohort": cohort_hash,
             "ref_fit": ref_fit_hash,
@@ -2806,6 +2814,12 @@ def trajectory(
         policy = strata_mod.MaxEqualBins(min_bin_size=min_bin_size)
         assignment = policy.assign(strata.axes[column])
         labels = list(assignment.labels)
+        # A hard bin spans a range of the axis, so its representative position is the median age
+        # or year of its members; the figure ticks the colourbar with these real values.
+        axis_values = strata.axes[column]
+        stratum_values = [
+            float(axis_values[assignment.codes == label].median()) for label in labels
+        ]
 
         stratify_params = {
             "cohort": cohort_hash,
@@ -2926,6 +2940,7 @@ def trajectory(
                         stratum_ld[s].tolist(),
                         jaccard[c][s],
                         reorganised=jaccard[c][s] < 0.5,
+                        stratum_value=stratum_values[s],
                     )
                 )
             directional_rows.append(
@@ -2981,7 +2996,12 @@ def attribute(
     min_bin_size: int = typer.Option(1000, help="Strata floor; must match strata/stratify."),
     force: bool = _FORCE,
 ) -> None:
-    """Attribute each stratum class's movement to features and to the probands that moved.
+    """Attribute each stratum class's movement to features and probands (archived, refit-era).
+
+    Archived. This is the refit-era attribution stage. The category attribution ($H_0^F$) is now
+    read from the single cached fit by the block engine (:mod:`analysis.blocks`), so this stage is
+    no longer $H_0^F$'s evidence; it is kept to render the membership-churn and mover figures on the
+    refit-pilot archive page.
 
     A phase-4 interpretation stage and a pure consumer of the reference fit and the stratify
     fits (no re-fitting). For every stratum it aligns the fit to the reference, splits each
@@ -3520,8 +3540,8 @@ def invariance_trajectory(
     import numpy as np
     import pandas as pd
 
+    from analysis import blocks, localise, profiling
     from analysis import drift as drift_mod
-    from analysis import localise, profiling
     from analysis import trajectory as trajectory_mod
     from analysis import trajectory_local as tl
     from analysis.cohort import get_cohort
@@ -3604,7 +3624,7 @@ def invariance_trajectory(
         "controls": control_names,
         "category_map": cache.file_digest(config.author_category_map(root)),
     }
-    # ATTR-REF is an era-only decomposition (hypotheses.md). Fold the pre-registered instrument-to-
+    # H0G is an era-only decomposition. Fold the pre-registered instrument-to-
     # referent map into the era run hash, the same way the category map is digested, so editing the
     # referent assignment invalidates the cache; the age run is left untouched.
     if axis == "era":
@@ -3630,7 +3650,7 @@ def invariance_trajectory(
                 precision=precision,
                 plane=plane,
             )
-            # DIREC: the observed directional statistic (signed net-projected slope). Its net
+            # H0E: the observed directional statistic (signed net-projected slope). Its net
             # directions are frozen here and handed to the bootstrap, so the projected slope stays
             # a fixed linear functional and its clustered-bootstrap interval can cover zero.
             directional = tl.directional_statistic(
@@ -3686,7 +3706,7 @@ def invariance_trajectory(
                 tube=tube,
             )
 
-            # ATTR-REF: split the era drift by the temporal referent of the instrument carrying
+            # H0G: split the era drift by the temporal referent of the instrument carrying
             # each feature. Computed in-stage from the live tube, because the raw bootstrap draws
             # are not persisted; era only (the age variant is deliberately not built).
             referent = None
@@ -3695,7 +3715,7 @@ def invariance_trajectory(
                 referent_grain_cols = tl.referent_grains(
                     columns, instrument_of, features.INSTRUMENT_REFERENT
                 )
-                referent = tl.referent_contrast(
+                referent = blocks.grain_contrast(
                     tube.feature_displacement,
                     observed_endpoint,
                     referent_grain_cols["referent:current_state"],
@@ -3861,11 +3881,9 @@ def invariance_trajectory(
                 "p_value_by_class": [round(float(v), 4) for v in referent.p_value],
                 "reject_by_class": [bool(v) for v in referent.reject],
                 "n_referent_reject": int(referent.reject.sum()),
-                "rms_current_by_class": [round(float(v), 4) for v in referent.rms_current],
-                "rms_retrospective_by_class": [
-                    round(float(v), 4) for v in referent.rms_retrospective
-                ],
-                "share_current_by_class": [round(float(v), 4) for v in referent.share_current],
+                "rms_current_by_class": [round(float(v), 4) for v in referent.rms_a],
+                "rms_retrospective_by_class": [round(float(v), 4) for v in referent.rms_b],
+                "share_current_by_class": [round(float(v), 4) for v in referent.share_a],
                 "mechanism_by_class": [
                     "timing" if v > 0.0 else "population" for v in referent.contrast
                 ],
@@ -3940,7 +3958,7 @@ def _write_referent_artefacts(
     referent,
     referent_map: dict,
 ) -> None:
-    """Write the ATTR-REF tables of an era local-trajectory run (hypotheses.md ATTR-REF).
+    """Write the H0G tables of an era local-trajectory run (H0G).
 
     Two aggregate artefacts. ``referent_<axis>.parquet`` is the per-class-by-grain descriptive
     decomposition: for each referent (the two-way headline) and each instrument (the transparent
@@ -3999,10 +4017,10 @@ def _write_referent_artefacts(
                 "ci_high": float(referent.ci_high[c]),
                 "p_value": float(referent.p_value[c]),
                 "reject": bool(referent.reject[c]),
-                "rms_current": float(referent.rms_current[c]),
-                "rms_retrospective": float(referent.rms_retrospective[c]),
-                "share_current": float(referent.share_current[c]),
-                "share_retrospective": float(referent.share_retrospective[c]),
+                "rms_current": float(referent.rms_a[c]),
+                "rms_retrospective": float(referent.rms_b[c]),
+                "share_current": float(referent.share_a[c]),
+                "share_retrospective": float(referent.share_b[c]),
                 "mechanism": "timing" if referent.contrast[c] > 0 else "population",
             }
         )
@@ -4151,7 +4169,7 @@ def _write_directional_artefacts(
     directional_inf,
     tube,
 ) -> None:
-    """Write the DIREC tables of a local-trajectory run (plan sections 7e, 12b).
+    """Write the H0E tables of a local-trajectory run (plan sections 7e, 12b).
 
     Two aggregate artefacts: the per-class directional summary (the separation-scaled net-trend
     effect size with its clustered-bootstrap interval, the signed-slope interval, the two-sided
@@ -4188,7 +4206,7 @@ def _write_directional_artefacts(
 
     # The one-dimensional signed trajectory per class: the observed projection onto the frozen net
     # direction, with the clustered-bootstrap band (2.5 and 97.5 percentiles of the resampled
-    # projection). This is what the DIREC figure draws.
+    # projection). This is what the H0E figure draws.
     if tube.signed_trajectory is not None:
         band_lo = np.nanpercentile(tube.signed_trajectory, 2.5, axis=0)
         band_hi = np.nanpercentile(tube.signed_trajectory, 97.5, axis=0)
@@ -4281,9 +4299,9 @@ def prevalence(
     ),
     force: bool = _FORCE,
 ) -> None:
-    """Test whether the frozen class proportions trend along an axis (PREV).
+    """Test whether the frozen class proportions trend along an axis (H0B).
 
-    The prevalence-drift test of ``.context/hypotheses.md``. The four classes are held fixed at
+    The prevalence-drift test. The four classes are held fixed at
     the measurement-only reference fit (no mixture is refitted); their mixing proportions are
     regressed on the axis. The rigorous read is a maximum-likelihood three-step correction that
     removes the classify-analyse bias of a hard-label regression by fixing the classification-error
@@ -4446,7 +4464,7 @@ def prevalence(
             f"(OR {result.corrected_slopes[c].odds_ratio:.3f}) "
             f"[{result.corrected_slopes[c].ci_low:+.3f},{result.corrected_slopes[c].ci_high:+.3f}] "
             f"p={result.corrected_slopes[c].boot_p:.3f} "
-            f"{'PREV' if result.corrected_slopes[c].reject else 'ns'}"
+            f"{'drift' if result.corrected_slopes[c].reject else 'ns'}"
             for c in range(n_classes)
         )
     )

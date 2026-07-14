@@ -76,7 +76,7 @@ DEFAULT_BOOTSTRAP_SEED = 0
 DEFAULT_N_PERMUTATIONS = 1000
 DEFAULT_STRATIFY_SEED = 0
 
-# Number-of-classes search (ORDER hypothesis, plan section 7 / hypotheses.md ORDER). The
+# Number-of-classes search (H0C hypothesis, plan section 7 / H0C). The
 # confirmatory statistic is a warm-started parametric bootstrap likelihood-ratio test (BLRT)
 # for $K$ against $K+1$ (splitting) and $K-1$ (merging), anchored at four classes and stepped
 # outward to the caps. These defaults set the recipe folded into every run hash.

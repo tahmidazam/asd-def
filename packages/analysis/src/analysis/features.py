@@ -309,8 +309,8 @@ def build_typing(
     return reconcile(features, dict_typing, pickle_typing, observed)
 
 
-# The pre-registered temporal referent of each cohort instrument (ATTR-REF, plan section 6;
-# hypotheses.md). A current-state instrument asks about the child's present presentation; a
+# The pre-registered temporal referent of each cohort instrument (H0G, plan section 6).
+# A current-state instrument asks about the child's present presentation; a
 # retrospective or lifetime instrument asks about the developmental history or whether a
 # behaviour was ever present. The SPARK SCQ is the Lifetime form (its items are worded "ever
 # ...", "current [reverse]" only for the language items, verified against the data dictionary),
@@ -318,7 +318,7 @@ def build_typing(
 # are retrospective by construction; the RBS-R and the CBCL 6-18 rate the child's current
 # behaviour. Concentration of the era drift in the current-state referent is the measurement-
 # timing signature; concentration in the retrospective referent is the diagnosed-population
-# signature (hypotheses.md ATTR-REF).
+# signature (H0G).
 INSTRUMENT_REFERENT: dict[str, str] = {
     "scq": "retrospective",
     "background_history_child": "retrospective",

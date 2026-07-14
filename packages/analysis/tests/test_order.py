@@ -1,4 +1,4 @@
-"""Tests for the number-of-classes search (ORDER), on synthetic data only.
+"""Tests for the number-of-classes search (H0C), on synthetic data only.
 
 The correctness gates the design fixes (plan section 7): a four-class synthetic keeps four
 classes, a five-class synthetic search finds five, the observed and null datasets go through

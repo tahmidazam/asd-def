@@ -1,6 +1,6 @@
 r"""Support for the number of latent classes, per stratum, by a bootstrap likelihood-ratio search.
 
-The ORDER hypothesis (plan section 7, ``hypotheses.md`` ORDER) asks whether the *number* of
+The H0C hypothesis (plan section 7, H0C) asks whether the *number* of
 components the Litman four-class general finite mixture model supports is stable across strata
 of age at diagnosis and diagnostic era, or whether a class splits or merges in some stratum.
 This module answers that per stratum, and relative to the pooled cohort put through the
@@ -79,7 +79,7 @@ def measurement_inputs(matrix: CohortMatrix, typing: Typing) -> tuple[pd.DataFra
     """Return the descriptor-aligned measurement matrix and the mixed-data descriptor.
 
     A thin wrapper over :func:`analysis.model.prepare_inputs` that drops the covariate channel,
-    since the ORDER fits are measurement-only. The returned frame is rounded as the reference
+    since the H0C fits are measurement-only. The returned frame is rounded as the reference
     release rounds, so the model sees the same values the covariate reference was fitted on.
 
     Parameters
@@ -564,7 +564,7 @@ def kneedle_knee(k_values: list[int], scores: list[float]) -> int:
     r"""Return the knee of a concave, increasing curve by the Kneedle rule.
 
     The cross-validated log-likelihood rises with the number of classes and flattens; the knee
-    is where the diminishing returns set in, the elbow the ORDER corroborator reads. This is the
+    is where the diminishing returns set in, the elbow the H0C corroborator reads. This is the
     Kneedle construction (Satopaa et al. 2011) for a concave increasing curve: normalise both the
     class count and the score to the unit interval, take the difference between the normalised
     score and the normalised class count, and return the class count at its maximum. Ties and a

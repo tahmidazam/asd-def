@@ -1,4 +1,12 @@
-r"""Attribute a class's movement between two fits to features and to probands.
+r"""Attribute a class's movement between two fits to features and to probands (archived).
+
+Archived. This is the refit-era attribution: it interprets the drift of a mixture re-estimated
+within a stratum. The category attribution ($H_0^F$) is now read from the single cached fit by
+the block-attribution engine (:mod:`analysis.blocks`, the additive category decomposition), so
+this module is no longer $H_0^F$'s evidence. It is kept because it renders the membership-churn
+and mover-versus-stayer figures on the
+:doc:`refit pilot </packages/analysis/archive/tracking-the-classes-across-strata>` page, which
+the single-fit engine cannot reproduce (a frozen fit relabels no proband).
 
 The drift stage (:mod:`analysis.drift`) measures how far a reference class moves when the
 mixture is re-estimated within a stratum, as one distance per class. This module opens that
