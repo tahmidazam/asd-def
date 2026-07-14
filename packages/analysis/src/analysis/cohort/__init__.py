@@ -118,9 +118,10 @@ class Cohort(Protocol):
 
         Returns
         -------
-        tuple of (pandas.Series, BinningPolicy) or None
-            The variable and its policy, or ``None`` when the backend does not provide
-            ``name``.
+        tuple or None
+            The variable (a :class:`pandas.Series`) and its
+            :class:`~analysis.strata.BinningPolicy`, or ``None`` when the backend does not
+            provide ``name``.
         """
         ...
 

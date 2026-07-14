@@ -188,7 +188,7 @@ def save_figure(
         and the time of writing.
     pgf_rc : dict, optional
         Matplotlib settings for the ``"pgf"`` format, so the figure text matches the target
-        document's fonts; defaults to the serif preamble. Pass :data:`PGF_RC_SANS` for a
+        document's fonts; defaults to the serif preamble. Pass ``PGF_RC_SANS`` for a
         sans-serif document. Ignored when ``"pgf"`` is not in ``formats``.
 
     Returns

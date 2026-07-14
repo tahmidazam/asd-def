@@ -96,7 +96,7 @@ class SscCohort:
         SSC provides the two shared cognitive axes and neither timing axis (it has no clean
         diagnosis timestamp, plan section 5). Both cognitive axes read the harmonised
         full-scale deviation IQ (``ssc_diagnosis.fs_deviation_score``): ``cognitive_impairment``
-        dichotomises it at the intellectual-disability threshold (:data:`config.ID_IQ_THRESHOLD`,
+        dichotomises it at the intellectual-disability threshold (``config.ID_IQ_THRESHOLD``,
         the same construct as SPARK's flag), and ``iq`` bins it by equal frequency, using the
         continuous score SPARK lacks. ``age_at_diagnosis`` and ``era`` return ``None``.
         """

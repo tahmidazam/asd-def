@@ -666,7 +666,7 @@ class ControlComparison:
         The paired-bootstrap replicate differences, shape ``(n_boot,)``.
     p_value : float
         The two-sided bootstrap $p$-value that the difference is zero, floored at
-        $1/(n_\text{boot} + 1)$.
+        $1/(n_{\text{boot}} + 1)$.
     p_value_greater : float
         The one-sided bootstrap $p$-value that the axis magnitude exceeds the control's, floored
         the same way.
