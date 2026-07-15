@@ -130,6 +130,9 @@ Stratified analysis
 .. automodule:: analysis.axes
    :members:
 
+.. automodule:: analysis.demographics
+   :members:
+
 .. automodule:: analysis.prevalence
    :members:
 

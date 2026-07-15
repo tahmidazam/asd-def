@@ -71,6 +71,9 @@ Figures
 .. automodule:: figures.atlas
    :members:
 
+.. automodule:: figures.demographic_conditioning
+   :members:
+
 .. automodule:: figures.prevalence
    :members:
 

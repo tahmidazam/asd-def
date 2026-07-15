@@ -20,6 +20,7 @@ command that renders them.
 | [$H_0^F$: attribution by category](../analysis/hypotheses/h0f-attribution-categories.md) | `category_decomposition`, `dense_features` | {py:mod}`figures.category_decomposition`, {py:mod}`figures.dense_features` | `category-decomposition`, `dense-features` |
 | [$H_0^G$: attribution by referent](../analysis/hypotheses/h0g-attribution-referent.md) | `referent_decomposition` | {py:mod}`figures.referent_decomposition` | `referent-decomposition` |
 | [Screening orderings with the atlas](../analysis/guides/screening-orderings-with-the-atlas.md) | `displacement_atlas` | {py:mod}`figures.atlas` | `atlas` |
+| [Do demographics explain the drift?](../analysis/appendix/do-demographics-explain-the-drift.md) | `demographic_conditioning` | {py:mod}`figures.demographic_conditioning` | `demographic-conditioning` |
 | [Reproducing the reference classes](../analysis/appendix/reproducing-the-reference-classes.md) | `reproduction` | {py:mod}`figures.reproduction` | `reproduce` |
 | [Selecting the number of classes](../analysis/appendix/selecting-the-number-of-classes.md) | `selection_criteria` | {py:mod}`figures.selection` | `select` |
 | [Replicating in the SSC](../analysis/appendix/replicating-in-the-ssc.md) | `replication` | {py:mod}`figures.replication` | `replicate` |

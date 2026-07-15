@@ -31,6 +31,7 @@ guides/aligning-stratum-classes
 guides/measuring-class-drift
 guides/computing-the-invariance-effect-size
 guides/screening-orderings-with-the-atlas
+guides/conditioning-on-demographics
 guides/the-score-based-invariance-test
 guides/attributing-class-movement
 guides/splitting-the-drift-by-referent
@@ -48,6 +49,7 @@ appendix/stability-under-refitting
 appendix/the-minimum-stratum-size
 appendix/replicating-in-the-ssc
 appendix/choosing-the-specificity-controls
+appendix/do-demographics-explain-the-drift
 appendix/subsetting-to-the-v9-freeze
 :::
 

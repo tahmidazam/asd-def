@@ -15,7 +15,9 @@ mixture was fitted on. Two families are carried in the catalogue (`analysis.axes
 
 - Timing axes: diagnostic era and age at diagnosis, the mechanism under test.
 - Covariate axes: the measurement-to-diagnosis lag, age at evaluation, household income, and the
-  area deprivation index.
+  area deprivation index, together with the ordered demographic covariates the
+  {doc}`demographic screen <conditioning-on-demographics>` adds (parental education, the inferred
+  parental ages, and the ASD family-history and perinatal-complication counts).
 
 Two roles are excluded. Ordering probands by one of the 238 clustered features, or by a total taken
 over them (an SCQ or RBS-R sum), would move the class centroids by construction, a circular
