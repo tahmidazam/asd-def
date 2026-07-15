@@ -94,7 +94,9 @@ profiles as a whole move.
 
 The {doc}`displacement atlas <../guides/screening-orderings-with-the-atlas>` places the two timing
 axes among every other continuous or ordered non-modelling variable, so the timing effect is read
-against a whole panel of orderings rather than a hand-picked few.
+against a whole panel of orderings rather than a hand-picked few. The panel now spans the demographic
+orderings too (parental education, the family-history counts, inferred parental age at birth, the
+perinatal-complication count), and none of them rivals the timing axes.
 
 :::{figure} /_figures/displacement_atlas.png
 :alt: Per-class endpoint displacement along every non-modelling ordering axis, grouped by kind
@@ -103,10 +105,15 @@ against a whole panel of orderings rather than a hand-picked few.
 
 Per-class endpoint displacement (separation units, the mean inter-class gap) along every non-modelling
 ordering axis, grouped into panels by kind: the timing axes (**A**), the covariate pool (**B**), and
-the random-order floor (**C**). Within each panel the rows run from the largest class-summed mover to
-the smallest. Age at diagnosis moves the classes most, led by the developmental class; every axis sits
-above the random floor. The 238 clustered features and held-out phenotype instruments are excluded as
-circular or as a non-null phenotype ceiling. Rendered by {py:mod}`figures.atlas` (`figures atlas`).
+the random-order floor (**C**). Panel **B** spans the demographic orderings as well as the two chosen
+covariate controls: household income and area deprivation, parental education, the family-history
+counts, inferred parental age at birth, and the perinatal-complication count. Within each panel the
+rows run from the largest class-summed mover to the smallest. Age at diagnosis moves the classes most,
+led by the developmental class. Most axes clear the random floor, but the weakest demographic
+orderings (sibling ASD count, the perinatal-complication count) sit at or below it, so they carry no
+drift beyond sampling noise. The 238 clustered features and held-out phenotype instruments are
+excluded as circular or as a non-null phenotype ceiling. Rendered by {py:mod}`figures.atlas`
+(`figures atlas`).
 :::
 
 The capture fractions are all small, near what a random direction would give, so the drift is
@@ -123,6 +130,19 @@ with the bootstrap band as pale ellipses. How to read it: the four anchors sit f
 class traces a short path. Every class is flagged, its capture fraction below one half, so most of
 the drift is out of this plane and the short in-plane paths understate it. Rendered by
 {py:mod}`figures.trajectory_local` (`figures local-trajectory --axis era`).
+:::
+
+:::{figure} /_figures/local_plane_age_at_diagnosis.png
+:alt: Four class centroids in the discriminant plane, each with a short local trajectory along age at diagnosis
+:width: 100%
+:align: center
+
+The same trajectories along age at diagnosis, coloured youngest to oldest at diagnosis. The
+developmental class (Mixed ASD with developmental delay) is the largest mover on this axis, yet its
+in-plane path is short and its capture fraction is only $0.04$, so nearly all of that movement leaves
+the plane. Every class is again flagged (capture below one half), so the drift here is even more
+out-of-plane than on the era axis and the picture understates it. Rendered by
+{py:mod}`figures.trajectory_local` (`figures local-trajectory --axis age_at_diagnosis`).
 :::
 
 ### Corroboration: the score-based test
@@ -146,6 +166,18 @@ logarithmic vertical axis), with the simulated bridge null band beneath. How to 
 class would sit inside the band; the observed process instead climbs an order of magnitude above it
 across the whole axis, the signature of a pervasive drift rather than one sharp break. The excursion
 grows through the 2010s. Rendered by {py:mod}`figures.invariance` (`figures invariance --axis era`).
+:::
+
+:::{figure} /_figures/invariance_process_age_at_diagnosis.png
+:alt: Squared fluctuation process against age at diagnosis, an order of magnitude above the simulated bridge null band
+:width: 100%
+:align: center
+
+The same read along age at diagnosis, for the strongest-drifting block (the Mixed class on social or
+communication). The observed process climbs an order of magnitude above the bridge null and stays
+there across the axis, rising fastest through early childhood and peaking near the estimated break at
+about six years. As on the era axis, the excursion is broad rather than one sharp step, so the drift
+is pervasive. Rendered by {py:mod}`figures.invariance` (`figures invariance --axis age_at_diagnosis`).
 :::
 
 The score-based test is the `analysis invariance` stage.
