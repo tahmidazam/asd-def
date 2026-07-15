@@ -1,3 +1,9 @@
+## v0.7.1 (2026-07-15)
+
+### Fix
+
+- **docs**: drop the :data: role for TIMING_COVARIATES
+
 ## v0.7.0 (2026-07-15)
 
 ### Feat
