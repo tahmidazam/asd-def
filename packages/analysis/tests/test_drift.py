@@ -11,6 +11,7 @@ from analysis.drift import (
     DEFAULT_DISTANCE,
     DISTANCES,
     CentroidHungarian,
+    FullStandardisedEuclidean,
     JensenShannon,
     Mahalanobis,
     MeanAbsolute,
@@ -141,6 +142,30 @@ def test_diagonal_distances_count_in_pooled_sd_units() -> None:
     stratum = _summary(src, _identity_contingency())
     assert StandardisedEuclidean().class_distance(stratum, 0, ref, 0) == pytest.approx(1.0)
     assert MeanAbsolute().class_distance(stratum, 0, ref, 0) == pytest.approx(1.0)
+
+
+def test_full_standardised_euclidean_is_the_unaveraged_sum_norm() -> None:
+    # A +1 SD shift on each of two features: the averaged norm is 1, the full sum-norm is sqrt(2).
+    ref = _reference()
+    src = ref.centroids.copy()
+    src.loc[0] = [2.0, 4.0]
+    stratum = _summary(src, _identity_contingency())
+    assert FullStandardisedEuclidean().class_distance(stratum, 0, ref, 0) == pytest.approx(
+        np.sqrt(2.0)
+    )
+    # The full norm is the averaged one times sqrt(n_features), the source of the old inflation.
+    rms = StandardisedEuclidean().class_distance(stratum, 0, ref, 0)
+    full = FullStandardisedEuclidean().class_distance(stratum, 0, ref, 0)
+    n_features = ref.centroids.shape[1]
+    assert full == pytest.approx(rms * np.sqrt(n_features))
+
+
+def test_full_norm_separation_scales_the_averaged_one_by_root_n() -> None:
+    ref = _reference()
+    n_features = ref.centroids.shape[1]
+    assert class_separation(ref, FullStandardisedEuclidean()) == pytest.approx(
+        class_separation(ref, StandardisedEuclidean()) * np.sqrt(n_features)
+    )
 
 
 def test_jensen_shannon_is_zero_for_identical_and_grows_with_separation() -> None:

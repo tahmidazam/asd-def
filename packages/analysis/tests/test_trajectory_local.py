@@ -306,9 +306,18 @@ def test_in_plane_drift_moves_captures_and_excludes_zero():
     # Almost all of the movement lies in the plane.
     assert obs.capture[c] > 0.9, f"in-plane capture too low ({obs.capture[c]:.3f})"
 
-    # The separation scaling is the drift stage's convention on this shared example.
+    # The separation scaling is the full (unaveraged) standardised-Euclidean norm, the same
+    # sum-norm convention grain_magnitude uses, so one separation unit is the mean inter-class gap.
+    assert world.separation == pytest.approx(
+        drift_mod.class_separation(world.reference, drift_mod.FullStandardisedEuclidean())
+    )
+    # It is larger than the averaged convention by sqrt(n_features), the source of the old
+    # magnitude inflation; mixing the two would divide a sum-norm displacement by an RMS gap.
+    n_features = world.reference.centroids.shape[1]
     assert world.separation == pytest.approx(
         drift_mod.class_separation(world.reference, drift_mod.StandardisedEuclidean())
+        * np.sqrt(n_features),
+        rel=1e-6,
     )
 
     # The tube excludes zero at the drift: the drifted class's whole-class magnitude has a lower
@@ -420,7 +429,9 @@ def test_monotone_drift_is_flagged_directional():
     # The net-trend interval sits entirely off zero, and the class is directional under FDR.
     lo, hi = inference.net_trend_lo[c], inference.net_trend_hi[c]
     assert lo * hi > 0.0, f"net-trend interval spans zero ({lo:.3f}, {hi:.3f})"
-    assert abs(result.net_trend[c]) > 1.0, f"net trend too small ({result.net_trend[c]:.3f})"
+    # Net trend in canonical separation units (the full-norm inter-class gap): the monotone drift
+    # carries the class a large fraction of that gap, well clear of the near-zero null gates.
+    assert abs(result.net_trend[c]) > 0.5, f"net trend too small ({result.net_trend[c]:.3f})"
     assert inference.reject[c], "monotone drift not flagged directional"
     # The drift class's net trend dwarfs the static classes': the direction is concentrated where
     # it was planted. (Which static classes clear FDR is left to the no-drift gate, since once a

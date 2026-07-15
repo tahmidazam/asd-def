@@ -355,6 +355,30 @@ class StandardisedEuclidean:
 
 
 @dataclass
+class FullStandardisedEuclidean:
+    r"""Full (unaveraged) standardised Euclidean distance: the L2 norm in SD units.
+
+    The sum-norm counterpart of :class:`StandardisedEuclidean`: the square root of the summed,
+    not averaged, squared per-feature shift, $\lVert \delta / \sigma \rVert$. This is the
+    convention the effect-size trajectory uses for a class's displacement magnitude
+    (:func:`analysis.trajectory_local.grain_magnitude`, an unaveraged norm over the grain), so a
+    between-class separation measured this way puts numerator and denominator on the same scale:
+    a displacement then reads as a genuine fraction of the mean inter-class gap. The averaged
+    :class:`StandardisedEuclidean` divides by an extra $\sqrt{n}$ in the feature count $n$
+    relative to this, so mixing the two inflates a separation-scaled magnitude by that factor.
+    """
+
+    name: str = "euclidean-full"
+
+    def class_distance(
+        self, stratum: StratumSummary, fit_class: int, reference: ReferenceModel, ref_class: int
+    ) -> float:
+        """L2 norm of the standardised per-feature difference (summed, not averaged)."""
+        delta, sd = _standardised_delta(stratum, fit_class, reference, ref_class)
+        return float(np.sqrt(np.sum((delta / sd) ** 2)))
+
+
+@dataclass
 class MeanAbsolute:
     """Mean absolute per-feature shift in SD units, an outlier-robust diagonal distance."""
 

@@ -1,7 +1,7 @@
 {
   "figure": "local-directional-era",
   "source_stage": "invariance-trajectory",
-  "source_run": "7a62da336359af70",
-  "source_git_commit": "6a2e7c6-dirty",
+  "source_run": "af72ed86d36c4967",
+  "source_git_commit": "d853243-dirty",
   "figures_version": "0.6.0"
 }

@@ -20,8 +20,9 @@ with $w_i(f)$ the Gaussian kernel weight of proband $i$'s axis value about $f$ (
 $w \equiv 1$ this is the pooled centroid $\mu_k$, which equals the fit's responsibility-weighted
 class means. The primitive is the per-feature displacement $d_k(f) = \mu_k(f) - \mu_k$, kept
 full-dimensional. Magnitudes are divided by the between-class separation (the mean pairwise
-distance between distinct pooled centroids, :func:`analysis.drift.class_separation`), so a
-displacement is read in units of the gap between classes and is comparable across axes.
+distance between distinct pooled centroids under the same full standardised-Euclidean norm,
+:func:`separation`), so one separation unit is the mean inter-class gap and a displacement reads
+as a genuine fraction of that gap, comparable across axes.
 
 Uncertainty is a clustered bootstrap: families are resampled with replacement and the local
 centroids are recomputed on the resample (re-weighting only, the responsibilities stay frozen),
@@ -99,11 +100,14 @@ def pooled_centroids(x_values: np.ndarray, responsibilities: np.ndarray) -> np.n
 def separation(reference: drift_mod.ReferenceModel) -> float:
     """Return the between-class separation, the drift baseline (delegated to :mod:`analysis.drift`).
 
-    The mean standardised-Euclidean distance between distinct pooled centroids, exactly
-    :func:`analysis.drift.class_separation` under the standardised-Euclidean distance, so the
-    separation scaling here uses the same convention as the refit-based drift stage.
+    The full (unaveraged) standardised-Euclidean distance
+    (:class:`analysis.drift.FullStandardisedEuclidean`), the same sum-norm convention
+    :func:`grain_magnitude` uses for a class's displacement. Numerator and denominator then share
+    a scale, so a separation-scaled magnitude is a genuine fraction of the mean inter-class gap:
+    one separation unit is the mean pairwise distance between distinct reference centroids. The
+    refit-based drift stage keeps its own averaged convention, self-consistent within that stage.
     """
-    return drift_mod.class_separation(reference, drift_mod.StandardisedEuclidean())
+    return drift_mod.class_separation(reference, drift_mod.FullStandardisedEuclidean())
 
 
 def grain_magnitude(

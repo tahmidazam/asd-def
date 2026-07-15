@@ -1,7 +1,7 @@
 {
   "figure": "local-plane-era",
   "source_stage": "invariance-trajectory",
-  "source_run": "f0bf50b8e9ba7c60",
-  "source_git_commit": "7e0b3b7-dirty",
+  "source_run": "af72ed86d36c4967",
+  "source_git_commit": "d853243-dirty",
   "figures_version": "0.6.0"
 }

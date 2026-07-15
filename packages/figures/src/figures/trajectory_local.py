@@ -85,8 +85,21 @@ def _class_order(anchors: pd.DataFrame) -> list[int]:
     return sorted(int(c) for c in anchors["ref_class"])
 
 
-def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figure:
+def plane_figure(
+    plane: pd.DataFrame,
+    capture: pd.DataFrame,
+    meta: dict,
+    *,
+    arrow: bool = True,
+    width_in: float | None = None,
+    height_in: float | None = None,
+    brief: bool = False,
+) -> Figure:
     """Build the combined four-class discriminant-plane trajectory figure.
+
+    Each class is a run of focal-point dots coloured low-to-high along the ordering, wrapped in the
+    translucent bootstrap tube, with a black-edged marker at the pooled anchor and the in-plane
+    capture fraction in the label. A colourbar keys the dot colour to the ordering.
 
     Parameters
     ----------
@@ -97,6 +110,13 @@ def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figu
         The ``capture_<axis>`` table, carrying the per-class in-plane capture fraction.
     meta : dict
         The run's manifest metrics, carrying ``axis``.
+    arrow : bool, optional
+        When true (the default) draw a net-drift arrow from the early to the late focal points of
+        each class; set it false for the dots and tube alone.
+    width_in, height_in : float, optional
+        The figure size in inches; sensible defaults are used when omitted.
+    brief : bool, optional
+        When true, drop the panel letter for a document that supplies its own caption.
 
     Returns
     -------
@@ -111,17 +131,26 @@ def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figu
     capture_of = dict(
         zip(capture["ref_class"].astype(int), capture["capture"].astype(float), strict=True)
     )
-    n_focal = int(focal["focal_index"].max()) + 1
     cmap = plt.get_cmap("viridis")
-    norm = Normalize(0, max(n_focal - 1, 1))
+    # Colour the focal dots by the ordering variable's own value (age at diagnosis in years,
+    # diagnostic era as a calendar year), so the colourbar reads in real units, not a rank.
+    positions = focal["position"].astype(float)
+    norm = Normalize(float(positions.min()), float(positions.max()))
     nice = _NICE_AXIS.get(str(meta.get("axis")), str(meta.get("axis")))
 
+    width = width_in if width_in is not None else 7.6
+    height = height_in if height_in is not None else 6.4
+    # In the narrow brief column a class sitting near the right edge would have its label run into
+    # the colourbar, so labels past this cut are anchored on their right and grow leftward instead.
+    anchor_ld1 = anchors["ld1"].astype(float)
+    right_zone = float(anchor_ld1.min()) + 0.6 * (float(anchor_ld1.max()) - float(anchor_ld1.min()))
+
     with style.house_style():
-        fig, ax = plt.subplots(figsize=(7.6, 6.4))
+        fig, ax = plt.subplots(figsize=(width, height))
         for c in classes:
             path = focal[focal["ref_class"] == c].sort_values("focal_index")
             pts = path[["ld1", "ld2"]].to_numpy(dtype=float)
-            order = path["focal_index"].to_numpy()
+            shade = path["position"].to_numpy(dtype=float)
             half1 = (path["ld1_hi"].to_numpy() - path["ld1_lo"].to_numpy()) / 2.0
             half2 = (path["ld2_hi"].to_numpy() - path["ld2_lo"].to_numpy()) / 2.0
             for k in range(pts.shape[0]):
@@ -130,30 +159,38 @@ def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figu
                 )
             ax.plot(pts[:, 0], pts[:, 1], color=colours[c], lw=0.8, alpha=0.5, zorder=3)
             ax.scatter(
-                pts[:, 0], pts[:, 1], s=16, c=order, cmap=cmap, norm=norm, zorder=4, linewidths=0
+                pts[:, 0], pts[:, 1], s=16, c=shade, cmap=cmap, norm=norm, zorder=4, linewidths=0
             )
-            third = max(2, pts.shape[0] // 3)
-            ax.add_patch(
-                FancyArrowPatch(
-                    pts[:third].mean(axis=0),
-                    pts[-third:].mean(axis=0),
-                    arrowstyle="-|>",
-                    mutation_scale=16,
-                    color=colours[c],
-                    lw=2.0,
-                    alpha=0.9,
-                    zorder=5,
+            if arrow:
+                third = max(2, pts.shape[0] // 3)
+                ax.add_patch(
+                    FancyArrowPatch(
+                        pts[:third].mean(axis=0),
+                        pts[-third:].mean(axis=0),
+                        arrowstyle="-|>",
+                        mutation_scale=16,
+                        color=colours[c],
+                        lw=2.0,
+                        alpha=0.9,
+                        zorder=5,
+                    )
                 )
-            )
             anchor = anchors.loc[c, ["ld1", "ld2"]].to_numpy(dtype=float)
             ax.scatter(*anchor, s=42, color=colours[c], edgecolor="black", lw=0.6, zorder=6)
             flag = " *" if capture_of.get(c, 1.0) < _LOW_CAPTURE else ""
+            # The brief packs this figure into a half-column, so the labels drop the capture
+            # parenthetical (the caption carries it) and sit in a smaller font.
+            label = names[c].split()[0]
+            if not brief:
+                label += f" (capture {capture_of.get(c, float('nan')):.2f}{flag})"
+            flip = brief and anchor[0] > right_zone
             ax.annotate(
-                f"{names[c].split()[0]} (capture {capture_of.get(c, float('nan')):.2f}{flag})",
+                label,
                 anchor,
                 textcoords="offset points",
-                xytext=(6, 6),
-                fontsize=7,
+                xytext=(-4, 4) if flip else ((4, 4) if brief else (6, 6)),
+                ha="right" if flip else "left",
+                fontsize=6 if brief else 7,
                 color=colours[c],
                 zorder=7,
             )
@@ -162,12 +199,12 @@ def plane_figure(plane: pd.DataFrame, capture: pd.DataFrame, meta: dict) -> Figu
         smap = ScalarMappable(norm=norm, cmap=cmap)
         smap.set_array([])
         bar = fig.colorbar(smap, ax=ax, fraction=0.045, pad=0.02)
-        bar.set_label(f"Focal point ({nice}, low to high)", fontsize=8)
-        bar.set_ticks([0, max(n_focal - 1, 1)])
-        bar.set_ticklabels(["low", "high"], fontsize=7)
-        style.panel_title(ax, "A", f"Local class trajectories along {nice}")
+        bar.set_label(nice if brief else f"Focal point ({nice})", fontsize=8)
+        bar.ax.tick_params(labelsize=7)
+        if not brief:
+            style.panel_title(ax, "A", f"Local class trajectories along {nice}")
         low = [names[c] for c in classes if capture_of.get(c, 1.0) < _LOW_CAPTURE]
-        if low:
+        if low and not brief:
             ax.text(
                 0.5,
                 -0.13,
@@ -199,6 +236,7 @@ def plane_overlay_figure(
     captures: dict[str, pd.DataFrame],
     *,
     width_in: float | None = None,
+    height_in: float | None = None,
     brief: bool = False,
 ) -> Figure:
     """Overlay the local trajectories of two timing axes in the one shared discriminant plane.
@@ -219,6 +257,8 @@ def plane_overlay_figure(
     width_in : float, optional
         The figure width in inches; the height follows the default aspect. Set this to the
         document text width so the input is placed at natural size.
+    height_in : float, optional
+        The figure height in inches; when omitted it follows the default aspect from the width.
     brief : bool, optional
         When true, drop the panel letter and the in-axes capture note for a document that
         supplies its own caption.
@@ -239,7 +279,7 @@ def plane_overlay_figure(
         for axis, cap in captures.items()
     }
     width = width_in if width_in is not None else 7.6
-    height = width * (6.4 / 7.6)
+    height = height_in if height_in is not None else width * (6.4 / 7.6)
 
     with style.house_style():
         fig, ax = plt.subplots(figsize=(width, height))
@@ -534,13 +574,13 @@ def specificity_panels_figure(
     width_in: float | None = None,
     height_in: float | None = None,
 ) -> Figure:
-    """Build the two-panel specificity figure: per-class drift by timing axis and by control.
+    """Build the two-panel specificity figure: per-class timing drift vs a random control.
 
     Each ordering axis is a group of four bars, one per class in a consistent colour (legend), so
     the reader sees which class moves. A black rule across each group marks the across-class mean,
     the summary the single bar of :func:`specificity_figure` used to carry. Panel A holds the timing
-    axes and panel B the control axes; they share the y-axis and a dotted line at the control mean,
-    so the timing bars clearing that line, and the controls sitting on it, is the read.
+    axes and panel B a random-order control; they share the y-axis and a dotted line at the control
+    mean, so the timing bars clearing that line, and the random control sitting on it, is the read.
 
     Parameters
     ----------
@@ -558,11 +598,10 @@ def specificity_panels_figure(
         The two-panel figure.
     """
     timing = [a for a in ("era", "age_at_diagnosis") if a in set(specificity["axis_name"])]
-    controls = [
-        a
-        for a in ("area_deprivation", "household_income", "sex", "random")
-        if a in set(specificity["axis_name"])
-    ]
+    # The only negative control shown is a random re-ordering. A socioeconomic ordering (household
+    # income, area deprivation) could shift the phenotype profile in its own right, so it is not a
+    # clean null; the random order is the one baseline guaranteed to carry no real signal.
+    controls = [a for a in ("random",) if a in set(specificity["axis_name"])]
     classes = sorted(int(c) for c in specificity["ref_class"].unique())
     colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
     labelled = specificity.drop_duplicates("ref_class")
@@ -598,7 +637,7 @@ def specificity_panels_figure(
         )
         for ax, axes_here, letter, label in (
             (ax_a, timing, "A", "timing"),
-            (ax_b, controls, "B", "controls"),
+            (ax_b, controls, "B", "control"),
         ):
             for i, axis_name in enumerate(axes_here):
                 _bar_group(ax, i, _values(axis_name), colours, classes)
@@ -614,7 +653,7 @@ def specificity_panels_figure(
         ax_b.text(
             len(controls) - 0.5,
             control_mean,
-            " control mean",
+            " random mean",
             va="bottom",
             ha="right",
             fontsize=6.2,
