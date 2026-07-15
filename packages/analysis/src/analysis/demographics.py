@@ -194,8 +194,8 @@ def _calculated_flag(table: str, column: str) -> Callable[[AxisContext], pd.Data
     """Return a loader for a computed zero-or-one flag where a blank is a genuine zero."""
 
     def load(ctx: AxisContext) -> pd.DataFrame:
-        raw = _read_table(ctx, table, [column])[column].astype(str).str.strip()
-        value = (raw == "1").astype(float)
+        numeric = pd.to_numeric(_read_table(ctx, table, [column])[column], errors="coerce")
+        value = (numeric == 1).astype(float)
         return value.reindex(ctx.index).to_frame(name=column)
 
     return load
@@ -230,9 +230,9 @@ def _race(ctx: AxisContext) -> pd.DataFrame:
         "race_other",
     ]
     frame = _read_table(ctx, "individuals_registration", columns)
-    ticked = frame[columns].apply(lambda s: s.astype(str).str.strip().eq("1").astype(float))
+    ticked = frame[columns].apply(lambda s: (pd.to_numeric(s, errors="coerce") == 1).astype(float))
     any_ticked = ticked.to_numpy().sum(axis=1) > 0
-    ticked = ticked.where(pd.Series(any_ticked, index=ticked.index), other=np.nan)
+    ticked.loc[~any_ticked, :] = np.nan
     return ticked.reindex(ctx.index)
 
 

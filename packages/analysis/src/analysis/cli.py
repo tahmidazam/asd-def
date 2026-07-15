@@ -3934,6 +3934,32 @@ def invariance_trajectory(
         )
 
 
+def _demographic_atlas_axes() -> tuple:
+    """Return the ordered demographic covariates wrapped as atlas ordering axes.
+
+    An ordered demographic (an income band, an education level, an inferred parental age, a
+    family-history or complication count) is a legitimate ordering, so it joins the atlas to answer
+    the "correlated" half of the demographic screen (plan section 7g). Binary and one-hot
+    demographics are excluded, a two-point ordering being degenerate for the displacement trajectory
+    and a nominal block having no order; household income and the area deprivation index are already
+    atlas axes, so they are not added twice.
+    """
+    from analysis import axes as axes_mod
+    from analysis import demographics as demographics_mod
+
+    ordered = {"ordinal", "scalar", "count"}
+
+    def wrap(spec):
+        return lambda ctx: spec.load(ctx).iloc[:, 0]
+
+    specs = [
+        axes_mod.AxisSpec(spec.name, spec.label, "covariate", wrap(spec))
+        for spec in demographics_mod.DEMOGRAPHICS
+        if spec.coding in ordered and spec.name not in axes_mod.AXES_BY_NAME
+    ]
+    return tuple(specs)
+
+
 @app.command(name="displacement-atlas")
 def displacement_atlas(
     dataset: str = _DATASET,
@@ -4024,11 +4050,12 @@ def displacement_atlas(
         seed=seed,
     )
 
+    atlas_axes = axes_mod.ATLAS_AXES + _demographic_atlas_axes()
     params = {
         "fit": ref_fit_hash,
         "names": name_source,
         "quantity": "per-axis-endpoint-displacement;frozen-responsibilities",
-        "axes": [spec.name for spec in axes_mod.ATLAS_AXES],
+        "axes": [spec.name for spec in atlas_axes],
         "n_points": n_points,
         "min_coverage": min_coverage,
         "min_bin_size": min_bin_size,
@@ -4044,7 +4071,7 @@ def displacement_atlas(
         with profiling.measure() as unit:
             rows: list[dict] = []
             dropped: list[dict] = []
-            for spec in axes_mod.ATLAS_AXES:
+            for spec in atlas_axes:
                 axis_series = spec.load(ctx_axes).reindex(measurement_data.index)
                 mask = axis_series.notna().to_numpy()
                 n_joint = int(mask.sum())
@@ -4112,6 +4139,233 @@ def displacement_atlas(
         typer.echo(
             "  dropped below coverage floor: "
             + ", ".join(f"{d['axis_name']} (n={d['n_joint']})" for d in dropped)
+        )
+
+
+def _covariate_axis_r2(axis_values, covariate) -> float:
+    """Return the fraction of the axis variance a covariate block linearly spans.
+
+    The coefficient of determination of the timing axis regressed on ``[1, covariate]``. It is the
+    ceiling on the conditioning shrinkage: a covariate orthogonal to the axis (an ``axis_r2`` near
+    zero) cannot account for an axis-ordered drift, whatever feature variance it explains. Reported
+    beside the shrinkage so the ceiling is visible.
+    """
+    import numpy as np
+
+    z = covariate if covariate.ndim == 2 else covariate[:, None]
+    design = np.column_stack([np.ones(z.shape[0]), z])
+    beta, _, _, _ = np.linalg.lstsq(design, axis_values, rcond=None)
+    predicted = design @ beta
+    ss_res = float(np.sum((axis_values - predicted) ** 2))
+    ss_tot = float(np.sum((axis_values - axis_values.mean()) ** 2))
+    return 1.0 - ss_res / ss_tot if ss_tot > 0.0 else 0.0
+
+
+@app.command(name="demographic-conditioning")
+def demographic_conditioning(
+    axis: str = typer.Option(
+        "era", help="Timing axis whose drift is conditioned: era or age_at_diagnosis."
+    ),
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_points: int = typer.Option(
+        25, help="Focal grid points; the endpoint (the last) is where the drift is read."
+    ),
+    min_coverage: int = typer.Option(
+        1000, help="Coverage floor: a covariate joining fewer probands than this is dropped."
+    ),
+    seed: int = typer.Option(
+        config.DEFAULT_STRATIFY_SEED, help="Base seed, kept for manifest symmetry."
+    ),
+    n_init: int = typer.Option(
+        50, help="The n_init of the measurement-only reference fit to resolve."
+    ),
+    min_bin_size: int = typer.Option(
+        1000,
+        help="Recovery floor the endpoint bandwidth is derived against (does not bin the axis).",
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Report how much of each class's timing drift each demographic covariate accounts for.
+
+    The conditioning half of the demographic screen (plan section 7g). For every covariate in
+    :mod:`analysis.demographics`, the reference features are residualised on the covariate and the
+    class endpoint displacement along the timing axis is re-read; the shrinkage is the fraction of
+    that class's drift the covariate linearly accounts for
+    (:func:`analysis.blocks.conditioning_shrinkage`). Each covariate's linear span of the axis is
+    reported beside its shrinkage, because a covariate orthogonal to the axis cannot account for an
+    axis-ordered drift. This is a descriptive partial association, not a causal claim, and it refits
+    nothing; the confirmatory hypotheses are unchanged.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from analysis import blocks as blocks_mod
+    from analysis import demographics as demographics_mod
+    from analysis import drift as drift_mod
+    from analysis import localise, profiling, strata_data
+    from analysis import trajectory_local as tl
+    from analysis.axes import AxisContext
+    from analysis.paths import run_dir
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = _resolve_measurement_reference(root, cohort_hash, n_init, seed)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    reference_model = cache.load_model(ref_dir / "model.joblib")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    columns = list(measurement_data.columns)
+    x_values = measurement_data.to_numpy(dtype=float)
+    responsibilities = invariance_responsibilities(reference_model, x_values)
+
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    pooled_sd = reference.pooled_sd.reindex(columns).to_numpy(dtype=float)
+    separation_scale = tl.separation(reference)
+    name_of, name_source = _measurement_class_names(
+        root, dataset, version, cohort_hash, reference, measurement_data, seed
+    )
+    n_classes = int(reference.centroids.shape[0])
+
+    cohort = get_cohort(dataset, version, root)
+    resolved = cohort.axis(axis, matrix.features.index, matrix.covariates, min_bin_size)
+    if resolved is None:
+        raise typer.BadParameter(f"cohort {dataset!r} does not provide axis {axis!r}")
+    axis_values, _policy = resolved
+    axis_on_index = axis_values.reindex(measurement_data.index)
+    axis_np = axis_on_index.to_numpy(dtype=float)
+
+    finite = axis_on_index.dropna()
+    focal = float(
+        localise.focal_grid(finite, min(n_points, max(2, finite.nunique())), (0.025, 0.975))[-1]
+    )
+    band_grid = localise.focal_grid(finite, 20, (0.025, 0.975))
+    bandwidth = round(
+        localise.bandwidth_for_effective_n(finite, band_grid, float(min_bin_size), reduce="min"), 4
+    )
+
+    strata = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    ctx_axes = AxisContext(
+        root=root,
+        dataset=dataset,
+        version=version,
+        index=measurement_data.index,
+        covariates=matrix.covariates,
+        strata=strata,
+        seed=seed,
+    )
+
+    params = {
+        "fit": ref_fit_hash,
+        "names": name_source,
+        "axis": axis,
+        "quantity": "conditioning-shrinkage;frozen-responsibilities",
+        "covariates": [spec.name for spec in demographics_mod.DEMOGRAPHICS],
+        "n_points": n_points,
+        "min_coverage": min_coverage,
+        "bandwidth": bandwidth,
+        "min_bin_size": min_bin_size,
+        "seed": seed,
+        "separation": round(separation_scale, 6),
+    }
+    with run_context("demographic-conditioning", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(
+                f"demographic-conditioning: cache hit {cache.short_hash(ctx.run_hash)}; {cached}"
+            )
+            return
+        with profiling.measure() as unit:
+            rows: list[dict] = []
+            dropped: list[dict] = []
+            for spec in demographics_mod.DEMOGRAPHICS:
+                block = spec.load(ctx_axes).reindex(measurement_data.index)
+                block_finite = block.notna().all(axis=1).to_numpy()
+                mask = np.isfinite(axis_np) & block_finite
+                n_joint = int(mask.sum())
+                if n_joint < min_coverage:
+                    dropped.append({"name": spec.name, "reason": "coverage", "n_joint": n_joint})
+                    continue
+                covariate = block.to_numpy(dtype=float)[mask]
+                keep = covariate.std(axis=0) > 1e-9
+                if not keep.any():
+                    dropped.append({"name": spec.name, "reason": "no-variance", "n_joint": n_joint})
+                    continue
+                covariate = covariate[:, keep]
+                axis_masked = pd.Series(axis_np[mask], index=measurement_data.index[mask])
+                weights = localise.gaussian_weights(axis_masked, focal, bandwidth).to_numpy()
+                cond = blocks_mod.conditioning_shrinkage(
+                    x_values[mask],
+                    responsibilities[mask],
+                    weights,
+                    covariate,
+                    pooled_sd,
+                    separation_scale,
+                )
+                axis_r2 = _covariate_axis_r2(axis_np[mask], covariate)
+                for c in range(n_classes):
+                    rows.append(
+                        {
+                            "name": spec.name,
+                            "label": spec.label,
+                            "kind": spec.kind,
+                            "coding": spec.coding,
+                            "ref_class": c,
+                            "class_name": name_of.get(c, str(c)),
+                            "shrinkage": float(cond.shrinkage[c]),
+                            "raw_magnitude": float(cond.raw_magnitude[c]),
+                            "conditioned_magnitude": float(cond.conditioned_magnitude[c]),
+                            "axis_r2": float(axis_r2),
+                            "n_columns": int(covariate.shape[1]),
+                            "n_joint": n_joint,
+                        }
+                    )
+            table = pd.DataFrame(rows)
+            cache.save_frame(table, ctx.path(f"demographic_conditioning_{axis}.parquet"))
+            unit.output_bytes = profiling.path_bytes(
+                ctx.path(f"demographic_conditioning_{axis}.parquet")
+            )
+
+        resources = unit.metrics
+        assert resources is not None
+        mean_shrink = (
+            table.groupby("name")["shrinkage"].mean().sort_values(ascending=False)
+            if not table.empty
+            else pd.Series(dtype=float)
+        )
+        ctx.metrics = {
+            "reference_fit": cache.short_hash(ref_fit_hash),
+            "axis": axis,
+            "n_reference": int(x_values.shape[0]),
+            "bandwidth": bandwidth,
+            "separation": round(separation_scale, 4),
+            "n_covariates": int(table["name"].nunique()) if not table.empty else 0,
+            "covariates_dropped": dropped,
+            "mean_shrinkage_by_covariate": {k: round(float(v), 4) for k, v in mean_shrink.items()},
+            "resources": resources.to_dict(),
+        }
+    typer.echo(f"demographic-conditioning ({axis}): run {cache.short_hash(ctx.run_hash)}")
+    n_cov = int(table["name"].nunique()) if not table.empty else 0
+    typer.echo(f"  {n_cov} covariates; mean shrinkage per class (top):")
+    for name, value in list(mean_shrink.items())[:8]:
+        typer.echo(f"    {name:<24} {value:+.3f}")
+    if dropped:
+        typer.echo(
+            "  dropped: "
+            + ", ".join(f"{d['name']} ({d['reason']} n={d['n_joint']})" for d in dropped)
         )
 
 
