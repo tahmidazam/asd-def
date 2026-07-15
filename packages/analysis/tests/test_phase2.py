@@ -113,6 +113,13 @@ def test_bootstrap_overall_correlation_structure() -> None:
     assert 0 < ci["n_valid"] <= 15
     assert ci["ci_low"] <= ci["median"] <= ci["ci_high"]
     assert ci["level"] == 0.95
+    from analysis.enrich import SEVEN_CATEGORIES
+
+    assert set(ci["category"]) == set(SEVEN_CATEGORIES)
+    for entry in ci["category"].values():
+        assert entry["n_valid"] <= 15
+        if entry["n_valid"]:
+            assert entry["ci_low"] <= entry["median"] <= entry["ci_high"]
 
 
 # ---- overlap matrix ----------------------------------------------------------

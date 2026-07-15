@@ -12,6 +12,8 @@ the class signature used to align to the published classes (plan section 6a).
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import numpy as np
 import pandas as pd
 from scipy.stats import binomtest, ttest_ind
@@ -33,6 +35,22 @@ SEVEN_CATEGORIES: tuple[str, ...] = (
 )
 
 _ALPHA = 0.05
+
+
+class CorrelationInterval(TypedDict):
+    """A percentile bootstrap interval on a profile correlation."""
+
+    ci_low: float
+    ci_high: float
+    median: float
+    level: float
+    n_valid: int
+
+
+class BootstrapInterval(CorrelationInterval):
+    """The overall interval, plus the same interval for each of the seven categories."""
+
+    category: dict[str, CorrelationInterval]
 
 
 def cohens_d(group: pd.Series, reference: pd.Series) -> float:
@@ -195,7 +213,7 @@ def bootstrap_overall_correlation(
     level: float = 0.95,
     reverse_coded: tuple[str, ...] = REVERSE_CODED_SCQ,
     keep: set[str] | None = None,
-) -> dict[str, float | int]:
+) -> BootstrapInterval:
     r"""Bootstrap the overall profile correlation by resampling probands.
 
     The class labels are held fixed and the probands are resampled with replacement; for
@@ -233,16 +251,22 @@ def bootstrap_overall_correlation(
     Returns
     -------
     dict
-        ``ci_low`` and ``ci_high`` (the percentile interval at ``level``), ``median``, the
-        ``level``, and ``n_valid`` (the resamples that yielded a defined correlation; a
-        resample that empties or flattens a class is dropped, as in the permutation null).
+        The overall interval as ``ci_low`` and ``ci_high`` (the percentile interval at
+        ``level``), ``median``, the ``level``, and ``n_valid`` (the resamples that yielded a
+        defined overall correlation; a resample that empties or flattens a class is dropped, as
+        in the permutation null). A ``category`` entry then holds the same interval for each of
+        the seven categories, keyed by category name. A per-category correlation is taken over
+        the four classes alone, so its interval is markedly wider than the overall one and
+        rests on fewer valid resamples.
     """
     rng = np.random.default_rng(seed)
     measurement = measurement.reset_index(drop=True)
     label_values = labels.to_numpy()
     target = target.loc[:, list(SEVEN_CATEGORIES)]
     n = len(measurement)
-    correlations: list[float] = []
+    tail = (1.0 - level) / 2.0
+    overall_samples: list[float] = []
+    category_samples: dict[str, list[float]] = {cat: [] for cat in SEVEN_CATEGORIES}
     for _ in range(n_boot):
         take = rng.integers(0, n, size=n)
         boot_measurement = measurement.iloc[take].reset_index(drop=True)
@@ -251,26 +275,40 @@ def bootstrap_overall_correlation(
         signature = category_signature(
             enrichment, category_map, n_classes=n_classes, reverse_coded=reverse_coded, keep=keep
         )
-        overall, _ = profile_correlation(signature, target)
+        overall, per_category = profile_correlation(signature, target)
         if overall is not None:
-            correlations.append(overall)
+            overall_samples.append(overall)
+        for cat in SEVEN_CATEGORIES:
+            value = per_category[cat]
+            if value is not None:
+                category_samples[cat].append(value)
 
-    if not correlations:
+    def _interval(samples: list[float]) -> CorrelationInterval:
+        if not samples:
+            return {
+                "ci_low": float("nan"),
+                "ci_high": float("nan"),
+                "median": float("nan"),
+                "level": level,
+                "n_valid": 0,
+            }
+        values = np.asarray(samples)
         return {
-            "ci_low": float("nan"),
-            "ci_high": float("nan"),
-            "median": float("nan"),
+            "ci_low": float(np.quantile(values, tail)),
+            "ci_high": float(np.quantile(values, 1.0 - tail)),
+            "median": float(np.median(values)),
             "level": level,
-            "n_valid": 0,
+            "n_valid": len(samples),
         }
-    tail = (1.0 - level) / 2.0
-    values = np.asarray(correlations)
+
+    overall = _interval(overall_samples)
     return {
-        "ci_low": float(np.quantile(values, tail)),
-        "ci_high": float(np.quantile(values, 1.0 - tail)),
-        "median": float(np.median(values)),
-        "level": level,
-        "n_valid": len(correlations),
+        "ci_low": overall["ci_low"],
+        "ci_high": overall["ci_high"],
+        "median": overall["median"],
+        "level": overall["level"],
+        "n_valid": overall["n_valid"],
+        "category": {cat: _interval(category_samples[cat]) for cat in SEVEN_CATEGORIES},
     }
 
 

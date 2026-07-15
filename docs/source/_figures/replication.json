@@ -1,7 +1,7 @@
 {
   "figure": "replicate",
   "source_stage": "replicate",
-  "source_run": "10906a3bbea3c8ab",
-  "source_git_commit": "4830520-dirty",
-  "figures_version": "0.5.0"
+  "source_run": "73072ea98c38f24f",
+  "source_git_commit": "d853243-dirty",
+  "figures_version": "0.6.0"
 }

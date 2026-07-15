@@ -4,9 +4,10 @@ Built from a ``replicate`` run, the figure shows how closely the seven-category 
 signatures agree between the SPARK fit and its projection onto the SSC, against the values
 Litman et al. (2025) report. Panel (a) scatters every class-by-category value, SSC against
 SPARK, around the line of equality; panel (b) gives the per-category correlation with the
-published per-category coefficients overlaid. Each per-category coefficient is taken over the
-four classes alone, so it shifts easily when one class moves; the overall correlation, over
-all 28 class-by-category points, is the stabler quantity. The developmental category sits
+published per-category coefficients overlaid and a proband-bootstrap 95 per cent interval on
+each. Each per-category coefficient is taken over the four classes alone, so it shifts easily
+when one class moves and its interval is wide; the overall correlation, over all 28
+class-by-category points, is the stabler quantity. The developmental category sits
 below the rest, a gap the replication investigation examines rather than ascribes to a single
 cause.
 """
@@ -128,7 +129,9 @@ def replication_figure(
         ax_scatter.legend(loc="upper left", ncol=2, fontsize=6)
 
         # Panel (b): the per-category correlation for each training condition, with Litman et
-        # al.'s published values overlaid as the reference each bar is read against.
+        # al.'s published values overlaid as the reference each bar is read against. The
+        # whiskers are the proband-bootstrap 95 per cent interval on each per-category
+        # correlation; taken over four classes, these intervals are wide.
         def _values(source: dict) -> list[float]:
             per_cat = source["category_correlation"]
             return [
@@ -136,25 +139,56 @@ def replication_figure(
                 for cat in categories
             ]
 
+        def _errors(source: dict, values: list[float]) -> np.ndarray | None:
+            # Asymmetric bar whiskers [[below], [above]] from the per-category bootstrap
+            # interval, or None when the run predates it.
+            ci = source.get("overall_correlation_ci")
+            per_cat_ci = ci.get("category") if isinstance(ci, dict) else None
+            if not isinstance(per_cat_ci, dict):
+                return None
+            below, above = [], []
+            for value, cat in zip(values, categories, strict=True):
+                entry = per_cat_ci.get(cat)
+                if not isinstance(entry, dict) or not entry.get("n_valid") or np.isnan(value):
+                    below.append(0.0)
+                    above.append(0.0)
+                    continue
+                below.append(max(0.0, value - float(entry["ci_low"])))
+                above.append(max(0.0, float(entry["ci_high"]) - value))
+            return np.array([below, above])
+
+        bar_kw = {"error_kw": {"elinewidth": 0.8, "capsize": 2, "ecolor": "#444444"}}
         positions = np.arange(len(categories))
         if comparison is None:
-            ax_bar.bar(positions, _values(metrics), color=[colours[cat] for cat in categories])
+            values = _values(metrics)
+            ax_bar.bar(
+                positions,
+                values,
+                color=[colours[cat] for cat in categories],
+                yerr=_errors(metrics, values),
+                **bar_kw,
+            )
         else:
             width = 0.4
             comp_overall = float(comparison["overall_correlation"])
+            full_values, comp_values = _values(metrics), _values(comparison)
             ax_bar.bar(
                 positions - width / 2,
-                _values(metrics),
+                full_values,
                 width,
                 color=full_colour,
+                yerr=_errors(metrics, full_values),
                 label=f"Full 2026 ($r = {overall:.2f}$)",
+                **bar_kw,
             )
             ax_bar.bar(
                 positions + width / 2,
-                _values(comparison),
+                comp_values,
                 width,
                 color=v9_colour,
+                yerr=_errors(comparison, comp_values),
                 label=f"V9 subset ($r = {comp_overall:.2f}$)",
+                **bar_kw,
             )
         ax_bar.scatter(
             positions,

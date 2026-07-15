@@ -33,6 +33,7 @@ from analysis import config
 from analysis.cohort import CohortMatrix
 from analysis.enrich import (
     SEVEN_CATEGORIES,
+    BootstrapInterval,
     bootstrap_overall_correlation,
     category_signature,
     contributory_features,
@@ -64,8 +65,9 @@ class ReplicationResult:
         The proportion of null correlations at or above the observed one, or ``None`` when
         the observed correlation is undefined or no permutations were run.
     correlation_ci : dict or None
-        The proband-bootstrap percentile interval on the overall correlation, or ``None``
-        when the bootstrap was skipped.
+        The proband-bootstrap percentile interval on the overall correlation, with a
+        ``category`` block holding the same interval per category, or ``None`` when the
+        bootstrap was skipped.
     metrics : dict
         Sample sizes, class proportions, and the convergence flag.
     """
@@ -77,7 +79,7 @@ class ReplicationResult:
     category_correlation: dict[str, float | None]
     null_overall: list[float]
     p_value: float | None
-    correlation_ci: dict[str, float | int] | None
+    correlation_ci: BootstrapInterval | None
     metrics: dict[str, object]
 
 
@@ -242,7 +244,7 @@ def run_replication(
     # overall correlation, so the replication r carries its sampling uncertainty. The
     # interval is wider here than for the reproduction because the SSC sample is small and
     # one class holds very few probands.
-    correlation_ci: dict[str, float | int] | None = None
+    correlation_ci: BootstrapInterval | None = None
     if n_bootstrap > 0 and overall is not None:
         correlation_ci = bootstrap_overall_correlation(
             ssc_measurement,
