@@ -31,6 +31,15 @@ def brief_figures_dir(root: Path) -> Path:
     return root / "reports" / "brief" / "figures"
 
 
+def presentation_figures_dir(root: Path) -> Path:
+    r"""Return the 15 July talk's figures directory, ``<root>/reports/jul-15-presentation/figures``.
+
+    This holds the ``.pgf`` assets ``reports/jul-15-presentation/main.tex`` inputs, beside the deck
+    so the ``\input`` paths are relative and the talk compiles from here with no build step.
+    """
+    return root / "reports" / "jul-15-presentation" / "figures"
+
+
 def figure_stem(root: Path, source_stage: str, source_hash: str, name: str) -> Path:
     """Return the output-path stem for a figure built from one source run.
 

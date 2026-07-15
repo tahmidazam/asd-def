@@ -482,6 +482,136 @@ def brief(
             typer.echo(f"  wrote {path.relative_to(root)}")
 
 
+@app.command()
+def presentation(
+    fmt: str = typer.Option("pgf,pdf", "--format", help="Comma-separated output formats."),
+) -> None:
+    """Build the 15 July talk's figures as pgf beside ``reports/jul-15-presentation/main.tex``.
+
+    Renders the deck's figures: the reference reconstruction, the SSC replication, the displacement
+    atlas, the demographic-conditioning panel (which now carries the timing covariates), the
+    category-share heatmaps, the two-dimensional local plane trajectory per axis, the
+    age-at-diagnosis proportion curves, and the stacked class composition per axis. Each is written
+    in the document's own font, so the talk inputs it at natural size. Needs a working TeX install
+    and the align, replicate, displacement-atlas, demographic-conditioning, invariance-trajectory,
+    and prevalence runs.
+    """
+    import pandas as pd
+
+    root = find_repo_root()
+    out_dir = paths.presentation_figures_dir(root)
+    formats = tuple(part.strip() for part in fmt.split(",") if part.strip())
+    built: list[tuple[Figure, str]] = []
+
+    # Reference reconstruction: the recovered signatures against the published profile.
+    align_dir = data.resolve_run(root, "align", "a5e4220612cc3564")
+    our, published, alignment, our_props, published_props = data.load_alignment(align_dir, root)
+    built.append(
+        (
+            reproduction_figure(our, published, alignment, our_props, published_props, None),
+            "reproduction",
+        )
+    )
+
+    # Displacement atlas: per-class endpoint drift along every ordering axis, with the random floor.
+    atlas_dir = data.resolve_run(root, "displacement-atlas")
+    atlas_frame, atlas_meta = data.load_atlas(atlas_dir)
+    built.append((atlas_figure(atlas_frame, atlas_meta), "atlas"))
+
+    # Category-share heatmaps: which symptom categories carry the drift, both axes.
+    grains: dict[str, pd.DataFrame] = {}
+    for timing_axis in ("age_at_diagnosis", "era"):
+        try:
+            grain_dir = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        grains[timing_axis] = data.load_grain_magnitude(grain_dir)
+    if grains:
+        built.append(
+            (category_heatmaps_figure(grains, {"axes": list(grains)}), "category_heatmaps")
+        )
+
+    # Proportion curves along age at diagnosis: composition drift (H0B).
+    prev_dir = data.resolve_run(root, "prevalence", None, axis="age_at_diagnosis")
+    curve, slopes, prev_meta = data.load_prevalence(prev_dir)
+    built.append(
+        (
+            proportion_curve_figure(curve, slopes, {**prev_meta, "axis": "age_at_diagnosis"}),
+            "prevalence_age_at_diagnosis",
+        )
+    )
+
+    # Demographic conditioning: does any covariate, including age at evaluation, explain the drift.
+    cond_tables: dict[str, pd.DataFrame] = {}
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            cond_dir = data.resolve_run(root, "demographic-conditioning", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        cond_tables[timing_axis] = data.load_demographic_conditioning(cond_dir)
+    if cond_tables:
+        built.append(
+            (
+                demographic_conditioning_figure(cond_tables, {"axes": list(cond_tables)}),
+                "demographic_conditioning",
+            )
+        )
+
+    # Two-dimensional local plane trajectory: the class paths in the discriminant plane, per axis.
+    for timing_axis in ("age_at_diagnosis", "era"):
+        try:
+            plane_dir = data.resolve_run(root, "invariance-trajectory", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        plane, capture, plane_meta = data.load_local_trajectory(plane_dir)
+        built.append(
+            (
+                plane_figure(plane, capture, {**plane_meta, "axis": timing_axis}),
+                f"local_plane_{timing_axis}",
+            )
+        )
+
+    # SSC replication: the SPARK-trained signatures projected onto the SSC, with our reconstruction.
+    replicate_dir = data.resolve_run(root, "replicate", "73072ea98c38f24f")
+    metrics, spark_signature, ssc_signature = data.load_replication(replicate_dir)
+    comparison = None
+    try:
+        comparison, _, _ = data.load_replication(
+            data.resolve_run(root, "replicate", "612239ff72e884c9")
+        )
+    except FileNotFoundError:
+        comparison = None
+    built.append(
+        (
+            replication_figure(spark_signature, ssc_signature, metrics, comparison),
+            "replication",
+        )
+    )
+
+    # Stacked class composition along each axis, for the side-by-side proportion view.
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            stacked_dir = data.resolve_run(root, "prevalence", None, axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        stacked_curve, _, stacked_meta = data.load_prevalence(stacked_dir)
+        built.append(
+            (
+                stacked_area_figure(stacked_curve, {**stacked_meta, "axis": timing_axis}),
+                f"prevalence_stacked_{timing_axis}",
+            )
+        )
+
+    provenance: dict[str, object] = {"source_stage": "presentation"}
+    for figure, name in built:
+        written = style.save_figure(
+            figure, out_dir / name, formats=formats, provenance=provenance, pgf_rc=style.PGF_RC_SANS
+        )
+        plt.close(figure)
+        for path in written:
+            typer.echo(f"  wrote {path.relative_to(root)}")
+
+
 @app.command(name="local-directional")
 def local_directional(
     axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
