@@ -4203,7 +4203,7 @@ def demographic_conditioning(
     nothing; the confirmatory hypotheses are unchanged.
 
     With ``--include-timing`` the screen appends age at evaluation and the measurement-to-diagnosis
-    lag (:data:`analysis.demographics.TIMING_COVARIATES`). These correlate with age at diagnosis by
+    lag (``analysis.demographics.TIMING_COVARIATES``). These correlate with age at diagnosis by
     construction, so their shrinkage is not ceilinged near zero as the demographics' is, and they
     adjudicate whether the age-at-diagnosis drift reduces to the general age effect the reference
     model already carries in age at evaluation. The flag changes the run hash, so the
