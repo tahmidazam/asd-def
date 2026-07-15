@@ -68,6 +68,9 @@ Figures
 .. automodule:: figures.referent_decomposition
    :members:
 
+.. automodule:: figures.atlas
+   :members:
+
 .. automodule:: figures.prevalence
    :members:
 

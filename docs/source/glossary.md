@@ -141,15 +141,15 @@ linear discriminant analysis
   drift lying outside it.
 
 between-class separation
-  How far apart the classes sit: the mean per-feature (root-mean-square) distance between their
-  centroids. A drift read as a fraction of it is a fraction of a class gap, so the size is judged
-  against how distinct the classes are rather than in raw feature units, and a value near one is a
-  class that moved about as far as two classes are apart. The trajectory figures instead plot a
-  displacement "in separation units", an un-averaged norm that sums the per-feature displacements
-  rather than averaging them, so it grows with the number of features and reads as a comparative
-  scale across axes and controls, not a count of class gaps. Divide a separation-unit value by the
-  square root of the number of features it sums over (about 15 for a whole-class read over the 238
-  features) to recover the fraction of a class gap.
+  How far apart the classes sit: the mean distance between their centroids, measured as the full
+  (un-averaged) standardised-Euclidean norm and averaged over class pairs. One separation unit is
+  this mean inter-class gap. The trajectory figures scale every displacement by it using the same
+  full norm, so numerator and denominator share a scale and a displacement reads directly as a
+  fraction of a class gap: a value near one is a class that moved about as far as two classes are
+  apart, and the whole-class endpoint drifts of a few tenths mean a few tenths of that gap. This is
+  the single canonical convention across the effect-size trajectory, its controls, and the
+  attribution decompositions. (The archived refit-based drift stage keeps its own averaged
+  root-mean-square norm, self-consistent within that stage; the two are not compared.)
 
 capture fraction
   The share of a class's centroid drift that lies within the {term}`linear discriminant

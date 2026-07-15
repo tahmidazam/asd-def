@@ -19,12 +19,11 @@ drift lying outside the between-class discriminant plane.
 :::{admonition} Status
 :class: tip
 
-Both nulls are rejected on both axes. As a fraction of a class gap, the drift is about a fifth along
-diagnosis year and larger along age at diagnosis, largest for the developmental class. On the
-comparative separation-unit scale (a summed norm across features, not a count of class gaps, see
-{term}`between-class separation`) the endpoint displacement averages about $2.8$ along diagnosis year
-and about $6.0$ along age at diagnosis, against a screened control panel of about $3.2$ (household
-income), $2.1$ (area deprivation), and $1.3$ (a random ordering). Age at diagnosis clears every
+Both nulls are rejected on both axes. In {term}`between-class separation` units (one unit is the
+mean inter-class gap), the endpoint displacement averages about $0.18$ of a class gap along diagnosis
+year and about $0.39$ along age at diagnosis, largest for the developmental class (Mixed ASD with
+developmental delay, $0.30$ era and $0.70$ age). The control panel sits at about $0.21$ (household
+income), $0.14$ (area deprivation), and $0.09$ (a random ordering). Age at diagnosis clears every
 control for all four classes; diagnostic era splits, with Moderate challenges and Mixed ASD with
 developmental delay clearing the covariate controls while Broadly affected and Social or behavioral
 clear only the random floor. The paired specificity bootstrap rejects at its floor ($p = 0.0005$) on
@@ -71,36 +70,43 @@ against are the {doc}`class-drift machinery <../guides/measuring-class-drift>`.
   read runs on the marginal fit (`analysis fit --no-covariates`), not the covariate model.
 - Per-class specificity, not the between-class mean. A mean over classes hides drift concentrated in
   one class, so a class is judged specific on its own displacement against its own controls.
-- A screened control panel. A valid control is a real proband-level covariate that is not the
-  phenotype and is orthogonal to timing; the phenotype is excluded on principle, since ordering by a
-  clustered feature moves the centroids by construction. The screen leaves household income and area
-  deprivation against a random floor ({doc}`choosing the specificity controls
-  <../appendix/choosing-the-specificity-controls>`).
+- A random-order floor, no orthogonality assumption. The confirmatory control is the random
+  ordering, the one baseline guaranteed to carry no structure; any covariate control would assume
+  the covariate is orthogonal to timing, which the data cannot guarantee. The {doc}`displacement
+  atlas <../guides/screening-orderings-with-the-atlas>` reports the timing axes against every other
+  continuous or ordered non-modelling variable, with the covariates as context and the random order
+  as the floor. The 238 clustered features and held-out phenotype instruments are excluded, the
+  former as circular, the latter as a non-null phenotype ceiling ({doc}`choosing the specificity
+  controls <../appendix/choosing-the-specificity-controls>`).
 - Families resampled, not probands. Siblings share a family and correlate, so resampling whole
   families gives an honest, wider band.
 
 ## Results
 
-The two timing axes tell a consistent story with an honest split. Age at diagnosis clears every
-control, on the mean and for all four classes, and is the larger effect, carried by the
-developmental class (Mixed ASD with developmental delay moves furthest, endpoint about $10.9$
-separation units, roughly seven tenths of a class gap). Diagnosis year clears the random floor and area deprivation, but its mean sits
-just below the household-income control, and per class only Moderate challenges and the developmental
-class clear the covariate controls. Roughly a third of the per-feature displacements survive the
-false-discovery step for diagnosis year and over half for age at diagnosis, so the drift is pervasive
-but not total: most single features stay within sampling noise while the profiles as a whole move.
+The two timing axes tell a consistent story with an honest split. Age at diagnosis clears the random
+floor for all four classes and is the larger effect, carried by the developmental class (Mixed ASD
+with developmental delay moves furthest, endpoint about $0.70$ separation units, roughly seven tenths
+of a class gap). Diagnosis year clears the random floor too, on the mean and per class, though its
+displacement sits among the covariate axes rather than above them. Roughly a third of the per-feature
+displacements survive the false-discovery step for diagnosis year and over half for age at diagnosis,
+so the drift is pervasive but not total: most single features stay within sampling noise while the
+profiles as a whole move.
 
-:::{figure} /_figures/local_specificity.png
-:alt: Endpoint displacement by axis in separation units, timing axes above the control panel
+The {doc}`displacement atlas <../guides/screening-orderings-with-the-atlas>` places the two timing
+axes among every other continuous or ordered non-modelling variable, so the timing effect is read
+against a whole panel of orderings rather than a hand-picked few.
+
+:::{figure} /_figures/displacement_atlas.png
+:alt: Per-class endpoint displacement along every non-modelling ordering axis, grouped by kind
 :width: 100%
 :align: center
 
-Endpoint displacement by axis, in separation units, one dot per class on each bar. The two timing
-axes (highlighted) sit above the control panel; the dotted line is the control mean. How to read it:
-a bar above the random floor is drift above noise, and a bar above the covariate controls is drift
-specific to timing. The bars are a comparative separation-unit scale, not a count of class gaps (see
-{term}`between-class separation`). Age at diagnosis is the largest, carried by the developmental
-class. Rendered by {py:mod}`figures.trajectory_local` (`figures local-specificity`).
+Per-class endpoint displacement (separation units, the mean inter-class gap) along every non-modelling
+ordering axis, grouped into panels by kind: the timing axes (**A**), the covariate pool (**B**), and
+the random-order floor (**C**). Within each panel the rows run from the largest class-summed mover to
+the smallest. Age at diagnosis moves the classes most, led by the developmental class; every axis sits
+above the random floor. The 238 clustered features and held-out phenotype instruments are excluded as
+circular or as a non-null phenotype ceiling. Rendered by {py:mod}`figures.atlas` (`figures atlas`).
 :::
 
 The capture fractions are all small, near what a random direction would give, so the drift is

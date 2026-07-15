@@ -127,6 +127,9 @@ Stratified analysis
 .. automodule:: analysis.blocks
    :members:
 
+.. automodule:: analysis.axes
+   :members:
+
 .. automodule:: analysis.prevalence
    :members:
 

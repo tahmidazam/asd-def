@@ -5,7 +5,7 @@
 
 This is the earlier hundred-permutation refit pilot, kept for the record. The drift question it
 opened is now answered by the effect-size recast ({doc}`../hypotheses/h0a-invariance`), and its
-category-attribution result is {doc}`$H_0^F$ <../hypotheses/h0f-attribution-categories>`.
+category-attribution result is [$H_0^F$](../hypotheses/h0f-attribution-categories.md).
 :::
 
 :::{admonition} The question

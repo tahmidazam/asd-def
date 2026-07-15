@@ -1,118 +1,43 @@
 # figures
 
-The figures package renders the analysis artefacts as Matplotlib figures. Each figure is
-built by a function that takes a dataframe and returns a figure, and a command-line
-subcommand resolves a cached run, builds the figure, and writes it under `artefacts/figures/`
-with a JSON provenance sidecar.
+The figures package renders the analysis artefacts as Matplotlib figures. Each figure is built by a
+function that takes a dataframe and returns a figure; a CLI subcommand resolves a cached `analysis`
+run (the latest of its stage unless `--run` names one), builds the figure, and writes a PDF and a
+PNG under `artefacts/figures/<stage>/<run-hash>/` beside a JSON sidecar that records the source run
+and the package version.
 
-The package covers the reproduction result, the phase-2 results, and the phase-4 class
-trajectories across the strata.
+## Figures by page
 
-## Implemented figures
-
-- `figures reproduce` plots the reproduction of the named classes from an `analysis align`
-  run: each recovered class signature against the value read from figure 1b of Litman et al.,
-  one panel per named class, with the class proportions and the per-class profile correlation.
-- `figures select` plots the model-selection criteria across the number of latent classes
-  from an `analysis select` run: the information criteria, the cross-validated log-likelihood,
-  and the smallest-class proportion together with the relative entropy, each with a reference
-  line at the four classes chosen by Litman et al.
-- `figures replicate` plots the cross-cohort replication from an `analysis replicate` run: the
-  SPARK and SSC class signatures against the line of equality, and the per-category
-  correlation, where the developmental category is the clear outlier.
-- `figures stability` plots the stability of the reference fit from an `analysis stability`
-  run: the profile-correlation and adjusted-Rand-index distributions, the per-category
-  correlation, and the mean class-overlap matrix.
-- `figures nmin` plots recovery against subsample size from an `analysis nmin` run: each
-  refit's profile correlation, the per-size mean, the recovery benchmark, and the isotonic
-  floor with its bootstrap interval, beside the smallest class proportion.
-- `figures trajectory --axis <age_at_diagnosis|era>` plots each class's path through the strata
-  of an `analysis trajectory` run, one panel per class, in the pooled four-class discriminant
-  space: the class's members as nested grey Gaussian coverage contours (50 to 95 per cent, the
-  tighter ones more opaque), the stratum centroids coloured from the first stratum to the last,
-  and an arrow for the net displacement, with a red ring where membership reorganised.
-- `figures roughness` plots the trajectory roughness across both axes from the two
-  `analysis trajectory` runs: the mean step between adjacent strata against the sampling-noise
-  expectation, and each class's net young-to-old displacement against the ordering-shuffle null.
-
-Each subcommand takes an optional `--run` (defaulting to the latest completed run of that
-stage) and writes a PDF and a PNG under `artefacts/figures/<stage>/<run-hash>/` beside a JSON
-sidecar that records the source run and the package version.
-
-## Figures by hypothesis
-
-Each figure belongs to a hypothesis article or a foundational page, and is drawn by one builder
-module. The table maps a page to its figures and the module and command that render them.
+Each figure belongs to a hypothesis article or a foundational page and is drawn by one builder
+module. The table maps a documentation page to its figures, the module that builds them, and the
+command that renders them.
 
 | Page | Figures | Module | Command |
 | --- | --- | --- | --- |
-| {doc}`$H_0^A$, $H_0^D$: invariance <../analysis/hypotheses/h0a-invariance>` | `local_plane_*`, `local_panels_*`, `local_specificity`, `invariance_process_*` | {py:mod}`figures.trajectory_local`, {py:mod}`figures.invariance` | `local-trajectory`, `local-panels`, `local-specificity`, `invariance` |
-| {doc}`$H_0^B$: prevalence <../analysis/hypotheses/h0b-prevalence>` | `prevalence_*`, `prevalence_stacked_*` | {py:mod}`figures.prevalence` | `prevalence` |
-| {doc}`$H_0^E$: direction <../analysis/hypotheses/h0e-direction>` | `local_directional_*` | {py:mod}`figures.trajectory_local` | `local-directional` |
-| {doc}`$H_0^F$: attribution by category <../analysis/hypotheses/h0f-attribution-categories>` | `category_decomposition`, `dense_features` | {py:mod}`figures.category_decomposition`, {py:mod}`figures.dense_features` | `category-decomposition`, `dense-features` |
-| {doc}`$H_0^G$: attribution by referent <../analysis/hypotheses/h0g-attribution-referent>` | `referent_decomposition` | {py:mod}`figures.referent_decomposition` | `referent-decomposition` |
-| {doc}`Reproducing the reference classes <../analysis/appendix/reproducing-the-reference-classes>` | `reproduction` | {py:mod}`figures.reproduction` | `reproduce` |
-| {doc}`Selecting the number of classes <../analysis/appendix/selecting-the-number-of-classes>` | `selection_criteria` | {py:mod}`figures.selection` | `select` |
-| {doc}`Replicating in the SSC <../analysis/appendix/replicating-in-the-ssc>` | `replication` | {py:mod}`figures.replication` | `replicate` |
-| {doc}`Stability under refitting <../analysis/appendix/stability-under-refitting>` | `stability` | {py:mod}`figures.stability` | `stability` |
-| {doc}`The minimum stratum size <../analysis/appendix/the-minimum-stratum-size>` | `stratum_size` | {py:mod}`figures.nmin` | `nmin` |
-| {doc}`The refit pilot <../analysis/archive/tracking-the-classes-across-strata>` | `trajectory_*`, `roughness` | {py:mod}`figures.trajectory` | `trajectory` |
+| [$H_0^A$, $H_0^D$: invariance](../analysis/hypotheses/h0a-invariance.md) | `local_plane_*`, `local_panels_*`, `local_specificity`, `invariance_process_*` | {py:mod}`figures.trajectory_local`, {py:mod}`figures.invariance` | `local-trajectory`, `local-panels`, `local-specificity`, `invariance` |
+| [$H_0^B$: prevalence](../analysis/hypotheses/h0b-prevalence.md) | `prevalence_*`, `prevalence_stacked_*` | {py:mod}`figures.prevalence` | `prevalence` |
+| [$H_0^E$: direction](../analysis/hypotheses/h0e-direction.md) | `local_directional_*` | {py:mod}`figures.trajectory_local` | `local-directional` |
+| [$H_0^F$: attribution by category](../analysis/hypotheses/h0f-attribution-categories.md) | `category_decomposition`, `dense_features` | {py:mod}`figures.category_decomposition`, {py:mod}`figures.dense_features` | `category-decomposition`, `dense-features` |
+| [$H_0^G$: attribution by referent](../analysis/hypotheses/h0g-attribution-referent.md) | `referent_decomposition` | {py:mod}`figures.referent_decomposition` | `referent-decomposition` |
+| [Screening orderings with the atlas](../analysis/guides/screening-orderings-with-the-atlas.md) | `displacement_atlas` | {py:mod}`figures.atlas` | `atlas` |
+| [Reproducing the reference classes](../analysis/appendix/reproducing-the-reference-classes.md) | `reproduction` | {py:mod}`figures.reproduction` | `reproduce` |
+| [Selecting the number of classes](../analysis/appendix/selecting-the-number-of-classes.md) | `selection_criteria` | {py:mod}`figures.selection` | `select` |
+| [Replicating in the SSC](../analysis/appendix/replicating-in-the-ssc.md) | `replication` | {py:mod}`figures.replication` | `replicate` |
+| [Stability under refitting](../analysis/appendix/stability-under-refitting.md) | `stability` | {py:mod}`figures.stability` | `stability` |
+| [The minimum stratum size](../analysis/appendix/the-minimum-stratum-size.md) | `stratum_size` | {py:mod}`figures.nmin` | `nmin` |
+| [The refit pilot](../analysis/archive/tracking-the-classes-across-strata.md) | `trajectory_*`, `roughness` | {py:mod}`figures.trajectory` | `trajectory` |
 
-## Class trajectories across the strata
+## Publishing
 
-Each class's centroid, projected into the pooled four-class discriminant space, and how it
-moves across the age-at-diagnosis and diagnostic-era strata. Each class's members are drawn as
-nested grey Gaussian coverage contours from 50 to 95 per cent, so the shading shows where they
-concentrate without plotting any individual proband. The projection is linear, so
-positions and distances are honest, but it is an illustration: the movement claim rests on the
-full-dimensional roughness and directional statistics below, not on the picture. The null here
-is the pilot ordering-shuffle on the observed centroids; the confirmatory test is the
-continuous-trend regression against the refit permutation null.
-
-```{image} ../../_figures/trajectory_age_at_diagnosis.png
-:alt: Each class's trajectory through the age-at-diagnosis strata
-:width: 100%
-```
-
-```{image} ../../_figures/trajectory_era.png
-:alt: Each class's trajectory through the diagnostic-era strata
-:width: 100%
-```
-
-```{image} ../../_figures/roughness.png
-:alt: Trajectory roughness and directional movement across both axes
-:width: 100%
-```
-
-## Publishing to the documentation
-
-The figures are written under `artefacts/`, which is gitignored, so they do not reach the
-published documentation on their own. `figures publish` copies the rendered PNGs into
-`docs/source/_figures/`, a committed directory the documentation pages embed, and writes a
-provenance sidecar beside each recording the source stage, the source run hash, and the commit
-it was built from. Run with no argument it publishes the whole set, taking each figure from the
-latest completed run of its source stage; a figure that has not been rendered yet is skipped
-with a note. Only the rendered PNGs cross into the committed tree: they are aggregate,
-non-disclosive summaries, so committing them stays within the data governance that keeps the
-rest of `artefacts/` out of the history.
-
-## Reference
-
-::::{grid} 1 1 2 2
-:gutter: 3
-
-:::{grid-item-card} Python API
-:link: reference
-:link-type: doc
-
-The command-line interface, the house style and save helper, the run-resolution and loading
-helpers, and the figure builders.
-:::
-
-::::
+`artefacts/` is gitignored, so the figures do not reach the published site on their own. `figures
+publish` copies the rendered PNGs into `docs/source/_figures/`, the committed directory the pages
+embed, and writes a provenance sidecar beside each recording the source stage, run hash, and commit;
+a figure not yet rendered is skipped. Only the PNGs cross into the committed tree: they are
+aggregate, non-disclosive summaries, so committing them stays within the data governance that keeps
+the rest of `artefacts/` out of the history.
 
 :::{toctree}
-:hidden:
+:maxdepth: 1
 :caption: Reference
 
 reference

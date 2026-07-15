@@ -13,7 +13,7 @@ consistent with feature-driven movement rather than a reorganisation of the four
 Estimand: the per-category share of the total class drift.
 
 This test is conditional. It is read only where an invariance null is rejected, so it inherits the
-verdict of {doc}`$H_0^A$ <../hypotheses/h0a-invariance>`: the class {term}`profile`s are not
+verdict of [$H_0^A$](../hypotheses/h0a-invariance.md): the class {term}`profile`s are not
 invariant to {term}`diagnostic era` or {term}`age at diagnosis`, which is what makes a decomposition
 of the drift meaningful.
 :::
@@ -74,7 +74,7 @@ of the cached `invariance-trajectory` run: the per-category magnitudes it splits
   read would hide inside the accounting.
 - Additive squared-magnitude shares, not a size-fair contrast. $H_0^F$ asks how the drift is
   distributed across the categories, so the additive share is the natural read; the size-fair
-  root-mean-square contrast that {doc}`$H_0^G$ <../hypotheses/h0g-attribution-referent>` uses is for
+  root-mean-square contrast that [$H_0^G$](../hypotheses/h0g-attribution-referent.md) uses is for
   a two-way comparison where the grains differ sharply in feature count.
 - One fit, no refit. The decomposition reads the frozen-responsibility displacement of $H_0^A$, so
   it measures the drift of the fixed four-class partition rather than re-estimating classes within a
@@ -160,7 +160,7 @@ The drift is feature-driven. It moves on developmental history and milestones fo
 class, and on the internalizing and social-communication items for the others, rather than
 reorganising the four-way partition evenly. This is the middle case the design anticipated: a gradual,
 feature-carried trajectory rather than fixed classes or a broken partition. The read has limits. The
-decomposition is descriptive, interpreting a drift that {doc}`$H_0^A$ <../hypotheses/h0a-invariance>`
+decomposition is descriptive, interpreting a drift that [$H_0^A$](../hypotheses/h0a-invariance.md)
 already established rather than testing it afresh, so it inherits that verdict and its conditioning on
 the pooled fit. It also inherits the illustrative status of the discriminant projections that draw the
 trajectories: the claim rests on the full-dimensional per-feature contributions, and the plane figures
@@ -185,8 +185,8 @@ apparent mediation, all of it the shared axis. The block engine's conditioning m
 ({func}`~analysis.blocks.conditioning_shrinkage`) is therefore reserved for a low-dimensional
 *confounder*, not another symptom block.
 
-The genuine causal test in this analysis is {doc}`$H_0^H$ <../hypotheses/h0h-attribution-timing>`
-($H_0^H$): it conditions the era drift on the measurement-to-diagnosis lag and age at evaluation,
+The genuine causal test in this analysis is [$H_0^H$](../hypotheses/h0h-attribution-timing.md): it
+conditions the era drift on the measurement-to-diagnosis lag and age at evaluation,
 the timing confounder, and asks whether the drift survives. A drift that persists net of the timing is
 a change in the diagnosed population rather than an artefact of when the child was rated, which is the
 "remove it and see if the drift disappears" test that is well posed here.

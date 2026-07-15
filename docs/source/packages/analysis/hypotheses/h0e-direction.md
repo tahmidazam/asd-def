@@ -19,12 +19,12 @@ direction of a drift already established as real.
 Partially rejected: directional in 7 of the 8 class-by-axis tests under the joint
 {term}`false discovery rate` step ($q<0.05$ across the four classes and both axes). Along
 {term}`age at diagnosis` all four classes move the same way, a coherent monotone trend led by the
-developmental class (Mixed ASD with developmental delay, net trend $+11.6$ separation units,
-interval $[9.2, 14.2]$; Moderate challenges lowest at $5.1$), every interval clear of zero. Along
-{term}`diagnostic era` the classes split: Broadly affected ($-6.6$, $[-7.1, -6.1]$) and Social or
-behavioral ($-6.1$, $[-6.5, -5.7]$) trend one way, Mixed ASD with developmental delay ($+6.3$,
-$[+5.6, +7.0]$) the other. Moderate challenges is the exception: its era net trend is $-0.4$ with an
-interval $[-0.7, 0.0]$ that touches zero, so its era movement is a non-directional magnitude
+developmental class (Mixed ASD with developmental delay, net trend $+0.75$ separation units,
+interval $[+0.60, +0.92]$; Moderate challenges lowest at $+0.33$), every interval clear of zero. Along
+{term}`diagnostic era` the classes split: Broadly affected ($-0.43$, $[-0.46, -0.39]$) and Social or
+behavioral ($-0.40$, $[-0.42, -0.37]$) trend one way, Mixed ASD with developmental delay ($+0.41$,
+$[+0.37, +0.45]$) the other. Moderate challenges is the exception: its era net trend is $-0.02$ with an
+interval $[-0.05, +0.00]$ that touches zero, so its era movement is a non-directional magnitude
 excursion, the one test that does not clear the joint false-discovery step. On era the descriptive
 single break clusters around 2017, a few years after the DSM-5 boundary of 2013.
 :::
@@ -78,8 +78,9 @@ The runs are on SPARK `2026-03-23` (11,704 probands), against the measurement-on
 `41ab0e38`, at 500 bootstrap replicates: the era run (coverage 99.5 per cent, bandwidth 1.87 years)
 and the age run (coverage 99.7 per cent, bandwidth 2.21 years). Age at diagnosis moves all four
 classes the same way, a monotone trend with no reversal, the net-trend effect sizes running from
-$5.1$ for Moderate challenges to $11.6$ for Mixed ASD with developmental delay, every interval clear
-of zero, so the developmental class both moves furthest and trends hardest. Diagnostic era divides
+$0.33$ for Moderate challenges to $0.75$ for Mixed ASD with developmental delay (separation units, a
+fraction of the mean inter-class gap), every interval clear of zero, so the developmental class both
+moves furthest and trends hardest. Diagnostic era divides
 the classes: Broadly affected and Social or behavioral are most distinct from the pooled profile
 among the earliest-diagnosed and converge through it as diagnosis year advances, while Mixed ASD with
 developmental delay goes the other way, growing more distinct in the recent years. Moderate

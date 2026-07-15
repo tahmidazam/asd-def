@@ -114,8 +114,9 @@ Sex, used in an earlier version of the panel, is dropped: it is binary, so the t
 degenerate, and it is the least timing-orthogonal of the candidates.
 
 The panel brackets the timing effect. The random ordering is the floor a meaningless axis produces
-(mean displacement about 1.3 separation units). Household income (about 3.2) and area deprivation
-(about 2.1) are real covariates that the class profiles track through a non-timing pathway, so they
+(mean displacement about 0.09 separation units, a fraction of the mean inter-class gap). Household
+income (about 0.21) and area deprivation (about 0.14) are real covariates that the class profiles
+track through a non-timing pathway, so they
 are harder controls than the floor. A timing axis is above the noise floor if it clears the random
 ordering, and specific to timing if it also clears the two covariate controls. This is a magnitude
 comparison, not a reject-or-not decision, because at this sample size everything rejects.
@@ -133,7 +134,8 @@ a random ordering gives and above the income and deprivation covariates.
 
 Specificity is read per class, not on the between-class mean, because a mean hides drift concentrated
 in one class. Along age at diagnosis all four classes clear every control, so the effect is specific
-throughout, and largest for the developmental class (endpoint about 10.9 separation units). Along
+throughout, and largest for the developmental class (endpoint about 0.70 separation units, about
+seven tenths of a class gap). Along
 diagnostic era the picture splits: the moderate-challenges and the developmental (Mixed ASD with DD)
 classes clear the covariate controls, while the broadly-affected and social-or-behavioral classes sit
 above the random floor but below their own household-income control, so their era drift is above

@@ -3,27 +3,27 @@
 :::{admonition} The question
 :class: note
 
-The specificity check asks whether a class drifts more along diagnosis timing than along variables
-that are not the mechanism under test. That comparison is only as good as its controls. The first
-panel (sex, the area deprivation index, and a random ordering) was lifted from the descriptive-table
-covariates, not chosen for control validity, and it has a soft spot: sex is binary, so the
-displacement trajectory has almost nothing to walk. This page sets out what a control must be, screens
-the full covariate pool against those criteria, and settles whether the strongest survivor, household
-income, is a fair control or a phenotype measure in disguise.
+The specificity check asks whether a class drifts more along diagnosis timing than along an ordering
+that carries no real structure. The confirmatory control is the random order alone: it is the one
+baseline guaranteed to be orthogonal to the timing shift without any assumption about what else might
+be. Any covariate control (household income, area deprivation) instead assumes the covariate is
+orthogonal to timing, an assumption the data cannot guarantee, so the manuscript reports the
+random-order control only. This page is retained for transparency: it documents an earlier covariate
+screen, why the random order is the assumption-free floor, and why the covariate candidates were set
+aside rather than trusted.
 :::
 
 :::{admonition} The result
 :class: tip
 
-A control has to be a real proband-level covariate that is not the phenotype and is orthogonal to the
-timing axes. Two roles fail on principle and are excluded before any number is read: the 238 clustered
-features (ordering by one moves the class centroids by construction) and other phenotype measures such
-as symptom totals or IQ (a non-null ceiling, and several track timing too). Screening the legitimate
-pool leaves two graded, timing-orthogonal, near-complete covariates, household income and area
-deprivation, with a random ordering as the floor. Household income is the hardest bar (mean endpoint
-displacement about 3.2 separation units) and a fair one: it sits well below the phenotype ceiling and
-is uncorrelated with the severity axis, so its height is a genuine socioeconomic gradient rather than
-leaked phenotype. Sex is dropped, binary and the least timing-orthogonal of the candidates.
+The random order is the assumption-free control: a class is above the noise floor when its endpoint
+displacement clears it (mean about $0.09$ separation units, a fraction of the mean inter-class gap).
+All four classes clear the random floor on both axes. The covariate screen below was an attempt to
+find harder, timing-orthogonal controls; two graded near-complete covariates survived it (household
+income and area deprivation), but both require assuming orthogonality to timing, so they are reported
+here as context rather than as the confirmatory bar. Two roles are excluded on principle whatever
+their numbers: the 238 clustered features (ordering by one moves the class centroids by construction)
+and other phenotype measures such as symptom totals or IQ (a non-null ceiling that also tracks timing).
 :::
 
 ## The comparison the check makes
@@ -89,22 +89,22 @@ short by necessity, not by neglect.
 
 ## Is household income too high?
 
-Household income is the hardest control: its per-class endpoint displacements reach $4.4$ for the
-Broadly affected class and $4.2$ for the developmental class, and that is what turns two era classes
+Household income is the hardest control: its per-class endpoint displacements reach $0.29$ for the
+Broadly affected class and $0.27$ for the developmental class, and that is what turns two era classes
 from specific to not specific. So the fair question is whether income is a legitimate strong
 socioeconomic gradient or is acting like the IQ and cognitive-impairment proxies the previous section
 excluded. Placing every axis on the same displacement scale answers it.
 
 | Axis | Role | Mean endpoint (sep. units) |
 | --- | --- | --- |
-| Random ordering | floor | 1.34 |
-| Area deprivation | covariate | 2.14 |
-| Household income | covariate | 3.22 |
-| SCQ total | phenotype ceiling | 6.59 |
-| RBS-R total | phenotype ceiling | 10.01 |
+| Random ordering | floor | 0.087 |
+| Area deprivation | covariate | 0.139 |
+| Household income | covariate | 0.209 |
+| SCQ total | phenotype ceiling | 0.427 |
+| RBS-R total | phenotype ceiling | 0.649 |
 
 Income sits in the middle of the scale, above the random floor and area deprivation but far below the
-phenotype ceiling that the clustered-instrument totals set at $6.6$ to $10.0$. A phenotype proxy would
+phenotype ceiling that the clustered-instrument totals set at $0.43$ to $0.65$. A phenotype proxy would
 land at that ceiling; income is less than half of it. Its correlations tell the same story: income is
 uncorrelated with cognitive impairment (Spearman $|\rho| = 0.02$), the cleanest severity marker, so it
 is not a disguised severity axis; it correlates $0.50$ with area deprivation, confirming it is a
@@ -113,14 +113,14 @@ in symptom severity. Income reads higher than area deprivation because household
 socioeconomic signal than neighbourhood deprivation, not because it is phenotype.
 
 The same read explains why IQ and cognitive impairment cannot stand in as the ceiling here. Both came
-back near or below the floor ($0.9$ and $0.0$), degenerate because cognitive impairment is binary and
+back near or below the floor ($0.06$ and $0.0$), degenerate because cognitive impairment is binary and
 IQ is present for only a small, selected minority. Only the graded clustered totals read as a real
 phenotype ceiling.
 
 So income stays. Its height is the control working, not failing. Dropping a valid control because it
 is stringent would select controls that flatter the timing result, the bias the screen exists to
 avoid. The screen chose income on validity grounds, blind to its magnitude, and swapping the earlier
-sex control (an easily cleared bar at $0.8$) for income (a stringent bar at $3.2$) makes the
+sex control (an easily cleared bar at $0.05$) for income (a stringent bar at $0.21$) makes the
 specificity test harder, not easier.
 
 ## The panel
@@ -135,8 +135,8 @@ Endpoint displacement by axis, in separation units, on the reference release. Th
 random ordering. The dotted line is the control mean.
 :::
 
-The panel is a random ordering (the floor, about $1.3$), household income (about $3.2$), and area
-deprivation (about $2.1$). Read per class rather than on the between-class mean, because a mean hides
+The panel is a random ordering (the floor, about $0.09$), household income (about $0.21$), and area
+deprivation (about $0.14$). Read per class rather than on the between-class mean, because a mean hides
 drift concentrated in one class: a class is above the noise floor if its endpoint clears the random
 ordering, and specific to timing if it also clears the household-income and area-deprivation controls.
 Along age at diagnosis all four classes clear every control. Along diagnostic era the Moderate
