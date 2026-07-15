@@ -30,6 +30,7 @@ from figures import style
 
 # The covariate families, top to bottom, with their row-label headings.
 _KINDS: tuple[tuple[str, str], ...] = (
+    ("timing", "Timing"),
     ("ses", "Socioeconomic"),
     ("family", "Family structure"),
     ("parental", "Parental"),

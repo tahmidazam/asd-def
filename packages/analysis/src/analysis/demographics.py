@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from analysis.axes import _INCOME_BANDS, AxisContext
+from analysis.axes import _INCOME_BANDS, AxisContext, _age_at_eval, _lag
 from analysis.cohort import open_catalogue, read_columns, source_csv
 
 # Covariate families, used to group the screen's rows and colour the figure.
@@ -472,3 +472,30 @@ DEMOGRAPHICS: tuple[DemographicSpec, ...] = (
 )
 
 DEMOGRAPHICS_BY_NAME: dict[str, DemographicSpec] = {spec.name: spec for spec in DEMOGRAPHICS}
+
+# Timing covariates, kept apart from the demographic screen. Age at diagnosis is age at evaluation
+# minus the measurement-to-diagnosis lag, so both of these are correlated with the age-at-diagnosis
+# axis by construction, and their conditioning shrinkage is not ceilinged near zero the way the
+# demographics' is (the demographics are near-orthogonal to age at diagnosis, so they can remove
+# little of an age-ordered drift whatever they explain). They answer a different question from the
+# demographic screen: whether the age-at-diagnosis drift reduces to a general age effect already
+# carried by age at evaluation (the reference model's own covariate) rather than being specific to
+# the timing of the diagnosis. Age at evaluation is reused from :mod:`analysis.axes` so the
+# conditioning covariate and the atlas ordering axis are the one definition.
+TIMING = "timing"
+
+
+def _age_at_eval_covariate(ctx: AxisContext) -> pd.DataFrame:
+    """Return age at evaluation as a one-column conditioning block."""
+    return _age_at_eval(ctx).to_frame(name="age_at_eval")
+
+
+def _lag_covariate(ctx: AxisContext) -> pd.DataFrame:
+    """Return the measurement-to-diagnosis lag as a one-column conditioning block."""
+    return _lag(ctx).to_frame(name="lag")
+
+
+TIMING_COVARIATES: tuple[DemographicSpec, ...] = (
+    DemographicSpec("age_at_eval", "Age at evaluation", TIMING, "scalar", _age_at_eval_covariate),
+    DemographicSpec("lag", "Measurement-to-diagnosis lag", TIMING, "scalar", _lag_covariate),
+)

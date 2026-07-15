@@ -4184,6 +4184,11 @@ def demographic_conditioning(
         1000,
         help="Recovery floor the endpoint bandwidth is derived against (does not bin the axis).",
     ),
+    include_timing: bool = typer.Option(
+        False,
+        help="Also condition on the timing covariates (age at evaluation, the lag), which are "
+        "correlated with age at diagnosis by construction, unlike the demographics.",
+    ),
     force: bool = _FORCE,
 ) -> None:
     """Report how much of each class's timing drift each demographic covariate accounts for.
@@ -4196,6 +4201,13 @@ def demographic_conditioning(
     reported beside its shrinkage, because a covariate orthogonal to the axis cannot account for an
     axis-ordered drift. This is a descriptive partial association, not a causal claim, and it refits
     nothing; the confirmatory hypotheses are unchanged.
+
+    With ``--include-timing`` the screen appends age at evaluation and the measurement-to-diagnosis
+    lag (:data:`analysis.demographics.TIMING_COVARIATES`). These correlate with age at diagnosis by
+    construction, so their shrinkage is not ceilinged near zero as the demographics' is, and they
+    adjudicate whether the age-at-diagnosis drift reduces to the general age effect the reference
+    model already carries in age at evaluation. The flag changes the run hash, so the
+    demographic-only artefacts stay valid.
     """
     import numpy as np
     import pandas as pd
@@ -4268,12 +4280,15 @@ def demographic_conditioning(
         seed=seed,
     )
 
+    conditioning_specs = demographics_mod.DEMOGRAPHICS
+    if include_timing:
+        conditioning_specs = conditioning_specs + demographics_mod.TIMING_COVARIATES
     params = {
         "fit": ref_fit_hash,
         "names": name_source,
         "axis": axis,
         "quantity": "conditioning-shrinkage;frozen-responsibilities",
-        "covariates": [spec.name for spec in demographics_mod.DEMOGRAPHICS],
+        "covariates": [spec.name for spec in conditioning_specs],
         "n_points": n_points,
         "min_coverage": min_coverage,
         "bandwidth": bandwidth,
@@ -4291,7 +4306,7 @@ def demographic_conditioning(
         with profiling.measure() as unit:
             rows: list[dict] = []
             dropped: list[dict] = []
-            for spec in demographics_mod.DEMOGRAPHICS:
+            for spec in conditioning_specs:
                 block = spec.load(ctx_axes).reindex(measurement_data.index)
                 block_finite = block.notna().all(axis=1).to_numpy()
                 mask = np.isfinite(axis_np) & block_finite
