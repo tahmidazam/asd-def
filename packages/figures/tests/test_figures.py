@@ -15,6 +15,7 @@ from figures.category_decomposition import (
     category_decomposition_figure,
     category_heatmaps_figure,
 )
+from figures.demographic_conditioning import demographic_conditioning_figure
 from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
@@ -960,3 +961,52 @@ def test_atlas_figure_structure() -> None:
     # Only the bottom panel (the random floor, index 2 before the colour bar) carries the labels.
     bottom_panel = fig.get_axes()[2]
     assert [t.get_text() for t in bottom_panel.get_xticklabels()][0] == _CLASS_NAMES[0]
+
+
+def _demographic_conditioning_table(axis: str) -> pd.DataFrame:
+    """Build a synthetic ``demographic_conditioning_<axis>`` table for the smoke test."""
+    covariates = [
+        ("household_income", "Household income", "ses", "ordinal", 0.004),
+        ("family_type", "Family type", "family", "onehot", 0.006),
+        ("maternal_age_at_birth", "Maternal age at birth", "parental", "scalar", 0.001),
+        ("sex", "Sex assigned at birth", "individual", "binary", 0.015),
+    ]
+    rows = []
+    for name, label, kind, coding, r2 in covariates:
+        for c in range(4):
+            rows.append(
+                {
+                    "name": name,
+                    "label": label,
+                    "kind": kind,
+                    "coding": coding,
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "shrinkage": r2 * (c + 1),
+                    "raw_magnitude": 1.0,
+                    "conditioned_magnitude": 1.0 - r2 * (c + 1),
+                    "axis_r2": r2,
+                    "n_columns": 1,
+                    "n_joint": 11000,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_demographic_conditioning_figure_structure() -> None:
+    tables = {
+        "era": _demographic_conditioning_table("era"),
+        "age_at_diagnosis": _demographic_conditioning_table("age_at_diagnosis"),
+    }
+    fig = demographic_conditioning_figure(tables, {"axes": list(tables)})
+    assert isinstance(fig, Figure)
+    # The kind strip, the axis-R^2 ceiling panel, the shrinkage panel, and the shared colour bar.
+    assert len(fig.get_axes()) == 4
+    # The shrinkage panel carries eight columns: four classes for each of the two axes.
+    shrinkage_panel = fig.get_axes()[2]
+    assert len(shrinkage_panel.get_xticklabels()) == 8
+    # The family strip rows the socioeconomic covariate above the individual one.
+    strip = fig.get_axes()[0]
+    labels = [t.get_text() for t in strip.get_yticklabels()]
+    assert any("Household income" in label for label in labels)
+    assert any("Sex assigned at birth" in label for label in labels)

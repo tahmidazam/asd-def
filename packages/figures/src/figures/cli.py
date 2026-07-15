@@ -21,6 +21,7 @@ from figures.category_decomposition import (
     category_decomposition_figure,
     category_heatmaps_figure,
 )
+from figures.demographic_conditioning import demographic_conditioning_figure
 from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
@@ -348,6 +349,41 @@ def atlas(
     atlas_frame, meta = data.load_atlas(run_directory)
     figure = atlas_figure(atlas_frame, meta)
     _write(root, "displacement-atlas", run_directory, figure, name, fmt)
+
+
+@app.command(name="demographic-conditioning")
+def demographic_conditioning(
+    name: str | None = typer.Option(None, help="Output file name, without a suffix."),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the demographic conditioning heatmap: whether any demographic explains the drift.
+
+    Reads the latest ``demographic-conditioning`` run for each timing axis and shows, per covariate,
+    the shrinkage of each class's drift beside the covariate's linear span of the axis, the ceiling.
+    """
+    import pandas as pd
+
+    root = find_repo_root()
+    tables: dict[str, pd.DataFrame] = {}
+    source_dir = None
+    for timing_axis in ("era", "age_at_diagnosis"):
+        try:
+            run_directory = data.resolve_run(root, "demographic-conditioning", axis=timing_axis)
+        except FileNotFoundError:
+            continue
+        source_dir = source_dir or run_directory
+        tables[timing_axis] = data.load_demographic_conditioning(run_directory)
+    if source_dir is None:
+        raise typer.BadParameter("no completed demographic-conditioning run for either timing axis")
+    figure = demographic_conditioning_figure(tables, {"axes": list(tables)})
+    _write(
+        root,
+        "demographic-conditioning",
+        source_dir,
+        figure,
+        name or "demographic_conditioning",
+        fmt,
+    )
 
 
 @app.command()

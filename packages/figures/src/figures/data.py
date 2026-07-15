@@ -368,6 +368,21 @@ def load_feature_displacement(run_directory: Path) -> pd.DataFrame:
     return cache.load_frame(run_directory / f"feature_displacement_{axis}.parquet")
 
 
+def load_demographic_conditioning(run_directory: Path) -> pd.DataFrame:
+    """Load a ``demographic-conditioning`` run's per-covariate, per-class shrinkage table.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The ``demographic_conditioning_<axis>`` frame: per covariate and reference class, the
+        shrinkage, the raw and conditioned magnitude, the covariate's axis $R^2$, the covariate
+        ``label``, ``kind``, and ``coding``, and the joined sample size.
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    axis = manifest.get("params", {}).get("axis")
+    return cache.load_frame(run_directory / f"demographic_conditioning_{axis}.parquet")
+
+
 def load_referent(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Load an era ``invariance-trajectory`` run's H0G tables and its metrics.
 
