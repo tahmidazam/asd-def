@@ -3934,6 +3934,187 @@ def invariance_trajectory(
         )
 
 
+@app.command(name="displacement-atlas")
+def displacement_atlas(
+    dataset: str = _DATASET,
+    version: str = _VERSION,
+    n_points: int = typer.Option(
+        25, help="Focal grid points each axis's local centroids are read at."
+    ),
+    min_coverage: int = typer.Option(
+        1000, help="Coverage floor: an axis joining fewer probands than this is dropped."
+    ),
+    seed: int = typer.Option(
+        config.DEFAULT_STRATIFY_SEED, help="Base seed for the random ordering."
+    ),
+    n_init: int = typer.Option(
+        50, help="The n_init of the measurement-only reference fit to resolve."
+    ),
+    min_bin_size: int = typer.Option(
+        1000,
+        help="Recovery floor each axis's bandwidth is derived against (does not bin the axis).",
+    ),
+    force: bool = _FORCE,
+) -> None:
+    """Screen every continuous or ordered non-modelling axis for per-class endpoint displacement.
+
+    The generalisation of the specificity panel (plan section 12b). The timing axes are two
+    orderings of the cohort; this stage reads each class's separation-scaled endpoint displacement
+    along every axis in the catalogue (:mod:`analysis.axes`: the timing axes and the covariate
+    pool), so the atlas figure can sort them from the largest mover to the smallest against the
+    random-order floor. No mixture is refitted and no orthogonality assumption is made about any
+    covariate; the random ordering is the only reference. The 238 clustered features, totals over
+    them, and held-out phenotype instruments are excluded as circular or as a non-null phenotype
+    ceiling. Every artefact is class or axis level.
+    """
+    import pandas as pd
+
+    from analysis import axes as axes_mod
+    from analysis import drift as drift_mod
+    from analysis import features, profiling, strata_data
+    from analysis import trajectory as trajectory_mod
+    from analysis import trajectory_local as tl
+    from analysis.paths import run_dir
+
+    def labels_series(frame: pd.DataFrame) -> pd.Series:
+        others = [c for c in frame.columns if c != "class"]
+        return frame.set_index(others[0])["class"] if others else frame["class"]
+
+    root = find_repo_root()
+    cohort_hash, _ = _run_cohort(root, dataset, version, force=force)
+    matrix, typing = _load_cohort_matrix(root, cohort_hash, dataset, version)
+
+    ref_fit_hash = _resolve_measurement_reference(root, cohort_hash, n_init, seed)
+    ref_dir = run_dir(root, "fit", cache.short_hash(ref_fit_hash))
+    reference_model = cache.load_model(ref_dir / "model.joblib")
+    ref_labels = labels_series(cache.load_frame(ref_dir / "labels.parquet"))
+
+    measurement_data, _descriptor, _covariates = model.prepare_inputs(matrix, typing)
+    columns = list(measurement_data.columns)
+    x_values = measurement_data.to_numpy(dtype=float)
+    responsibilities = invariance_responsibilities(reference_model, x_values)
+
+    reference = drift_mod.build_reference(measurement_data, ref_labels)
+    pooled_sd = reference.pooled_sd.reindex(columns).to_numpy(dtype=float)
+    precision = reference.precision
+    separation_scale = tl.separation(reference)
+    embedding = trajectory_mod.fit_embedding(measurement_data, ref_labels)
+    plane = tl.discriminant_plane(embedding)
+    name_of, name_source = _measurement_class_names(
+        root, dataset, version, cohort_hash, reference, measurement_data, seed
+    )
+    category_map = features.load_category_map(config.author_category_map(root))
+    grains = tl.category_grains(columns, category_map)
+    n_classes = int(reference.centroids.shape[0])
+
+    strata = strata_data.build_strata_data(
+        root,
+        version,
+        matrix.features.index,
+        matrix.covariates["age_at_eval_years"],
+        matrix.covariates["sex"],
+    )
+    ctx_axes = axes_mod.AxisContext(
+        root=root,
+        dataset=dataset,
+        version=version,
+        index=measurement_data.index,
+        covariates=matrix.covariates,
+        strata=strata,
+        seed=seed,
+    )
+
+    params = {
+        "fit": ref_fit_hash,
+        "names": name_source,
+        "quantity": "per-axis-endpoint-displacement;frozen-responsibilities",
+        "axes": [spec.name for spec in axes_mod.ATLAS_AXES],
+        "n_points": n_points,
+        "min_coverage": min_coverage,
+        "min_bin_size": min_bin_size,
+        "seed": seed,
+        "separation": round(separation_scale, 6),
+        "category_map": cache.file_digest(config.author_category_map(root)),
+    }
+    with run_context("displacement-atlas", params, root=root, force=force) as ctx:
+        if ctx.cache_hit:
+            cached = (cache.read_manifest(ctx.run_dir) or {}).get("metrics", {})
+            typer.echo(f"displacement-atlas: cache hit {cache.short_hash(ctx.run_hash)}; {cached}")
+            return
+        with profiling.measure() as unit:
+            rows: list[dict] = []
+            dropped: list[dict] = []
+            for spec in axes_mod.ATLAS_AXES:
+                axis_series = spec.load(ctx_axes).reindex(measurement_data.index)
+                mask = axis_series.notna().to_numpy()
+                n_joint = int(mask.sum())
+                if n_joint < min_coverage:
+                    dropped.append({"axis_name": spec.name, "n_joint": n_joint})
+                    continue
+                mags, bandwidth, _focal = _endpoint_magnitudes(
+                    x_values[mask],
+                    responsibilities[mask],
+                    axis_series[mask],
+                    pooled_sd=pooled_sd,
+                    separation_scale=separation_scale,
+                    grains=grains,
+                    embedding=embedding,
+                    precision=precision,
+                    plane=plane,
+                    n_points=n_points,
+                )
+                for c in range(n_classes):
+                    rows.append(
+                        {
+                            "axis_name": spec.name,
+                            "label": spec.label,
+                            "kind": spec.kind,
+                            "ref_class": c,
+                            "class_name": name_of.get(c, str(c)),
+                            "endpoint_magnitude": float(mags[c]),
+                            "n_joint": n_joint,
+                            "bandwidth": float(bandwidth),
+                        }
+                    )
+            atlas = pd.DataFrame(rows)
+            cache.save_frame(atlas, ctx.path("displacement_atlas.parquet"))
+            unit.output_bytes = profiling.path_bytes(ctx.path("displacement_atlas.parquet"))
+
+        resources = unit.metrics
+        assert resources is not None
+        per_axis = (
+            atlas.groupby("axis_name")["endpoint_magnitude"].sum().sort_values(ascending=False)
+        )
+        random_mean = (
+            float(atlas[atlas["kind"] == "random"]["endpoint_magnitude"].mean())
+            if (atlas["kind"] == "random").any()
+            else float("nan")
+        )
+        ctx.metrics = {
+            "reference_fit": cache.short_hash(ref_fit_hash),
+            "n_reference": int(x_values.shape[0]),
+            "separation": round(separation_scale, 4),
+            "n_axes": int(atlas["axis_name"].nunique()) if not atlas.empty else 0,
+            "axes_dropped": dropped,
+            "random_endpoint_mean": round(random_mean, 4),
+            "axis_total_displacement": {k: round(float(v), 4) for k, v in per_axis.items()},
+            "resources": resources.to_dict(),
+        }
+    typer.echo(f"displacement-atlas: run {cache.short_hash(ctx.run_hash)}")
+    typer.echo(
+        f"  {int(atlas['axis_name'].nunique())} axes (class-summed displacement, sep units); "
+        f"random floor mean {random_mean:.3f}"
+    )
+    for axis_name, total in per_axis.items():
+        kind = atlas[atlas["axis_name"] == axis_name]["kind"].iloc[0]
+        typer.echo(f"    {axis_name:<20} {total:6.3f}  ({kind})")
+    if dropped:
+        typer.echo(
+            "  dropped below coverage floor: "
+            + ", ".join(f"{d['axis_name']} (n={d['n_joint']})" for d in dropped)
+        )
+
+
 def _referent_map_digest(referent_map: dict[str, str]) -> str:
     """Return a stable digest of the pre-registered instrument-to-referent map.
 

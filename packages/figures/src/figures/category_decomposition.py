@@ -71,9 +71,13 @@ def _clean_feature(name: str) -> str:
     return trimmed.replace("_", " ")
 
 
-def _draw_heatmap(ax, matrix, class_labels, categories, letter, title) -> AxesImage:
-    """Draw one class-by-category share heatmap and return the image for the colour bar."""
-    ceiling = float(np.nanmax(matrix))
+def _draw_heatmap(ax, matrix, class_labels, categories, letter, title, *, vmax=None) -> AxesImage:
+    """Draw one class-by-category share heatmap and return the image for the colour bar.
+
+    Pass ``vmax`` to fix the colour ceiling across several heatmaps that share one colour bar;
+    it defaults to this matrix's own maximum.
+    """
+    ceiling = float(vmax) if vmax is not None else float(np.nanmax(matrix))
     image = ax.imshow(matrix, cmap="Blues", aspect="auto", vmin=0.0, vmax=ceiling)
     ax.set_xticks(range(len(categories)))
     ax.set_xticklabels(
@@ -185,6 +189,91 @@ def category_decomposition_figure(
             fontsize=7,
             bbox_to_anchor=(0.5, 0.005),
         )
+    return fig
+
+
+def category_heatmaps_figure(
+    grains: dict[str, pd.DataFrame],
+    meta: dict,
+    *,
+    width_in: float = 6.5,
+    height_in: float = 2.9,
+) -> Figure:
+    """Build the two category-share heatmaps on their own, for the collaboration brief.
+
+    A compact standalone of the top row of :func:`category_decomposition_figure`: each class's
+    drift split into category shares along diagnostic era (panel A) and age at diagnosis (panel B),
+    sized to span the brief's text width. The two heatmaps share one colour ceiling and one colour
+    bar, so the shading is comparable across the axes; the per-class leading-feature lollipops of
+    the full figure are dropped.
+
+    Parameters
+    ----------
+    grains : dict of str to pandas.DataFrame
+        The ``grain_magnitude_<axis>.parquet`` frame per axis (``"era"`` and
+        ``"age_at_diagnosis"``), carrying the per-class category-grain magnitudes.
+    meta : dict
+        Figure metadata; unused beyond documenting provenance.
+    width_in, height_in : float
+        The figure size in inches; the defaults span the brief text width.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The two category-share heatmaps with a shared colour bar.
+    """
+    import matplotlib.pyplot as plt
+
+    axes_order = [a for a in ("era", "age_at_diagnosis") if a in grains]
+    shares = {a: _endpoint_shares(grains[a]) for a in axes_order}
+    present: set[str] = set()
+    for cats in shares.values():
+        present |= set(cats["category"])
+    categories = _category_order(present)
+
+    any_cats = next(iter(shares.values()))
+    classes = sorted(int(c) for c in any_cats["ref_class"].unique())
+    names = any_cats.drop_duplicates("ref_class").set_index("ref_class")["class_name"].to_dict()
+    class_labels = [names.get(c, str(c)) for c in classes]
+
+    matrices = {
+        axis: shares[axis]
+        .pivot(index="ref_class", columns="category", values="share")
+        .reindex(index=classes, columns=categories)
+        .to_numpy()
+        for axis in axes_order
+    }
+    ceiling = max(float(np.nanmax(m)) for m in matrices.values())
+
+    with style.house_style():
+        fig = plt.figure(figsize=(width_in, height_in))
+        grid = GridSpec(1, len(axes_order), wspace=0.12, figure=fig)
+        images = []
+        heatmap_axes = []
+        for i, axis in enumerate(axes_order):
+            ax = fig.add_subplot(grid[0, i])
+            heatmap_axes.append(ax)
+            images.append(
+                _draw_heatmap(
+                    ax,
+                    matrices[axis],
+                    class_labels,
+                    categories,
+                    "AB"[i],
+                    _NICE_AXIS[axis],
+                    vmax=ceiling,
+                )
+            )
+            if i > 0:  # the panels share the class rows, so label them once on the left
+                ax.set_yticklabels([])
+            # Smaller tick labels keep the rotated category band shallow, so the figure stays
+            # short enough to sit on the brief's second page beside the hypothesis table.
+            ax.tick_params(axis="x", labelsize=6.5)
+            ax.tick_params(axis="y", labelsize=7.0)
+        if images:
+            bar = fig.colorbar(images[-1], ax=heatmap_axes, fraction=0.02, pad=0.02)
+            bar.set_label("share of the class's drift", fontsize=7.5)
+            bar.ax.tick_params(labelsize=6.5)
     return fig
 
 

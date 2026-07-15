@@ -404,6 +404,22 @@ def load_prevalence(run_directory: Path) -> tuple[pd.DataFrame, pd.DataFrame, di
     return curve, slopes, manifest.get("metrics", {})
 
 
+def load_atlas(run_directory: Path) -> tuple[pd.DataFrame, dict]:
+    """Load a ``displacement-atlas`` run's per-axis, per-class endpoint table and its metrics.
+
+    Returns
+    -------
+    tuple
+        ``(atlas, meta)``: the ``displacement_atlas`` frame (per axis and reference class, the
+        separation-scaled endpoint displacement, the axis ``label`` and ``kind``, and the joined
+        sample size), and the manifest metrics (the class-summed displacement per axis, the random
+        floor, and the axes dropped below the coverage floor).
+    """
+    manifest = cache.read_manifest(run_directory) or {}
+    atlas = cache.load_frame(run_directory / "displacement_atlas.parquet")
+    return atlas, manifest.get("metrics", {})
+
+
 def class_names(root: Path, axis: str) -> dict[int, str]:
     """Return the reference-class id to name map for an axis, from its `trajectory` run.
 

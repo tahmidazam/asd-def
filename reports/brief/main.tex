@@ -32,6 +32,9 @@
 \newcommand{\rej}{\textcolor{statusgreen}{\textbf{Rejected}}}
 \newcommand{\sopen}[1]{\textcolor{statusorange}{#1}}
 \usepackage{pgf}
+% A pgf figure that rasterises (the category heatmaps) writes companion PNGs beside its .pgf; the
+% \includegraphics calls inside the .pgf resolve relative to this file, so point graphicx at figures/.
+\graphicspath{{figures/}}
 \usepackage{subcaption}
 \usepackage{stfloats}  % allow a full-width figure* to sit at the bottom of a two-column page
 
@@ -73,7 +76,7 @@
   \vskip 1em}
 \makeatother
 
-\title{Phenotypic autism clusters drift with diagnostic timing, a brief}
+\title{Phenotypic autism classes drift with diagnostic era and age at diagnosis}
 \author[1]{Tahmid Azam}
 \author[2]{Chirag J.\ Patel}
 \affil[1]{School of Clinical Medicine, University of Cambridge, UK}
@@ -85,7 +88,7 @@
 \setlength{\headheight}{14pt}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\footnotesize Autism clusters \& diagnostic timing}
+\fancyhead[L]{\footnotesize Autism classes \& diagnostic timing}
 \fancyhead[R]{\footnotesize Azam \& Patel}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -113,21 +116,20 @@
   \begin{minipage}[t]{0.49\textwidth}
     \centering
     \input{figures/trajectory_overlay.pgf}
-    \captionof{figure}{Each class traced through the discriminant plane from the start of the
-    ordering to its most recent value as age at diagnosis rises (arrowhead: the recent end); an x
-    marks the pooled centroid. Mixed ASD with developmental delay moves most, the others barely
-    shift ($H_0^{A}$).}
+    \captionof{figure}{Each class's local trajectory through the discriminant plane as age at
+    diagnosis rises (colour), with its bootstrap tube. Mixed ASD with developmental delay moves
+    most, the others barely shift ($H_0^{A}$).}
     \label{fig:traj}
   \end{minipage}\hfill
   \begin{minipage}[t]{0.49\textwidth}
     \centering
-    \input{figures/specificity.pgf}
-    \captionof{figure}{Per-class endpoint
-    displacement in separation units: coloured bars are the four classes (legend), the black rule
-    their mean, the dotted line the mean over all controls. Panels: \textbf{A} timing axes,
-    \textbf{B} controls, on a shared $y$-axis. The timing bars and means sit above the control
-    line; the controls on or below it ($H_0^{D}$).}
-    \label{fig:spec}
+    \input{figures/atlas.pgf}
+    \captionof{figure}{Per-class endpoint displacement (separation units, the mean inter-class gap)
+    along every continuous or ordered variable outside the clustered features, grouped by kind: the
+    two timing axes (\textbf{A}), covariates (\textbf{B}), and a random-order floor (\textbf{C}). Age
+    at diagnosis moves the classes most, led by Mixed ASD with developmental delay; diagnostic era
+    sits among the covariates, and every axis clears the random floor ($H_0^{D}$).}
+    \label{fig:atlas}
   \end{minipage}
 \end{figure*}
 
@@ -135,7 +137,8 @@
 \section*{Background}
 
 Litman et al.\ \cite{litmanDecompositionPhenotypicHeterogeneity2025a} fit a mixture model to
-parent-reported phenotype data from SPARK and recovered 4 autism classes, which they map to
+parent-reported phenotype data from SPARK and recovered 4 autism classes (Social or behavioral,
+Mixed ASD with developmental delay, Moderate challenges, and Broadly affected), which they map to
 genetic programs of common, de novo, and inherited variation and present as biologically
 grounded. Here, we test whether these classes are invariant to diagnostic era and age at
 diagnosis.
@@ -154,16 +157,24 @@ are confounded by, these same population-level shifts is untested.
 \section*{Why it matters}
 
 A data-driven autism class becomes consequential the moment people are sorted into it, for
-research, for clinical narrative, and eventually for care. Who is diagnosed early, and who is
-diagnosed at all, has never been random: it tracks sex, race, and access to services. A partition that is not invariant to diagnostic era and age at diagnosis risks inscribing the
-history of who was noticed, and when, into a claim about who they are. Testing that invariance
-before the classes are treated as biology is what this work is for.
+research, for clinical narratives, and eventually for care. Who is diagnosed early, and who is
+diagnosed at all, has never been random: it tracks sex, race, and access to services. A partition that is not invariant to diagnostic era and age at diagnosis risks mistaking the history of who was noticed, and when, for structure intrinsic to the disorder. Testing that invariance is what this work is for.
 
 \section*{Hypotheses}
 
 Outlined in \autoref{tab:hyp}.
 
 \end{multicols}
+
+\begin{figure*}[t]
+  \centering
+  \input{figures/category_heatmaps.pgf}
+  \caption{Per-class share of each class's drift across the phenotype categories, along diagnostic
+  era (\textbf{A}) and age at diagnosis (\textbf{B}); the dashed rule marks off three further CBCL
+  scales. Mixed ASD with developmental delay concentrates on developmental (43\% era, 64\% age); the
+  others are social-communication-led on era ($H_0^{F}$).}
+  \label{fig:cats}
+\end{figure*}
 
 \footnotesize
 \begin{xltabular}{\textwidth}{@{} N T R @{}}
@@ -191,9 +202,9 @@ class's centroid. The distance a centroid
 travels, expressed in separation units (mean inter-class distance), is the drift
 (a systematic shift of a class's profile along the axis; \autoref{fig:traj}). Resampling whole
 families (a bootstrap, giving an uncertainty band) shows whether the shift is real, and we confirm
-it is larger than for control orderings that should produce none (\autoref{fig:spec}). &
-\rej, $p<0.001$ (drift, both axes). Age, all
-four classes; era, only Moderate and Mixed-ASD-DD (Broadly and Social clear random only). \\
+it is larger than for a random re-ordering, which should produce none (\autoref{fig:atlas}). &
+\rej, $p<0.001$ (drift, both axes; mean drift beats the random baseline at the bootstrap floor).
+All four classes clear the random control on both axes, the era margins slimmer than age. \\
 \midrule
 
 $H_0^{B}$: The class proportions are invariant to diagnostic era/age at diagnosis. &
@@ -216,7 +227,7 @@ solutions, plus a formal \ac{em} test of different $k$ values. &
 $H_0^{D}$: The drift is within sampling noise and small relative to the between-class
 separation. [requires $H_0^{A}$ rejected] &
 Read the same centroid movement as an absolute size relative to the between-class gap, with its
-bootstrap band (\autoref{fig:spec}). A capture fraction (the share of the movement lying in the
+bootstrap band (\autoref{fig:atlas}). A capture fraction (the share of the movement lying in the
 plane that separates the classes) flags drift that points somewhere else, off the axes that define
 the classes. &
 \rej, $p<0.001$ (magnitude exceeds sampling noise; distinct from A's specificity
@@ -235,15 +246,15 @@ $H_0^{F}$: The drift is spread evenly across the seven phenotypic categories.
 Break the drift down into the four classes by the seven phenotype categories, with a confidence
 interval per feature and false-discovery-rate control. Because this splits one quantity into
 parts, it yields a per-feature count rather than a single $p$-value. &
-\rej{} (per-feature control: age 560/952, era 347/952 features; a decomposition, so
-no single $p$). \\
+\rej{} (concentrated, not uniform: Mixed-ASD-DD on developmental (43\%/64\% era/age),
+the rest social-communication-led on era; \autoref{fig:cats}. \\
 \midrule
 
 $H_0^{G}$: The drift is spread evenly across instruments regardless of referent (current vs
 retrospective). [requires $H_0^{A}$ rejected] &
 Split the era drift by what each questionnaire asks about: current state versus retrospective
-(lifetime) history. Compare the two per class with a size-fair contrast (root-mean-square, so
-instruments are weighted evenly) and a paired family-resampling bootstrap. &
+(lifetime) history. Compare the two per class with a size-fair contrast (root-mean-square, so the larger
+current-state group does not win on feature count) and a paired family-resampling bootstrap. &
 \rej, $p<0.01$ (all four classes retrospective-dominant; BH across the four): the
 era drift tracks lifetime-referent report, a shifting diagnosed population. \\
 \midrule

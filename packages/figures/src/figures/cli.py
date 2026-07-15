@@ -15,8 +15,12 @@ from analysis.paths import find_repo_root
 from matplotlib.figure import Figure
 
 from figures import data, layout, paths, style
+from figures.atlas import atlas_figure
 from figures.attribution import attribution_figure, mover_contrast_figure
-from figures.category_decomposition import category_decomposition_figure
+from figures.category_decomposition import (
+    category_decomposition_figure,
+    category_heatmaps_figure,
+)
 from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
@@ -35,10 +39,8 @@ from figures.trajectory_local import (
     directional_figure,
     panels_figure,
     plane_figure,
-    plane_overlay_figure,
     referent_figure,
     specificity_figure,
-    specificity_panels_figure,
 )
 
 _NICE_AXIS = {"age_at_diagnosis": "age at diagnosis", "era": "diagnostic era"}
@@ -132,9 +134,9 @@ def select(
 
 @app.command()
 def replicate(
-    run: str = typer.Option("10906a3bbea3c8ab", "--run", help="Full-release replicate run hash."),
+    run: str = typer.Option("73072ea98c38f24f", "--run", help="Full-release replicate run hash."),
     as_of_run: str = typer.Option(
-        "861b6f101a10e3ae", "--as-of-run", help="V9-subset replicate run hash ('' to omit)."
+        "612239ff72e884c9", "--as-of-run", help="V9-subset replicate run hash ('' to omit)."
     ),
     name: str = _name("replication"),
     fmt: str = _FMT,
@@ -335,22 +337,38 @@ def referent_decomposition(
 
 
 @app.command()
+def atlas(
+    run: str | None = _RUN,
+    name: str = _name("displacement_atlas"),
+    fmt: str = _FMT,
+) -> None:
+    """Plot the displacement atlas: per-class endpoint drift along every non-modelling axis."""
+    root = find_repo_root()
+    run_directory = data.resolve_run(root, "displacement-atlas", run)
+    atlas_frame, meta = data.load_atlas(run_directory)
+    figure = atlas_figure(atlas_frame, meta)
+    _write(root, "displacement-atlas", run_directory, figure, name, fmt)
+
+
+@app.command()
 def brief(
     fmt: str = typer.Option("pgf,pdf", "--format", help="Comma-separated output formats."),
 ) -> None:
-    """Build the collaboration-brief figures: the single-fit trajectory and the specificity panels.
+    """Build the collaboration-brief figures: the trajectory, atlas, and category panels.
 
     Writes each figure to ``reports/brief/figures`` beside ``main.tex``, so the brief inputs the
     ``.pgf`` at natural size, its text set in the brief's sans-serif font. The trajectory shows the
-    age-at-diagnosis drift in one column; the specificity figure is the wider two-panel view (timing
-    axes and controls), built at the text width. Needs a working TeX install on the path.
+    age-at-diagnosis drift in one column; the displacement atlas is the per-class endpoint drift
+    along every non-modelling ordering axis, grouped into stacked kind panels; the category heatmaps
+    are the H0F share decomposition across both axes, at the text width. Needs a working TeX install
+    on the path, and completed ``invariance-trajectory`` and ``displacement-atlas`` runs.
     """
     import pandas as pd
 
     root = find_repo_root()
     planes: dict[str, pd.DataFrame] = {}
     captures: dict[str, pd.DataFrame] = {}
-    spec_frames: list[pd.DataFrame] = []
+    grains: dict[str, pd.DataFrame] = {}
     source_dir: Path | None = None
     for timing_axis in ("age_at_diagnosis", "era"):
         try:
@@ -361,25 +379,50 @@ def brief(
         plane, capture, _ = data.load_local_trajectory(run_directory)
         planes[timing_axis] = plane
         captures[timing_axis] = capture
-        spec_frames.append(data.load_local_specificity(run_directory))
+        grains[timing_axis] = data.load_grain_magnitude(run_directory)
     if source_dir is None:
         raise typer.BadParameter("no completed invariance-trajectory run for either timing axis")
     if "age_at_diagnosis" not in planes:
         raise typer.BadParameter("the trajectory needs a completed age_at_diagnosis run")
+    try:
+        atlas_dir = data.resolve_run(root, "displacement-atlas")
+    except FileNotFoundError as error:
+        raise typer.BadParameter(
+            "no completed displacement-atlas run; run `analysis displacement-atlas`"
+        ) from error
+    atlas_frame, atlas_meta = data.load_atlas(atlas_dir)
 
     # The trajectory is a single-column float showing age at diagnosis only (input at natural size,
-    # never rescaled). The specificity figure carries per-class bars in two panels and needs the
-    # room, so it spans the text width.
-    age = {"age_at_diagnosis": planes["age_at_diagnosis"]}
-    age_capture = {"age_at_diagnosis": captures["age_at_diagnosis"]}
-    trajectory = plane_overlay_figure(
-        age, age_capture, width_in=layout.BRIEF_COLUMNWIDTH_IN, brief=True
+    # never rescaled): the colour-graded focal dots and their bootstrap tube, with the net-drift
+    # arrow dropped. The specificity figure carries per-class bars in two panels and needs the room,
+    # so it spans the text width.
+    # Both column figures are trimmed to 80% of their natural height (a 20% reduction) to tighten
+    # the page: the trajectory drops from its default width-derived aspect, the specificity from
+    # 2.8in.
+    column_width = layout.BRIEF_COLUMNWIDTH_IN
+    trajectory = plane_figure(
+        planes["age_at_diagnosis"],
+        captures["age_at_diagnosis"],
+        {"axis": "age_at_diagnosis"},
+        arrow=False,
+        width_in=column_width,
+        height_in=column_width * (6.4 / 7.6) * 0.8,
+        brief=True,
     )
-    specificity = specificity_panels_figure(
-        pd.concat(spec_frames, ignore_index=True),
-        {"timing_axes": ["era", "age_at_diagnosis"]},
-        width_in=layout.BRIEF_COLUMNWIDTH_IN,
-        height_in=2.8,
+    # The specificity panel is replaced by the displacement atlas: the same per-class endpoint
+    # displacement, generalised from the two timing axes to every non-modelling ordering axis,
+    # grouped into stacked kind panels with the timing axes on top and the random floor at the foot.
+    atlas_brief = atlas_figure(
+        atlas_frame,
+        atlas_meta,
+        width_in=column_width,
+        height_in=4.2,
+        label_pt=6.5,
+        value_pt=5.5,
+        compact=True,
+    )
+    categories = category_heatmaps_figure(
+        grains, {"axes": list(grains)}, width_in=layout.BRIEF_TEXTWIDTH_IN, height_in=1.3
     )
 
     manifest = cache.read_manifest(source_dir) or {}
@@ -390,7 +433,11 @@ def brief(
         "source_run": source_dir.name,
         "source_git_commit": manifest.get("git_commit"),
     }
-    for figure, name in ((trajectory, "trajectory_overlay"), (specificity, "specificity")):
+    for figure, name in (
+        (trajectory, "trajectory_overlay"),
+        (atlas_brief, "atlas"),
+        (categories, "category_heatmaps"),
+    ):
         written = style.save_figure(
             figure, out_dir / name, formats=formats, provenance=provenance, pgf_rc=style.PGF_RC_SANS
         )

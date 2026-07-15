@@ -102,6 +102,7 @@ FIGURES: tuple[FigureSpec, ...] = (
         "age_at_diagnosis",
     ),
     FigureSpec("prevalence-stacked-era", "prevalence", "prevalence_stacked_era", "era"),
+    FigureSpec("atlas", "displacement-atlas", "displacement_atlas"),
 )
 
 FIGURES_BY_NAME: dict[str, FigureSpec] = {spec.name: spec for spec in FIGURES}

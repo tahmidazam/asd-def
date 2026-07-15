@@ -9,8 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from figures import data, paths, style
+from figures.atlas import atlas_figure
 from figures.attribution import attribution_figure, mover_contrast_figure
-from figures.category_decomposition import category_decomposition_figure
+from figures.category_decomposition import (
+    category_decomposition_figure,
+    category_heatmaps_figure,
+)
 from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
@@ -857,6 +861,15 @@ def test_category_decomposition_figure_structure() -> None:
     assert len(legend.get_texts()) >= 1
 
 
+def test_category_heatmaps_figure_structure() -> None:
+    grains, _ = _category_decomposition_tables()
+    fig = category_heatmaps_figure(grains, {"axes": ["era", "age_at_diagnosis"]})
+    assert isinstance(fig, Figure)
+    # Two category heatmaps and their shared colour bar, and no lollipop panels or legend.
+    assert len(fig.get_axes()) == 3
+    assert not fig.legends
+
+
 def test_dense_feature_figure_structure() -> None:
     _, features = _category_decomposition_tables()
     # Mark enough features significant that the dense matrix has rows to draw.
@@ -910,3 +923,40 @@ def test_referent_decomposition_figure_structure() -> None:
     fig = referent_decomposition_figure(grains, contrast, {"axis": "era"})
     assert isinstance(fig, Figure)
     assert len(fig.get_axes()) == 2
+
+
+def test_atlas_figure_structure() -> None:
+    classes = list(range(4))
+    axes = [
+        ("era", "Diagnostic era", "timing", 0.20),
+        ("age_at_diagnosis", "Age at diagnosis", "timing", 0.40),
+        ("household_income", "Household income", "covariate", 0.21),
+        ("area_deprivation", "Area deprivation", "covariate", 0.15),
+        ("random", "Random ordering", "random", 0.09),
+    ]
+    rows = []
+    for name, label, kind, base in axes:
+        for c in classes:
+            rows.append(
+                {
+                    "axis_name": name,
+                    "label": label,
+                    "kind": kind,
+                    "ref_class": c,
+                    "class_name": _CLASS_NAMES[c],
+                    "endpoint_magnitude": base + 0.03 * c,
+                    "n_joint": 11000,
+                    "bandwidth": 1.5,
+                }
+            )
+    fig = atlas_figure(pd.DataFrame(rows), {})
+    assert isinstance(fig, Figure)
+    # Three kind panels (timing, covariate, random) plus the shared colour bar.
+    assert len(fig.get_axes()) == 4
+    timing_panel = fig.get_axes()[0]
+    # The timing panel holds both timing axes, the larger mover (age at diagnosis) on top.
+    ytick_labels = [t.get_text() for t in timing_panel.get_yticklabels()]
+    assert ytick_labels == ["Age at diagnosis", "Diagnostic era"]
+    # Only the bottom panel (the random floor, index 2 before the colour bar) carries the labels.
+    bottom_panel = fig.get_axes()[2]
+    assert [t.get_text() for t in bottom_panel.get_xticklabels()][0] == _CLASS_NAMES[0]
