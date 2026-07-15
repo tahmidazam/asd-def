@@ -115,15 +115,18 @@ affected and Moderate challenges shift by smaller amounts. Rendered by {py:mod}`
 (`figures prevalence --axis era`).
 :::
 
-:::{figure} /_figures/prevalence_stacked_age_at_diagnosis.png
-:alt: The four class proportions stacked to one across age at diagnosis
+:::{figure} /_figures/prevalence_stacked_pair.png
+:alt: The four class proportions stacked to one across diagnostic era (left) and age at diagnosis (right)
 :width: 100%
 :align: center
 
-The age result as a composition, the four corrected proportions summing to one at every age. How to
-read it: because the proportions are stacked to one the figure reads as a single shifting mixture, and
-the trade is explicit, the Social or behavioral base growing as the developmental band at the top thins
-to almost nothing. Rendered by {py:mod}`figures.prevalence` (`figures prevalence --axis age_at_diagnosis`).
+Both results as a composition, the four corrected proportions summing to one at every point:
+diagnostic era on the left and age at diagnosis on the right, sharing the vertical scale so the two
+trades compare directly. How to read it: because the proportions are stacked to one each panel reads as
+a single shifting mixture, the Social or behavioral base growing as the developmental band at the top
+thins to almost nothing. Panel B is the starker version, the developmental band all but vanishing among
+the late-diagnosed, and panel A the gentler era echo of the same trade. Rendered by
+{py:mod}`figures.prevalence` (`figures prevalence --layout stacked-pair`).
 :::
 
 Diagnostic era carries a secondary read, a pre and post-2013 contrast that marks the

@@ -102,6 +102,7 @@ FIGURES: tuple[FigureSpec, ...] = (
         "age_at_diagnosis",
     ),
     FigureSpec("prevalence-stacked-era", "prevalence", "prevalence_stacked_era", "era"),
+    FigureSpec("prevalence-stacked-pair", "prevalence", "prevalence_stacked_pair", "era"),
     FigureSpec("atlas", "displacement-atlas", "displacement_atlas"),
     FigureSpec(
         "demographic-conditioning", "demographic-conditioning", "demographic_conditioning", "era"

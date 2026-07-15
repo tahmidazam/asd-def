@@ -26,7 +26,11 @@ from figures.dense_features import dense_feature_figure
 from figures.invariance import invariance_process_figure
 from figures.nmin import nmin_figure
 from figures.pairwise import pairwise_trajectory_figure
-from figures.prevalence import proportion_curve_figure, stacked_area_figure
+from figures.prevalence import (
+    proportion_curve_figure,
+    stacked_area_figure,
+    stacked_area_pair_figure,
+)
 from figures.publish import FIGURES, FIGURES_BY_NAME, publish_figure
 from figures.referent_decomposition import referent_decomposition_figure
 from figures.replication import replication_figure
@@ -660,7 +664,10 @@ def local_referent(
 def prevalence(
     axis: str = typer.Option("era", "--axis", help="Axis: era or age_at_diagnosis."),
     layout: str = typer.Option(
-        "panels", "--layout", help="Figure layout: panels (per class) or stacked (composition)."
+        "panels",
+        "--layout",
+        help="Figure layout: panels (per class), stacked (composition), or "
+        "stacked-pair (both axes side by side).",
     ),
     run: str | None = _RUN,
     name: str | None = typer.Option(None, help="Output file name, without a suffix."),
@@ -671,10 +678,24 @@ def prevalence(
     ``--layout panels`` draws one panel per class, the corrected proportion curve with its
     bootstrap band, the naive cross-check, and the pooled proportion line. ``--layout stacked``
     draws the four corrected proportions stacked to one across the axis, the compositional view.
+    ``--layout stacked-pair`` sets the diagnostic-era and age-at-diagnosis stacked compositions side
+    by side in one figure (the ``--axis`` option is ignored, both axes are drawn).
     """
-    if layout not in ("panels", "stacked"):
-        raise typer.BadParameter("layout must be 'panels' or 'stacked'")
+    if layout not in ("panels", "stacked", "stacked-pair"):
+        raise typer.BadParameter("layout must be 'panels', 'stacked', or 'stacked-pair'")
     root = find_repo_root()
+    if layout == "stacked-pair":
+        curves = {}
+        for timing_axis in ("era", "age_at_diagnosis"):
+            curve, _, _ = data.load_prevalence(
+                data.resolve_run(root, "prevalence", run, axis=timing_axis)
+            )
+            curves[timing_axis] = curve
+        figure = stacked_area_pair_figure(curves, {})
+        # Written under the era run, so the era-axis publish spec finds it.
+        era_directory = data.resolve_run(root, "prevalence", run, axis="era")
+        _write(root, "prevalence", era_directory, figure, name or "prevalence_stacked_pair", fmt)
+        return
     run_directory = data.resolve_run(root, "prevalence", run, axis=axis)
     curve, slopes, meta = data.load_prevalence(run_directory)
     if layout == "stacked":

@@ -10,6 +10,8 @@ pooled (axis-free) proportion the class trends away from, and a title carrying t
 slope, its odds ratio, and whether the class's proportion trends under the false-discovery control.
 :func:`stacked_area_figure` gives the compositional view: the four corrected proportions stacked to
 one across the axis, so a class growing as another shrinks is read as a single shifting composition.
+:func:`stacked_area_pair_figure` sets the diagnostic-era and age-at-diagnosis compositions side by
+side in one figure, sharing the vertical scale and one legend, so the two axes read together.
 """
 
 from __future__ import annotations
@@ -151,41 +153,11 @@ def stacked_area_figure(curve: pd.DataFrame, meta: dict) -> Figure:
     matplotlib.figure.Figure
         The single-panel stacked-area figure.
     """
-    classes = sorted(int(c) for c in curve["ref_class"].unique())
-    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
     axis_name = str(meta.get("axis"))
-    nice = _NICE_AXIS.get(axis_name, axis_name)
-
-    positions = np.sort(curve["position"].unique())
-    # Stack the largest pooled class at the bottom, so the base band is stable.
-    pooled = {c: float(curve[curve["ref_class"] == c]["pooled"].iloc[0]) for c in classes}
-    order = sorted(classes, key=lambda c: pooled[c], reverse=True)
-    stacks = [
-        curve[curve["ref_class"] == c].sort_values("position")["corrected"].to_numpy(dtype=float)
-        for c in order
-    ]
-    names = [
-        str(curve[curve["ref_class"] == c]["class_name"].iloc[0]).split(" (")[0] for c in order
-    ]
 
     with style.house_style():
         fig, ax = plt.subplots(figsize=(7.8, 5.0))
-        ax.stackplot(
-            positions,
-            *stacks,
-            colors=[colours[c] for c in order],
-            labels=names,
-            alpha=0.85,
-            edgecolor="white",
-            linewidth=0.4,
-        )
-        ax.set_xlim(float(positions.min()), float(positions.max()))
-        ax.set_ylim(0.0, 1.0)
-        ax.margins(x=0)
-        ax.grid(False)
-        ax.set_xlabel(f"{nice[0].upper()}{nice[1:]}")
-        ax.set_ylabel("Class composition (proportion)")
-        style.panel_title(ax, "A", f"Class composition along {nice}")
+        _draw_stack(ax, curve, axis_name, "A")
         # Legend ordered top-to-bottom to match the visual stack (reverse of the stack order).
         handles, legend_labels = ax.get_legend_handles_labels()
         ax.legend(
@@ -197,3 +169,118 @@ def stacked_area_figure(curve: pd.DataFrame, meta: dict) -> Figure:
         )
         fig.tight_layout()
     return fig
+
+
+def stacked_area_pair_figure(curves: dict[str, pd.DataFrame], meta: dict) -> Figure:
+    """Build the side-by-side stacked-area H0B figure: composition on both timing axes at once.
+
+    The diagnostic-era and age-at-diagnosis compositions are drawn as two panels sharing the
+    vertical scale, with a single legend beneath, so the two axes' shifts are read together: the
+    gentler era trade on the left and the starker age-at-diagnosis trade on the right. The stacking
+    order and colours are fixed from the pooled proportions, which are axis-free and so shared, so a
+    class sits in the same band and colour in both panels.
+
+    Parameters
+    ----------
+    curves : dict of str to pandas.DataFrame
+        The ``proportion_curve_<axis>`` table (``ref_class``, ``class_name``, ``position``,
+        ``corrected``, ``pooled``) for each timing axis, keyed ``"era"`` and
+        ``"age_at_diagnosis"``. Whichever axes are present are drawn, era first.
+    meta : dict
+        The run metrics; unused beyond documenting provenance.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The two-panel stacked-area figure, one timing axis per panel.
+    """
+    axes_present = [a for a in ("era", "age_at_diagnosis") if a in curves]
+    # Stacking order and colours from the pooled proportions, which are axis-free, so a class keeps
+    # its band and colour across both panels.
+    reference = curves[axes_present[0]]
+    order, colours = _stack_order(reference)
+
+    with style.house_style():
+        fig, axes = plt.subplots(
+            1, len(axes_present), figsize=(9.6, 4.6), sharey=True, squeeze=False
+        )
+        flat = axes[0]
+        for panel, axis_name in enumerate(axes_present):
+            ax = flat[panel]
+            _draw_stack(
+                ax, curves[axis_name], axis_name, _LETTERS[panel], order=order, colours=colours
+            )
+            if panel != 0:
+                ax.set_ylabel("")
+        # One shared legend, ordered top-to-bottom to match the visual stack.
+        handles, legend_labels = flat[0].get_legend_handles_labels()
+        fig.legend(
+            handles[::-1],
+            legend_labels[::-1],
+            loc="lower center",
+            ncol=len(order),
+            bbox_to_anchor=(0.5, -0.02),
+            fontsize=8,
+        )
+        fig.suptitle(
+            "Class composition across diagnostic era and age at diagnosis",
+            x=0.02,
+            ha="left",
+            fontsize=10,
+            fontweight="bold",
+        )
+        fig.tight_layout(rect=(0.0, 0.05, 1.0, 0.97))
+    return fig
+
+
+def _stack_order(curve: pd.DataFrame) -> tuple[list[int], dict[int, str]]:
+    """Return the class stacking order (largest pooled first) and each class's colour."""
+    classes = sorted(int(c) for c in curve["ref_class"].unique())
+    colours = {c: style.PALETTE[i % len(style.PALETTE)] for i, c in enumerate(classes)}
+    pooled = {c: float(curve[curve["ref_class"] == c]["pooled"].iloc[0]) for c in classes}
+    order = sorted(classes, key=lambda c: pooled[c], reverse=True)
+    return order, colours
+
+
+def _draw_stack(
+    ax,
+    curve: pd.DataFrame,
+    axis_name: str,
+    letter: str,
+    *,
+    order: list[int] | None = None,
+    colours: dict[int, str] | None = None,
+) -> None:
+    """Draw one stacked-area composition on ``ax``: the corrected proportions stacked to one.
+
+    The largest pooled class stacks at the bottom for a stable base. When ``order`` and ``colours``
+    are given they fix the band order and palette across panels; otherwise they are taken from this
+    axis's own pooled proportions.
+    """
+    if order is None or colours is None:
+        order, colours = _stack_order(curve)
+    nice = _NICE_AXIS.get(axis_name, axis_name)
+    positions = np.sort(curve["position"].unique())
+    stacks = [
+        curve[curve["ref_class"] == c].sort_values("position")["corrected"].to_numpy(dtype=float)
+        for c in order
+    ]
+    names = [
+        str(curve[curve["ref_class"] == c]["class_name"].iloc[0]).split(" (")[0] for c in order
+    ]
+    ax.stackplot(
+        positions,
+        *stacks,
+        colors=[colours[c] for c in order],
+        labels=names,
+        alpha=0.85,
+        edgecolor="white",
+        linewidth=0.4,
+    )
+    ax.set_xlim(float(positions.min()), float(positions.max()))
+    ax.set_ylim(0.0, 1.0)
+    ax.margins(x=0)
+    ax.grid(False)
+    ax.set_xlabel(f"{nice[0].upper()}{nice[1:]}")
+    ax.set_ylabel("Class composition (proportion)")
+    style.panel_title(ax, letter, f"Class composition along {nice}")
